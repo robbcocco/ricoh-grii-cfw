@@ -33,4 +33,10 @@
 #define GR2_ADDR_EFX_HOLD_HOOK ((uint32_t *)0xA03E9984) /* State action vector in DRAM */
 #define GR2_ORIG_EFX_HOLD_FN  ((void (*)(void))0xA0391793)
 #define GR2_FN_PROP_GET       ((uint32_t (*)(uint32_t, uint32_t))0xA00E1151)
+
+/* Master Camera Property IDs */
+#define GR2_PROPID_SNAP_FOCUS_DIST    0x029  /* 41: Snap Focus Distance (1m, 1.5m, 2m...) */
+#define GR2_PROPID_EFX_BTN_CONT       0x1A7  /* 423: Effect Button Hold Setting (0: Wi-Fi, 1: Custom OS) */
+#define GR2_PROPID_DEVEL_MODE         0x22D  /* 557: Development Script Unlock Gate */
+#define GR2_PROPID_COLOR_MODE_CLARITY 0x11A  /* Native Clarity Setting */
 #endif /* GR2_HW_H */

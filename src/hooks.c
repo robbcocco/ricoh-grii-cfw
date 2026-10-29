@@ -25,10 +25,20 @@ void cfw_log(const char *msg) {
     }
 }
 
-/* Effect Button Hold Action Hook: ALWAYS ACTIVE (Zero Feature Flag) */
+/* Effect Button Hold Action Hook:
+ * Active ONLY when 'Open Custom OS' (value 1) is selected in Key Custom Options -> Effect Button Hold Setting.
+ * If Wi-Fi (value 0) or stock function is selected, passes through to original factory handler.
+ */
 void hook_efx_hold(void) {
-    cfw_log("--> Physical Effect button hold detected! Calling ui_toggle_menu()...\n");
-    ui_toggle_menu();
+    uint32_t val = 0;
+    uint32_t ret = GR2_FN_PROP_GET(GR2_PROPID_EFX_BTN_CONT, (uint32_t)&val);
+    if (val == 1 || ret == 1) {
+        cfw_log("--> Effect button hold: 'Open Custom OS' active -> ui_toggle_menu()\n");
+        ui_toggle_menu();
+    } else {
+        cfw_log("--> Effect button hold: Stock Wi-Fi active -> GR2_ORIG_EFX_HOLD_FN()\n");
+        GR2_ORIG_EFX_HOLD_FN();
+    }
 }
 
 /* Initialize Custom Firmware Hooks */

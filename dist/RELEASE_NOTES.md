@@ -14,7 +14,7 @@
 ## Checksums
 ```
 a466ec2ca6232d8c1ce45152fbb3e3b54fc510854b84626419c1be4765cab82f  rg2_cfw_v0.1.0_bootlogo.frm
-e18e01d5d108afb95b68a0bf3fa058fd96ff76f17f66890f96199c28f96b41db  gr2_cfw_v0.1.0.bin
+86f6a45fa4ead0b6c8985d9b8e9c3813361eb921f850e405931abd6aa94b1ee7  gr2_cfw_v0.1.0.bin
 ```
 
 ## Flashing Instructions
