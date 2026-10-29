@@ -1,0 +1,101 @@
+name: Ricoh GR II Custom Firmware CI & Release Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-verify:
+    name: Build, Verify & Package CFW
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ARM GNU Bare-Metal Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
+
+      - name: Verify Toolchain
+        run: |
+          arm-none-eabi-gcc --version
+          python3 --version
+
+      - name: Compile Bare-Metal ARM Payload
+        run: |
+          make clean
+          make all
+          make disasm
+
+      - name: Verify Bare-Metal Binary
+        run: |
+          ls -lh bin/gr2_cfw.bin bin/gr2_cfw.elf
+          # Assert binary size is under 64 KB
+          SIZE=$(stat -c%s bin/gr2_cfw.bin)
+          echo "Payload size: $SIZE bytes"
+          if [ $SIZE -gt 65536 ]; then
+            echo "Error: Payload size exceeds 64KB pool"
+            exit 1
+          fi
+
+      - name: Run CFW Build & Pre-Flight Release Pipeline
+        env:
+          CI: "true"
+        run: |
+          python3 scripts/build_release.py --skip-sd-check
+
+      - name: Validate Release Artifacts & Checksums
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS.txt
+          ls -lh
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ricoh-gr2-cfw-artifacts
+          path: |
+            dist/rg2_cfw_v001_bootlogo.frm
+            dist/gr2_cfw.bin
+            bin/gr2_cfw.elf
+            bin/gr2_cfw.asm
+            dist/SHA256SUMS.txt
+            dist/RELEASE_NOTES.md
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-and-verify
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ricoh-gr2-cfw-artifacts
+          path: release_assets
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release_assets/rg2_cfw_v001_bootlogo.frm
+            release_assets/gr2_cfw.bin
+            release_assets/gr2_cfw.elf
+            release_assets/SHA256SUMS.txt
+          body_path: release_assets/RELEASE_NOTES.md
+          draft: false
+          prerelease: false
