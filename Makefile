@@ -21,9 +21,15 @@ OBJS    := $(patsubst src/%.S, build/%.o, $(filter %.S, $(SRCS))) \
 OUT_ELF := bin/gr2_cfw.elf
 OUT_BIN := bin/gr2_cfw.bin
 
-.PHONY: all clean disasm
+.PHONY: all clean disasm check release
 
 all: $(OUT_BIN)
+
+check:
+	@python3 the maintainer's safety check /Volumes/RICOH_GR
+
+release: check
+	@python3 scripts/build_release.py
 
 build/%.o: src/%.S
 	@mkdir -p build

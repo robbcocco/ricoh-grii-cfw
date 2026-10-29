@@ -58,19 +58,22 @@
 
 ---
 
-## 4. Operational Invariants for Future Agents
+## 4. Operational Invariants & Pre-Flight Rules (HARD INVARIANTS)
 
-1. **NO LIBC / FREESTANDING ONLY**:
+Before building, packaging, or deploying ANY custom firmware:
+1. **MANDATORY PRE-FLIGHT VERIFICATION**:
+   - Future agents **MUST** execute the pre-flight safety audit before distributing or releasing any `.frm`:
+     ```sh
+     python3 the maintainer's safety check /Volumes/RICOH_GR
+     ```
+   - If safety gates fail, **HALT IMMEDIATELY**.
+2. **NO LIBC / FREESTANDING ONLY**:
    - The CFW binary is built with `-nostdlib -ffreestanding`.
    - Do **NOT** include standard C library headers (`<stdio.h>`, `<stdlib.h>`) that pull in glibc/newlib syscall stubs.
    - Use `<stdint.h>`, `<stddef.h>`, and `<stdbool.h>` only.
-2. **MAINTAIN BIG-ENDIAN ALIGNMENT**:
+3. **MAINTAIN BIG-ENDIAN ALIGNMENT**:
    - The CPU is Big-Endian. Strings intended for on-screen menus must be formatted as UTF-16 Big-Endian (`str_to_utf16_be`).
-3. **DO NOT OVERFLOW HARDCODED ARRAYS**:
-- Replacement menu labels must not exceed original buffer allocations in `b01firm8` DRAM.
-4. **CLEAN BOOT & TOGGLE-DRIVEN ARCHITECTURE (HARD INVARIANT)**:
-   - All custom features, tweaks, and film simulations **MUST** start in an `[OFF]` / Stock state by default.
-   - Never apply settings overrides or patch on-screen text blindly at boot time.
-   - All modifications must be controlled exclusively via user toggles inside the Custom OS UI.
-   - When the In-Camera Clarity Slider is toggled `[ON]`, it patches Row 4 of the stock Fn menu from `"Vignetting"` to `"Clarity"`; when toggled `[OFF]`, it restores `"Vignetting"`.
-   - Film simulations are only applied to slots when explicitly chosen by the user in the UI.
+4. **DO NOT OVERFLOW HARDCODED ARRAYS**:
+   - Replacement menu labels must not exceed original buffer allocations in `b01firm8` DRAM.
+5. **PARCHUTE VERIFICATION**:
+   - Ensure `/Volumes/RICOH_GR/SD.dat` and `backup.ttl` are armed before testing new firmware.
