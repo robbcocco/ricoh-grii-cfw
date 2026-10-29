@@ -1,0 +1,42 @@
+; Ricoh GR II Custom Firmware Bootloader
+; Full execution logging to H:/cfw_log.txt
+; High DRAM execution base: 0xA0A00000 | Size: 5756 B (0x167C)
+; ASCII, CRLF, uppercase drive letters.
+
+fileopen fh 'H:/cfw_log.txt' 1
+filewriteln fh '=== GR II CFW Boot ==='
+fileclose fh
+
+; 1. Keep Wi-Fi debug shell daemon running in background
+sprintf "telnetd start"
+sendln inputstr
+
+fileopen fh 'H:/cfw_log.txt' 1
+filewriteln fh '1. telnetd started'
+fileclose fh
+
+; 2. Patch stock menu text: Option 1 of [Effect Button Hold Setting] -> 'Open Custom OS'
+sprintf "fload H:/cfw/efx_hold_name.bin A04F3522 22"
+sendln inputstr
+
+fileopen fh 'H:/cfw_log.txt' 1
+filewriteln fh '2. Menu text patched to Open Custom OS'
+fileclose fh
+
+; 3. Stream CFW native binary into safe high DRAM (0xA0A00000)
+sprintf "fload H:/cfw/gr2_cfw.bin A0A00000 167C"
+sendln inputstr
+
+fileopen fh 'H:/cfw_log.txt' 1
+filewriteln fh '3. gr2_cfw.bin loaded into DRAM at 0xA0A00000'
+fileclose fh
+
+; 4. Execute CFW entrypoint via shell 'ex' command (Thumb mode: 0xA0A00001)
+sprintf "ex 0xA0A00001"
+sendln inputstr
+
+fileopen fh 'H:/cfw_log.txt' 1
+filewriteln fh '4. ex 0xA0A00001 dispatched'
+fileclose fh
+
+end
