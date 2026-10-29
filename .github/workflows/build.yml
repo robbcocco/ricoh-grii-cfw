@@ -1,13 +1,15 @@
-name: 2. Build (Firmware Compilation & Packaging)
+name: Build & Verify Custom Firmware
 
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build-cfw:
-    name: Build & Package Custom Firmware
+  check-and-build:
+    name: Check, Build & Package CFW
     runs-on: ubuntu-latest
 
     steps:
@@ -24,21 +26,70 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
 
-      - name: Compile Bare-Metal Payload
+      - name: Verify Toolchain
         run: |
-          make clean all disasm
+          arm-none-eabi-gcc --version
+          python3 --version
 
-      - name: Build Custom Firmware Release Package
+      - name: Compile Bare-Metal ARM Payload
+        run: |
+          make clean
+          make all
+          make disasm
+
+      - name: Memory Size Budget Audit
+        run: |
+          TEXT_SZ=$(arm-none-eabi-size -A bin/gr2_cfw.elf | grep '\.text' | awk '{print $2}')
+          DATA_SZ=$(arm-none-eabi-size -A bin/gr2_cfw.elf | grep '\.data' | awk '{print $2}')
+          BSS_SZ=$(arm-none-eabi-size -A bin/gr2_cfw.elf | grep '\.bss' | awk '{print $2}')
+          TOTAL_SZ=$((TEXT_SZ + DATA_SZ))
+          POOL_LIMIT=65536
+          PCT=$(awk "BEGIN {printf \"%.1f\", ($TOTAL_SZ / $POOL_LIMIT) * 100}")
+
+          echo "### 📊 Bare-Metal Memory Pool Audit" >> $GITHUB_STEP_SUMMARY
+          echo "| Section | Size (Bytes) | DRAM Budget | Pool Usage |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :---: | :---: | :---: |" >> $GITHUB_STEP_SUMMARY
+          echo "| **.text (Code)** | $TEXT_SZ B | — | — |" >> $GITHUB_STEP_SUMMARY
+          echo "| **.data (Globals)** | $DATA_SZ B | — | — |" >> $GITHUB_STEP_SUMMARY
+          echo "| **.bss (Zeroed)** | $BSS_SZ B | — | — |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Total Payload** | **$TOTAL_SZ B** | **65,536 B (64 KB)** | **$PCT %** |" >> $GITHUB_STEP_SUMMARY
+
+          if [ $TOTAL_SZ -gt $POOL_LIMIT ]; then
+            echo "❌ **ERROR**: Payload size ($TOTAL_SZ B) exceeds 64 KB memory pool!" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "✅ **PASS**: Memory pool fits comfortably within safe high DRAM." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Build Firmware Release Package
         env:
           CI: "true"
         run: |
           python3 scripts/build_release.py --skip-sd-check
 
-      - name: Validate Checksums
+      - name: Package Emergency Recovery Kit
+        run: |
+          mkdir -p dist/rescue_kit
+          python3 tools/make_recovery_card.py --dest dist/rescue_kit
+          cd dist/rescue_kit
+          zip -r ../ricoh_gr2_sd_rescue_kit.zip SD.dat backup.ttl
+          cd ..
+          rm -rf rescue_kit
+          sha256sum ricoh_gr2_sd_rescue_kit.zip >> SHA256SUMS.txt
+          ls -lh ricoh_gr2_sd_rescue_kit.zip
+
+      - name: Validate Release Manifest Checksums
         run: |
           cd dist
           sha256sum -c SHA256SUMS.txt
-          ls -lh
+
+      - name: Publish Build Summary
+        run: |
+          VER=$(cat VERSION | tr -d '[:space:]')
+          echo "### 🚀 Custom Firmware Build Summary (v$VER)" >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          cat dist/SHA256SUMS.txt >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
 
       - name: Read Version
         id: get_version
@@ -53,6 +104,7 @@ jobs:
           path: |
             dist/*.frm
             dist/*.bin
+            dist/*.zip
             dist/SHA256SUMS.txt
             dist/RELEASE_NOTES.md
             bin/gr2_cfw.elf

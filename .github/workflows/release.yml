@@ -1,4 +1,4 @@
-name: 3. Release (Manual Version Bump & GitHub Release)
+name: Manual Release (Bump Version & Publish GitHub Release)
 
 on:
   workflow_dispatch:
@@ -19,8 +19,8 @@ on:
         type: string
 
 jobs:
-  create-release:
-    name: Bump Version & Create GitHub Release
+  publish-release:
+    name: Bump Version, Build & Create Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -65,6 +65,16 @@ jobs:
         run: |
           python3 scripts/build_release.py --skip-sd-check
 
+      - name: Package Emergency Recovery Kit
+        run: |
+          mkdir -p dist/rescue_kit
+          python3 tools/make_recovery_card.py --dest dist/rescue_kit
+          cd dist/rescue_kit
+          zip -r ../ricoh_gr2_sd_rescue_kit.zip SD.dat backup.ttl
+          cd ..
+          rm -rf rescue_kit
+          sha256sum ricoh_gr2_sd_rescue_kit.zip >> SHA256SUMS.txt
+
       - name: Validate Checksums
         run: |
           cd dist
@@ -89,6 +99,7 @@ jobs:
           files: |
             dist/*.frm
             dist/*.bin
+            dist/*.zip
             dist/SHA256SUMS.txt
             bin/gr2_cfw.elf
           draft: false
