@@ -1,0 +1,59 @@
+name: 2. Build (Firmware Compilation & Packaging)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-cfw:
+    name: Build & Package Custom Firmware
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ARM GNU Bare-Metal Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
+
+      - name: Compile Bare-Metal Payload
+        run: |
+          make clean all disasm
+
+      - name: Build Custom Firmware Release Package
+        env:
+          CI: "true"
+        run: |
+          python3 scripts/build_release.py --skip-sd-check
+
+      - name: Validate Checksums
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS.txt
+          ls -lh
+
+      - name: Read Version
+        id: get_version
+        run: |
+          VER=$(cat VERSION | tr -d '[:space:]')
+          echo "version=$VER" >> $GITHUB_OUTPUT
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ricoh-gr2-cfw-v${{ steps.get_version.outputs.version }}
+          path: |
+            dist/*.frm
+            dist/*.bin
+            dist/SHA256SUMS.txt
+            dist/RELEASE_NOTES.md
+            bin/gr2_cfw.elf
+            bin/gr2_cfw.asm

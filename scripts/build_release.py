@@ -41,6 +41,13 @@ STOCK_FRM_SHA256 = "3643850f2ae74ae967eb336794048f554caa1b11d05b8569824d5719f183
 
 DVF_TDST_OFFSET = 0x139E00
 DVF_TDST_SIZE = 614400 # 640x480x2 bytes
+def get_version(override=None) -> str:
+    if override:
+        return override.lstrip("v")
+    version_file = REPO_ROOT / "VERSION"
+    if version_file.exists():
+        return version_file.read_text().strip().lstrip("v")
+    return "0.1.0"
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -86,11 +93,11 @@ def ensure_stock_firmware() -> Path:
     print(f"[OK] Extracted stock {target_path.name} ({len(frm_data):,} bytes)")
     return target_path
 
-def build_cfw_v001(custom_logo_brp_path=None, dist_dir=None, skip_sd_check=False):
+def build_cfw_v001(custom_logo_brp_path=None, dist_dir=None, skip_sd_check=False, version=None):
+    version = get_version(version)
     print("=" * 70)
-    print("      RICOH GR II CUSTOM FIRMWARE (CFW) BUILD & RELEASE PIPELINE")
+    print(f"      RICOH GR II CUSTOM FIRMWARE (CFW v{version}) BUILD PIPELINE")
     print("=" * 70)
-
     if dist_dir is None:
         dist_dir = REPO_ROOT / "dist"
     dist_dir = Path(dist_dir)
@@ -174,12 +181,11 @@ def build_cfw_v001(custom_logo_brp_path=None, dist_dir=None, skip_sd_check=False
     if len(repacked_bytes) != len(raw_frm):
         raise ValueError(f"Container size mismatch: {len(repacked_bytes)} != {len(raw_frm)}")
 
-    out_frm_path = dist_dir / "rg2_cfw_v001_bootlogo.frm"
+    out_frm_path = dist_dir / f"rg2_cfw_v{version}_bootlogo.frm"
     out_frm_path.write_bytes(repacked_bytes)
     out_hash = sha256_bytes(repacked_bytes)
     print(f"[OK] Generated {out_frm_path.name} ({len(repacked_bytes):,} bytes)")
     print(f"     SHA-256: {out_hash}")
-
     # -------------------------------------------------------------
     # Step 5: Post-Build Validation
     # -------------------------------------------------------------
@@ -210,14 +216,15 @@ def build_cfw_v001(custom_logo_brp_path=None, dist_dir=None, skip_sd_check=False
     # Also build standalone ARM bare-metal binary if make was run
     bin_cfw = REPO_ROOT / "bin" / "gr2_cfw.bin"
     if bin_cfw.exists():
-        shutil.copy2(bin_cfw, dist_dir / "gr2_cfw.bin")
-        bin_hash = sha256_file(bin_cfw)
+        out_bin = dist_dir / f"gr2_cfw_v{version}.bin"
+        shutil.copy2(bin_cfw, out_bin)
+        bin_hash = sha256_file(out_bin)
         with open(sha_manifest, "a") as f_sha:
-            f_sha.write(f"{bin_hash}  gr2_cfw.bin\n")
-        print(f"[OK] Included bare-metal payload: gr2_cfw.bin ({bin_cfw.stat().st_size:,} bytes)")
+            f_sha.write(f"{bin_hash}  {out_bin.name}\n")
+        print(f"[OK] Included bare-metal payload: {out_bin.name} ({out_bin.stat().st_size:,} bytes)")
 
     release_notes = dist_dir / "RELEASE_NOTES.md"
-    release_notes.write_text(f"""# Ricoh GR II Custom Firmware v0.0.1 (Custom Boot Screen)
+    release_notes.write_text(f"""# Ricoh GR II Custom Firmware v{version} (Custom Boot Screen)
 
 **Release Date:** 2026-10-29  
 **Target:** Ricoh GR II (16.2MP APS-C, Fujitsu/Socionext Milbeaut RC2015)  
@@ -228,7 +235,7 @@ def build_cfw_v001(custom_logo_brp_path=None, dist_dir=None, skip_sd_check=False
   Replaces the factory white screen with a custom dark high-contrast boot screen.
 - **Main RTOS Executable Partition (`b01firm8`)**: **100.000% UNTOUCHED stock factory code**.
   Carries zero machine-code or CPU execution risk.
-- **Bare-Metal CFW Payload (`gr2_cfw.bin`)**: Compiled ARM Big-Endian payload for optional SD-card resident execution.
+- **Bare-Metal CFW Payload (`gr2_cfw_v{version}.bin`)**: Compiled ARM Big-Endian payload for optional SD-card resident execution.
 
 ## Checksums
 ```
@@ -237,7 +244,7 @@ def build_cfw_v001(custom_logo_brp_path=None, dist_dir=None, skip_sd_check=False
 
 ## Flashing Instructions
 1. Ensure your SD card has the Emergency Rescue Kit (`SD.dat`, `backup.ttl`, `rg2_v003.frm`).
-2. Copy `rg2_cfw_v001_bootlogo.frm` to your SD card root and rename it to `rg2_v003.frm`.
+2. Copy `{out_frm_path.name}` to your SD card root and rename it to `rg2_v003.frm`.
 3. Insert a fully charged battery (>= 80%).
 4. Power on while holding the firmware update button combination.
 5. Follow on-screen confirmation prompts. Do NOT turn off the camera while updating.

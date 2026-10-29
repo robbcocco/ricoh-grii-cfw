@@ -1,0 +1,55 @@
+name: 1. Check (Pre-Flight & Integrity Gate)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  pre-flight-check:
+    name: Toolchain & Binary Integrity Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ARM GNU Bare-Metal Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
+
+      - name: Verify Toolchain
+        run: |
+          arm-none-eabi-gcc --version
+          python3 --version
+
+      - name: Compile Bare-Metal ARM Payload
+        run: |
+          make clean
+          make all
+          make disasm
+
+      - name: Verify Memory Bounds & ELF Symbols
+        run: |
+          ls -lh bin/gr2_cfw.bin bin/gr2_cfw.elf
+          # Check payload is <= 64KB (DRAM pool limit)
+          SIZE=$(stat -c%s bin/gr2_cfw.bin)
+          echo "Payload size: $SIZE bytes"
+          if [ $SIZE -gt 65536 ]; then
+            echo "Error: Binary size exceeds 64KB pool"
+            exit 1
+          fi
+
+      - name: Verify Patcher & Safety Tools
+        run: |
+          python3 tools/verify_safety.py --help || true
+          python3 tools/cfw_patcher.py
+          python3 tools/brp_tool.py --help
