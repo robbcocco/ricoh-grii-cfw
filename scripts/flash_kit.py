@@ -149,6 +149,26 @@ Card N root = `card/`: the debug zip contents with its `Startup.ttl` **replaced 
 **Crash (camera powers off):** next boot with the skip key; report the log. **Hang:** battery out + skip key.
 Send me: `cfw_log.txt`, `H:/cfw/probe/`.
 """),
+    ("F4-early-look", "F4 · M10c: menus and the recipe look during the boot (no flash)", {"card": ["debug"]}, """\
+**Writes flash:** no. The CFW now installs its menus and Effect hooks while the firmware loads (section 10, ~0.8 s
+after power-on) and shows the active My Settings slot's recipe look as soon as the camera has picked the slot,
+instead of ~2 s after power-on.
+
+Card root = `card/` (the debug `cfw/` folder and `Shutdown.ttl`; no `Startup.ttl`). Card R stays out.
+
+1. Make sure a recipe is saved in a My Settings slot (Recipes → OK → MY1/MY2/MY3), e.g. Portra in MY2.
+2. Turn the dial to that slot, switch off. Switch on and watch the first live-view frames: the recipe's colours should
+   be there from the start (before: stock colours for about a second, then the look).
+3. Right after power-on press Effect (CFW Menu): it should open as soon as the camera reacts to keys.
+4. Use the camera as usual for a minute (menus, Recipes, a shot), then power off. Repeat once from a cold start
+   (battery out 30 s).
+5. Copy `H:/cfw/cfw_log.txt` to the Mac.
+
+**Pass:** look visible from the first frames, menus work, no `ERROR` in the log; the log has
+`main: installed at hook(10), rc 0x00000000`, `recipes: early look (slot, IQ mode)` and the `hook:` timeline.
+**Crash or hang at power-on:** battery out, switch on with the shutter half-pressed (stock), send the log.
+Send me: `cfw_log.txt` and what you saw on the first frames.
+"""),
     ("U-uninstall", "U · Uninstall (back to stock 3.00)", {"card": ["stock"]}, f"""\
 **Writes flash:** yes, the stock firmware (any time after F2).
 
@@ -192,7 +212,8 @@ def main():
         "loader": {"rg2_v003.frm": loader},
         "probe": {"Startup.ttl": ttl(PROBE)},
         "rescue": {"backup.ttl": ttl(RESCUE)},
-        "debug": {n: debug.read(n) for n in debug.namelist() if not n.endswith("/") and n != "Startup.ttl"},
+        # the debug zip without its firmware: cfw/ and Shutdown.ttl (the loader is already flashed)
+        "debug": {n: debug.read(n) for n in debug.namelist() if not n.endswith("/") and n != "rg2_v003.frm"},
     }
     index = ["# M10 flash steps", "", f"Built from gr2_cfw v{version}. Do them in order; each only after the previous one "
              "passed and you reported the result. Details and risks: `loader/flash/README.md` §6/§7.", "", COMMON,

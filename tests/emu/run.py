@@ -102,7 +102,7 @@ class Checks:
 class Session:
     """One emulated camera: boot + the CFW task's start sequence (src/task.c)."""
 
-    def __init__(self, ctx, files=None, props=None, slots=None, loader=False):
+    def __init__(self, ctx, files=None, props=None, slots=None, loader=False, on_hook=None):
         import machine
         self.ctx = ctx
         self.m = m = machine.Machine(ctx.inputs, ctx.variant, str(CFW), files=files, props=props, slots=slots)
@@ -113,7 +113,7 @@ class Session:
             m.put_file('H:/cfw/recipes/licenses/' + p.name, p.read_bytes())
         for p in sorted((CFW / 'fonts').glob('*.fnt')):
             m.put_file('H:/cfw/fonts/' + p.name, p.read_bytes())
-        self.rc = m.boot(loader=loader)
+        self.rc = m.boot(loader=loader, on_hook=on_hook)
         task = [t for t in m.tasks if t['name'] == 'CFW']
         ctx.check(len(task) == 1 and task[0]['entry'] & ~1 == m.syms['cfw_task'] & ~1, 'CFW task not created')
         for f in ('settings_init', 'recipes_init', 'recipes_poll', 'osd_fonts_load'):
@@ -801,8 +801,9 @@ def sc_console(ctx):
 
 
 def sc_loader(ctx):
-    """M10b loader ABI: stage 1 header, hook(n) over a full boot (preload at 1, CFWldr task + disarm at 13),
-    start after JobSystem step 13 like Startup.ttl; USB boot (section 1 only) writes nothing and starts
+    """Flashed loader: stage 1 header, hook(n) over a full boot (preload at 1, CFWldr task + disarm at 13),
+    M10c patch-on-load at hook(10) and the MY slot's look as soon as the mode props are final, nothing written
+    to H: before step 13, no double install by cfw_main; USB boot (section 1 only) writes nothing and starts
     nothing; missing stage 2 is logged only once the task runs; Startup.ttl refuses while the loader is
     active; no step 13 -> timeout, CFW not started."""
     import machine
@@ -811,16 +812,47 @@ def sc_loader(ctx):
     check(struct.unpack_from('>HHI', s1, 0)[2] == machine.LDR_MAGIC and s1[0] >> 3 == 0x1C,
           'stage 1 header: no b over the header or no GRL1 magic')
     check(struct.unpack_from('>I', s1, 8)[0] == ctx_sym1(ctx, 'cfw_ldr_hook') | 1, 'hook entry at +8')
-    # full loader boot
-    s = Session(ctx, loader=True)
+    # full loader boot, Portra remembered for MY2 (Setting2) and the dial on MY2
+    rec = ctx.recipes
+    portra = next(r for r in rec if r['file'] == 'portra.txt')
+    cfg = b'rc2.0=504F5254\r\nrc2.1=52412E54\r\nrc2.2=58540000\r\n'
+    site, seen = 0xA03A1F92, {}                                 # Effect press BL (finding 16 section 4)
+
+    def shown(mm, flags):
+        view = object.__new__(Session)
+        view.m = mm
+        return view.look_shown(flags)
+
+    def on_hook(mm, n):
+        seen.setdefault('card', mm.file('H:/cfw/cfw_log.txt') is not None)
+        seen['card'] |= mm.file('H:/cfw/cfw_log.txt') is not None
+        if n == 4:                                              # JobSystem step 2's block has run
+            seen['look_before_props'] = not shown(mm, {})
+            mm.w32(machine.A_MODE_PROPS_FINAL, 1)
+        if n == 2:
+            seen['look_after_props'] = shown(mm, {3: portra['flags']})
+        if n == 5:
+            seen['bl_before_10'] = mm.u16(site)
+        if n == 10:
+            seen['bl_at_10'] = mm.u16(site)
+    s = Session(ctx, files={'H:/cfw/config.txt': cfg}, props={0x2D: 4, 6: 2}, loader=True, on_hook=on_hook)
     m = s.m
+    cfw_bl = encode_bl(site, m.syms1['cfw_veneer_press'])[0]
     ldr = [t for t in m.tasks if t['name'] == 'CFWldr']
     check(s.rc == 0 and len(ldr) == 1 and ldr[0]['entry'] & ~1 == m.syms1['ldr_task'] & ~1, 'CFWldr task')
     check(m.u32(machine.LDR_STATE) == 6, 'loader not disarmed after section 13')
-    site = 0xA03A1F92                                           # Effect press BL (finding 16 section 4)
-    check(m.u16(site) == encode_bl(site, m.syms1['cfw_veneer_press'])[0], 'press BL not retargeted via the loader')
+    check(not seen['card'], 'H: written during the section-load hooks')
+    check(seen['bl_before_10'] != cfw_bl and seen['bl_at_10'] == cfw_bl and m.u16(site) == cfw_bl,
+          f'press BL not patched at hook(10): {seen.get("bl_before_10", 0):#x} {seen.get("bl_at_10", 0):#x}')
+    check(not seen['look_before_props'] and seen['look_after_props'],
+          'MY2 look not applied right after the mode props became final (or before)')
+    check(s.look_shown({3: portra['flags']}), 'MY2 look lost after the task start')
     if ctx.variant == 'debug':
-        check(any('started by the flashed loader' in l for l in m.log_lines()), 'loader start not logged')
+        log = m.log_lines()
+        check(any('started by the flashed loader' in l for l in log), 'loader start not logged')
+        check(sum('menu: CFW Menu / Recipes added' in l for l in log) == 1, 'menus installed twice or never')
+        check(any(l.startswith('hook: (n, systime) 0x0000000A') for l in log), 'hook timeline not logged')
+        check(log[0].startswith('=== gr2_cfw'), f'held lines out of order: {log[:2]}')
     finish(ctx, s)
 
     def bare(main=True):
@@ -848,7 +880,7 @@ def sc_loader(ctx):
     # Startup.ttl while the loader runs this stage 1
     rc = mm.call_addr(mm.syms1['_start'] | 1, stack=machine.SCRIPT_TASK_STACK, task='Script')
     check(rc == 0xFFFFFFFF and any('flashed loader active' in l for l in mm.log_lines()), 'double load not refused')
-    check(mm.u32(mm.syms1['boot.0' if 'boot.0' in mm.syms1 else 'boot']) == 0, 'stage 2 started twice')
+    check(mm.u32(mm.syms1['g_boot']) == 0, 'stage 2 started twice')
     mm.files.pop('H:/CFW/CFW_LOG.TXT')                         # expected ERROR lines
     # JobSystem step 13 never completes
     mt = bare()

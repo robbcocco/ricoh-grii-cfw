@@ -61,6 +61,7 @@ A_MSG_HANDLER_SLOT = 0xA04071F0
 A_CONSOLE_HOOK_SLOT = 0xA05FCCD0 + 0x44   # console printf hook (finding 21 section 3.2)
 A_TSK_OBJ_TABLE = 0xA05FB884
 LDR_STATE, LDR_MAGIC = 0xA00AFD70, 0x47524C31     # flashed debug loader status word, stage-1 ABI magic
+A_MODE_PROPS_FINAL = 0xA012A0EC       # set by the block after JobSystem step 2 (finding 32)
 LOADER_SHOOTING = [1, 4, 2, 3, 5, 10, 11, 8, 9, 6, 12, 13]   # section-load order, shooting boot
 SNAP_TABLES = {0xA06FD5E2: 0x0400, 0xA06FD5E8: 0x02AA, 0xA0700066: 0x0400, 0xA070006C: 0x02AA}  # Lens_F / AF_F
 # Full ("RGB") plane, display layer 2 (finding 23): RGBA4444 front buffers BITMAPS[2], [3] (pitch 640 px)
@@ -808,7 +809,7 @@ class Machine:
         self.ret(0)
 
     # ---- boot ----------------------------------------------------------------------------------
-    def boot(self, loader=False):
+    def boot(self, loader=False, on_hook=None):
         """fload stage 1, `ex 0xA0017001`, resolve stage 2 at its load address.
         loader=True: boot through the flashed debug loader's ABI instead (loader_hooks over the
         shooting order, JobSystem step 13 done, then cfw_ldr_start as the CFWldr task runs it)."""
@@ -819,12 +820,12 @@ class Machine:
         self.put_file('H:/cfw/gr2_main.bin', self.inputs_main())
         self.wr(WINDOW, s1)
         if loader:
-            self.loader_hooks(LOADER_SHOOTING)
+            self.loader_hooks(LOADER_SHOOTING, on_hook)
             self.boot_step_done(13)
             rc = self.run_ldr_task()
         else:
             rc = self.call_addr(self.syms1['_start'] | 1, stack=SCRIPT_TASK_STACK, task='Script')
-        boot = self.syms1['boot.0' if 'boot.0' in self.syms1 else 'boot']   # static in start_main()
+        boot = self.syms1['g_boot']           # cfw_boot_t passed to stage 2 (src/boot.c)
         base = self.u32(boot)
         if base == 0:
             raise EmuError(f'stage 2 not loaded (rc {rc:#x}); log: {self.log_lines()}')
@@ -834,9 +835,10 @@ class Machine:
         self.syms = Symbols(f'{self.cfw_dir}/bin/{self.variant}/gr2_main.elf', base)
         return rc - (1 << 32) if rc & 0x80000000 else rc
 
-    def loader_hooks(self, order):
+    def loader_hooks(self, order, on_hook=None):
         """What the armed stub does (loader/flash/README.md §3): stage 1 is in the window, ldr_state = 5,
         and after every section load the stub calls *(window+8)(n, &ldr_state) while the state is 5.
+        on_hook(machine, n) runs after each hook (tests inspect and change the boot state there).
         Returns the sections whose hook ran."""
         if self.u32(WINDOW + 4) != LDR_MAGIC:
             raise EmuError('stage 1 has no loader ABI magic')
@@ -845,8 +847,10 @@ class Machine:
         for n in order:
             if self.u32(LDR_STATE) != 5:
                 break
-            self.call_addr(hook, n, LDR_STATE, stack=ROOT_TASK_STACK, task='root init')
+            self.call_addr(hook, n, LDR_STATE, stack=ROOT_TASK_STACK, task='boot')
             ran.append(n)
+            if on_hook:
+                on_hook(self, n)
         return ran
 
     def boot_step_done(self, step):

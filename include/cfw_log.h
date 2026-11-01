@@ -18,9 +18,13 @@ void cfw_log_hex2(const char *label, uint32_t a, uint32_t b);
 /* Optional copy of every log line (with its '\n') as written; set by the
  * developer console (src/console.c). Must not block or log. */
 extern void (*volatile cfw_log_tap)(const char *line, uint32_t len);
-/* Non-zero: lines go only to the tap, not to the card (stage 1 at the loader's
- * hook(1), when the card may belong to a PC in a USB boot). */
-extern volatile uint8_t cfw_log_mute;
+/* Hold: lines go to a 2 KiB RAM buffer instead of the card (the loader's
+ * section-load hooks, which must not write H: before the boot task's remount
+ * after section 9, finding 32). Each stage (stage 1, stage 2) has its own. */
+void cfw_log_hold(void);
+/* Write the held lines in one append (plus a count of lines lost to a full
+ * buffer) and log to the card again. No-op if not holding. */
+void cfw_log_release(void);
 
 #define ERR(msg)              cfw_log("ERROR " msg)
 #define ERR_HEX(label, v)     cfw_log_hex("ERROR " label, (v))

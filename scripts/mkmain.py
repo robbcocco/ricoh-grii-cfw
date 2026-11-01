@@ -52,13 +52,13 @@ def main() -> None:
         fail(f"{elf0} is not linked at 0")
     image_size = syms["__image_end__"]
     bss_size = syms["__bss_end__"] - syms["__bss_start__"]
-    entry = syms["cfw_main"]
+    entry, hook = syms["cfw_main"], syms["cfw_hook"]
     if len(img0) != len(img1) or len(img0) > image_size or image_size % 4 or bss_size % 4:
         fail(f"unexpected image sizes ({len(img0)}, {len(img1)}, {image_size}, bss {bss_size})")
     if syms["__bss_start__"] != image_size:
         fail(".bss does not follow the image")
-    if not entry & 1:
-        fail("cfw_main is not a Thumb function")
+    if not entry & 1 or not hook & 1:
+        fail("cfw_main / cfw_hook is not a Thumb function")
     img0 = img0.ljust(image_size, b"\0")
     img1 = img1.ljust(image_size, b"\0")
     relocs = []
@@ -70,7 +70,7 @@ def main() -> None:
             fail(f"word at 0x{off:X} differs by 0x{(b - a) & 0xFFFFFFFF:X} (value 0x{a:X}): "
                  "not a plain absolute address into the image")
         relocs.append(off)
-    hdr = struct.pack(HDR, MAGIC, image_size, bss_size, entry, len(relocs), 0, 0, 0)
+    hdr = struct.pack(HDR, MAGIC, image_size, bss_size, entry, len(relocs), hook, 0, 0)
     Path(out).write_bytes(hdr + img0 + b"".join(struct.pack(">I", r) for r in relocs))
     print(f"mkmain: {out}: image {image_size} B, bss {bss_size} B, {len(relocs)} relocations")
 

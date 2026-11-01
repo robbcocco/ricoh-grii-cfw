@@ -59,10 +59,16 @@ then the task's `settings_init`, `recipes_init`, `recipes_poll`, `osd_fonts_load
   session through `session()` with scripted `recv` (option bytes skipped, DEL, empty lines, `exit`).
   Socket setup/accept are not modelled.
 - `loader`: stage-1 loader ABI v1 header (`b`, "GRL1", hook entry); a full boot through `cfw_ldr_hook(n,
-  &ldr_state)` over the shooting section order (preload at 1, `CFWldr` + disarm at 13, `cfw_main` once
-  JobSystem step 13 is flagged, Effect BL retargeted); USB boot (section 1 only) starts and writes nothing;
-  missing `gr2_main.bin` stays off the card until the task logs it; `ex` refused while the loader is
-  active; no step-13 flag gives the 60 s timeout. The stub itself is checked by `scripts/emu_loader.py`.
+  &ldr_state)` over the shooting section order with Portra remembered for MY2 and the dial on MY2: the Effect
+  BL is stock at hook(5) and patched at hook(10) (M10c); the MY2 look is not shown before the mode-props flag
+  `0xA012A0EC` and is shown at the next hook after it; nothing is written to H: before step 13; `cfw_main`
+  does not install twice; the debug log starts with the held banner and has the hook timeline. USB boot
+  (section 1 only) starts and writes nothing; missing `gr2_main.bin` stays off the card until the task logs
+  it; `ex` refused while the loader is active; no step-13 flag gives the 60 s timeout. The stub itself is
+  checked by `scripts/emu_loader.py`.
+- Task stacks: every call runs on the stack of the task it belongs to (CFW 0x3000, Script 0x4000, boot task
+  0x4000, `CFWldr` as created); the stock file API stubs fail when the remaining stack is below the stock
+  worst case (finding 31).
 - After every scenario: no open file/directory handles, property lock and mutexes balanced, no `Prop_Set`
   outside the lock, no `ERROR` in the debug log; release writes no `cfw_log.txt` at all.
 

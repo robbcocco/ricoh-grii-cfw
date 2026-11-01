@@ -91,7 +91,9 @@ static int entries_stock(int k5) {
 
 /* ---- install --------------------------------------------------------------------- */
 
-static int locate(void) {
+/* IQ.bin as the ISP holds it: 0 while the ISP is not set up, 1 if the data is not the
+ * stock IQ.bin, else its address. */
+static uint32_t iq_find(void) {
     uint32_t ctx = GR2_IQ_CTX;
     if (ctx < 0xA0000000u || ctx >= 0xC0000000u) return 0;          /* ISP not set up yet */
     int bank = *(volatile int8_t *)(ctx + 0x2C);
@@ -99,8 +101,20 @@ static int locate(void) {
     uint32_t iq = *(volatile uint32_t *)(ctx + 0x158 + 4 * bank);
     const volatile uint8_t *h = (const volatile uint8_t *)iq;
     if (iq < 0xA0000000u || iq >= 0xC0000000u || h[0] != '0' || h[1] != '2' || h[2] != '0' ||
-        h[3] != '0' || h[0x10] != 'M' || h[0x11] != '6' || h[0x12] != 'M' || h[0x13] != 'E') {
-        ERR_HEX("look: IQ data not found, ctx", ctx);
+        h[3] != '0' || h[0x10] != 'M' || h[0x11] != '6' || h[0x12] != 'M' || h[0x13] != 'E')
+        return 1;
+    return iq;
+}
+
+int look_iq_ready(void) {
+    return iq_find() > 1;
+}
+
+static int locate(void) {
+    uint32_t iq = iq_find();
+    if (iq == 0) return 0;
+    if (iq == 1) {
+        ERR_HEX("look: IQ data not found, ctx", GR2_IQ_CTX);
         return -1;
     }
     g_iq = iq;

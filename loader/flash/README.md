@@ -104,27 +104,22 @@ If `ldr_state` is 5, it then calls `*(0xA0017008)(n, &ldr_state)` (Thumb) and re
 
 The 132 bytes left no room for a `DriveMounted` pre-check or a range check of the entry pointer. On a cold boot nothing has mounted H: before hook(1) (§2). The magic word is the guard that an old stage 1 is never called.
 
-### Stage-1 loader ABI v1 (implemented 2026-11-01, M10b; emulated, not run on hardware)
+### Stage-1 loader ABI v1 (M10b passed on hardware 2026-11-01; M10c stage-2 hooks built, F4 pending)
 
 - `gr2_cfw.bin` +0: `b` over the header (the `ex 0xA0017001` entry is unchanged). +4: `0x47524C31`. +8: Thumb address (odd) of `cfw_ldr_hook(uint32_t n, volatile uint32_t *ldr_state)`, inside the window (`src/entry.S`, `src/boot.c`). `package_sd.py` checks all three.
-- The hook runs in the root init task, right after section n was loaded and before anything executed it. Every millisecond it spends delays boot.
+- The hook runs in the boot task (root init task, stack 0x4000), right after section n was loaded and before anything executed it. Every millisecond it spends delays boot.
   - It must return.
   - It may write `*ldr_state = 6` to stop further calls.
-  - On the first call it zeroes stage 1's `.bss` (as `_start` does).
-- **Implemented policy (M10b):** the CFW comes up at the same point as with `Startup.ttl`, without the devel gate or TTL.
-  - **hook(1):** window check, then read `H:/cfw/gr2_main.bin` into the heap and relocate it. This is the only point where the read cannot race DCFMount, because section 8 is not loaded yet.
-    - Nothing is written to H:. Log lines are muted, and the first one is kept and replayed later. In a USB/PC boot only section 1 loads and the PC then owns the card.
-    - No task is started.
-  - **hook(13):** `Task_Create` the `CFWldr` task and set `*ldr_state = 6`. Section 13 is last in both boot orders.
-  - **`CFWldr`:** it waits until JobSystem_Boot has finished step 13, where Startup.ttl would run. The task polls the step flag `Ctrl()+0x54+4·13` set by `FUN_a00e87dc` [V decompile], every 100 ms, with a 60 s timeout. Then it calls `cfw_main` like the Startup.ttl path (`boot.loader = 1` and the hook(1) time are logged in debug builds). The task then sleeps forever: task bodies never return.
-  - A failure at hook(1) disarms nothing early. `CFWldr` logs the kept line plus `stage 2 not loaded at hook(1)` once the card belongs to the camera, and does not start the CFW.
-- **Next (M10c, after the F0 timing probe):** the two parts that make the loader worth more than Startup.ttl.
-  - **Patch-on-load, hook(n):** code patches for section n are plain stores before that code first runs: no single-halfword constraint, no I-cache issue. Examples: the Effect press/hold BLs and the string-accessor bounds (section 10), and the input handler slot (section 10 `.data`). Never patch a section before its own hook: the load overwrites it and clears its BSS.
-  - **Look before the first live-view frame:** at the hook after the one for section 5 (IQ RAM ready), write the active slot's look into IQ RAM. No ISP cache poke is needed before LV starts. It needs the active mode/MY slot, and property-DB readiness at that point is [I]: check JobSystem step 1 (`Ctrl()+0x54+4`) or read the slot file.
-- **The loader-mode card must not carry the CFW's `Startup.ttl`.** Its `fload` rewrites the running window: `.data` reset, `.bss` and the veneer target words zeroed.
-  - Stage 1 now refuses `ex` while `ldr_state` is 5 or 6: it logs `flashed loader active` and starts nothing.
-  - The waiting `CFWldr` then finds no stage 2 and does not start the CFW either.
-  - With the **same** file this ends without a crash. A **different** stage-1 build on the card would replace code under the waiting task, so never mix them.
+  - On the first call it zeroes stage 1's `.bss` (as `_start` does) and holds its log lines in RAM.
+- **Policy (M10b, hardware-verified F3; M10c built 2026-11-01, F4 pending):**
+  - **hook(1):** window check, then read `H:/cfw/gr2_main.bin` into the heap and relocate it. Stage 2's header carries a second entry, `cfw_hook(n, boot)`, which stage 1 then calls after every section load (n = 1 included).
+  - **Nothing is written to H: before step 13.** The boot task remounts the card right after hook(9) (finding 32), and a USB-charge boot loads only section 1. Both stages hold their log lines in a 2 KiB RAM buffer (`cfw_log_hold`) and write them once from the `CFWldr` task. Every file opened in a hook is closed before it returns.
+  - **Stage 2, hook(1):** read `config.txt` and the recipe files remembered for MY1–MY3 (≤ 3 files, no folder scan) into RAM.
+  - **Stage 2, hook(10) (patch-on-load):** menus (records, language/attribute/font tables, string bounds), Effect press/hold BLs and the APP message-handler slot are installed into section 10 before it first runs. No stock code rewrites any of them later, and no later section load covers them (finding 32).
+  - **Stage 2, every hook (early look):** once `*0xA012A0EC == 1` (set after JobSystem step 2 has written the mode props and loaded the active MY slot) and the ISP holds IQ.bin, the active slot's look is written into IQ RAM (shooting boot: the first hook after the flag, ~0.8 s). If live view already runs, `look.c`'s cache flip shows it on the next frame. A debug build logs a per-hook timeline (time, props flag, steps 2/5, shown LV frame) to measure this on hardware; if hook(10) proves late, the next step is the IQ-ready callback (BL `0xA01B584A` at hook(5), finding 32).
+  - **hook(13):** `Task_Create` the `CFWldr` task (stack 0x4000) and set `*ldr_state = 6`. Section 13 is last in both boot orders.
+  - **`CFWldr`:** waits until JobSystem_Boot has finished step 13 (`Ctrl()+0x54+4·13`, 100 ms polls, 60 s timeout), writes the held log lines, then calls `cfw_main`: shell command, anything the hooks did not install, the CFW task. The task then sleeps forever.
+  - A failure at hook(1) disarms nothing early. `CFWldr` logs `stage 2 not loaded at hook(1)` once the card belongs to the camera, and does not start the CFW.
 
 ## 4. Emulation and byte check (run 2026-10-31, case H added 2026-11-01; all re-run 2026-11-01 [R])
 
@@ -213,7 +208,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 - **F3** debug CFW files + probe `Startup.ttl`: CFW up, `main: started by the flashed loader`, `LDR_STATE` 6; then the skip-key boot. Never with card R inserted (a crash would reflash stock). Optional: the CFW `Startup.ttl` back once → logged refusal, no second CFW.
   - Attempt 1 (2026-11-01) **failed**: the loader started the CFW, but boots crashed or came up with garbled labels; the skip key gave a clean stock boot. Cause (finding 31): the `CFWldr` task had a 0x1000 stack, and `cfw_main`'s file I/O needs up to ~9.3 KB in the stock file API, so it overflowed into the heap. Fixed in stage 1 (stack 0x4000, like the Script task); the loader `.frm` is unchanged. The emulator now checks the stock file API's stack need against each task's stack. Data: the maintainer's hardware data.
   - Attempt 2 (2026-11-01) **passed [H]**: `main: started by the flashed loader (stage 2 read at, now) systime 0x11F 0x7AF`, CFW task at 2005 ms (Startup.ttl path ≈ 2000 ms, as expected for M10b), menus, recipes, looks and the shutdown status dump work, no `ERROR`; the skip-key boot afterwards read `LDR_STATE` 1. Data: the maintainer's hardware data.
-- **F4** (M10c, not built): patch-on-load and the look before the first live-view frame.
+- **F4** (M10c, built 2026-11-01, `dist/flash/F4-early-look/`): menus from hook(10), the slot's look on the first live-view frames, the hook timeline in the debug log.
 - **U** menu update with the stock `.frm`: `LDR_STATE` `FFFFFFFF` again.
 
 ### 6.3 Summary

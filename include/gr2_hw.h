@@ -131,6 +131,11 @@ _Static_assert(sizeof(gr2_find_t) == 0x230, "gr2_find_t layout");
 #define GR2_LV_DISP_MODE     (*(volatile uint8_t *)0xA0155B44u)    /* 1 = LCD 640x480 */
 #define GR2_LV_ASPECT        (*(volatile uint8_t *)0xA0155B48u)    /* 0 16:9 (LV y 60-419), 2 3:2 (y 28-451), 3 1:1, else 4:3 */
 #define GR2_UNCACHED(a)      ((((uint32_t)(a)) & 0x1FFFFFFFu) | 0x20000000u)
+/* Boot state (findings 26 §5, 32). JobSystem_Boot sets Ctrl()+0x54+4*step = 1 after each boot
+ * step; step 13 only queues Startup.ttl. MODE_PROPS_FINAL is set once, at the end of the block
+ * after step 2 that writes the mode props (5, 6) and loads the active My Settings slot. */
+#define GR2_BOOT_STEP_DONE(s) (*(volatile uint32_t *)(GR2_FN_UI_STATE() + 0x54 + 4 * (s)))
+#define GR2_MODE_PROPS_FINAL (*(volatile uint32_t *)0xA012A0ECu)
 
 /* ---- Developer console (finding 21 §3.2/§5; call sites in the telnetd task 0xA00504D4) ---- */
 #define GR2_FN_SOCKET        ((int (*)(int, int, int))0xA0022A87)                 /* (2, 1, 0) -> fd, <0 error */

@@ -3,12 +3,19 @@
 #include <stdint.h>
 #include "look.h"
 
-/* Film recipes: text files in H:/cfw/recipes (src/recipes.c). CFW task only. */
+/* Film recipes: text files in H:/cfw/recipes (src/recipes.c). CFW task only, except the
+ * two early functions, which the flashed loader's boot-task hooks call (src/main.c). */
 #define RECIPES_MAX 24
 
 void recipes_init(void);                  /* scan the folder (again), hand the names to the carousel */
 int recipes_count(void);
 void recipes_poll(void);                  /* ~200 ms: show the slot's or previewed recipe look */
+/* hook(1), after cfg_load: read the MY slots' recipe files (no folder scan; a missing or
+ * invalid file is skipped quietly and reported later by recipes_init). */
+void recipes_early_load(void);
+/* Every hook until it returns 1: show the active slot's look once the mode properties are
+ * final (GR2_MODE_PROPS_FINAL) and the ISP holds IQ.bin. 0 = not yet, retry. */
+int recipes_early_look(void);
 /* Live preview: show recipe i's look while the carousel is open (in the
  * current colour mode if it is Standard / Vivid / Setting1 / Setting2);
  * -1 ends the preview. */

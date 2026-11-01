@@ -34,8 +34,13 @@ int look_mode(uint32_t colour_mode);
 
 /* Show look l in IQ mode k5 (0..3), or the stock look everywhere (l == 0 or
  * k5 < 0). Live view follows within a frame. Returns 0, or -1 if the IQ data
- * is not available (logged once). CFW task only. */
+ * is not available (logged once). CFW task, or the loader's boot-task hooks
+ * once look_iq_ready(). */
 int look_apply(const look_t *l, int k5);
+
+/* The ISP holds the stock IQ.bin (no log, no state change): the earliest a
+ * look can be applied during boot. */
+int look_iq_ready(void);
 
 /* Value of a tone curve at Standard code x (0..255). */
 int look_tone_at(const uint8_t *knots, int x);

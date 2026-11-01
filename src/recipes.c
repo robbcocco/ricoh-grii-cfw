@@ -427,22 +427,57 @@ static void save_slot(int k, const char *sfn) {
     }
 }
 
-static void load_slot(int k) {
-    char key[6], sfn[13];
+/* The 8.3 name of the recipe file remembered for slot k; 0 if none. */
+static int slot_sfn(int k, char sfn[13]) {
+    char key[6];
     for (int w = 0; w < 3; w++) {
         slot_key(key, k, w);
         uint32_t v = cfg_get(key, 0);
         for (int c = 0; c < 4; c++) sfn[4 * w + c] = (char)(v >> (24 - 8 * c));
     }
     sfn[12] = 0;
+    return sfn[0] != 0;
+}
+
+static void load_slot(int k) {
+    char sfn[13];
     g_slot_recipe[k] = -1;
-    if (!sfn[0]) return;
+    if (!slot_sfn(k, sfn)) return;
     for (int i = 0; i < g_n; i++)
         if (str_eq(g_list[i].sfn, sfn)) {
             g_slot_recipe[k] = (int8_t)i;
             return;
         }
     ERR_HEX("recipes: recipe file of MY slot no longer on the card, slot", (uint32_t)(k + 1));
+}
+
+/* ---- early look (flashed loader, boot-task hooks; M10c) ------------------------------- */
+
+static struct { int8_t ok, mode; look_t look; } g_early[N_SLOTS];
+
+void recipes_early_load(void) {
+    if (!W) W = GR2_FN_MEMORY_ALLOC(sizeof(work_t));
+    if (!W) return;                    /* recipes_init reports it */
+    for (int k = 0; k < N_SLOTS; k++) {
+        char sfn[13];
+        /* quiet: a missing or bad file is reported by recipes_init in the task */
+        if (!slot_sfn(k, sfn) || read_file(sfn) < 0 || parse(&g_r) != 0) continue;
+        g_early[k].ok = g_r.look.flags != 0;
+        g_early[k].mode = g_r.base->mode;
+        g_early[k].look = g_r.look;
+    }
+}
+
+int recipes_early_look(void) {
+    if (GR2_MODE_PROPS_FINAL != 1) return 0;          /* prop 6 may still be the stale value */
+    int k = (int)GR2_FN_PROP_GET_RAW(GR2_PROPID_MYSETTING) - 1;
+    if (k < 0 || k >= N_SLOTS || !g_early[k].ok) return 1;
+    uint32_t cm = GR2_FN_PROP_GET(GR2_PROPID_COLOR_MODE);
+    int k5 = look_mode(cm);
+    if (k5 < 0 || cm != (uint32_t)g_early[k].mode) return 1;
+    if (!look_iq_ready() || look_apply(&g_early[k].look, k5) != 0) return 0;
+    DBG_HEX2("recipes: early look (slot, IQ mode)", (uint32_t)(k + 1), (uint32_t)k5);
+    return 1;
 }
 
 /* ---- apply to a My Settings slot ------------------------------------------------------ */

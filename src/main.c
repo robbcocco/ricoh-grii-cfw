@@ -1,23 +1,100 @@
-/* Stage 2 entry, called once per power cycle by stage 1 (src/boot.c) after
- * relocation: register the `cfw` shell command, start the resident CFW task,
- * add the Effect-button menu choices and hooks, then return to the shell. */
+/* Stage 2 entries (stage 1, src/boot.c):
+ *   cfw_hook(n)  flashed loader only: after every APP section load n, in the boot task, before
+ *                section n has run (M10c, finding 32). hook(1): read the config and the MY
+ *                slots' recipes; hook(10): install the menus, Effect hooks and input capture
+ *                into section 10 before it first runs; every hook: the slot's look as soon as
+ *                the mode properties are final and IQ RAM is loaded. Log lines are held in RAM
+ *                (the card is remounted after section 9) and written by cfw_main.
+ *   cfw_main     once per power cycle: after JobSystem step 13 (loader) or from Startup.ttl:
+ *                register the `cfw` shell command, install whatever the hooks did not, start
+ *                the resident CFW task. */
 #include "boot.h"
 #include "cfw.h"
 #include "cfw_log.h"
+#include "config.h"
 #include "gr2_hw.h"
 #include "info.h"
+#include "recipes.h"
+
+#define PATCH_SECTION 10               /* menu records, string tables, Effect BLs, input slot */
+
+static int g_installed = 1;            /* 1: not tried yet; else the result of install() */
+static int g_early;                    /* the loader's hooks ran */
+static int g_look_done;
+
+static int install(const cfw_boot_t *boot) {
+    /* Menus first: they replace the language tables that the task's settings
+     * (Snap labels) patch. */
+    if (cfw_menu_install() != 0) return -1;
+    if (cfw_hooks_install(boot) != 0) return -1;
+    return cfw_input_install();
+}
+
+#if CFW_DEBUG
+/* Boot timeline per hook, logged by cfw_main: when the look could land (finding 32). */
+#define TRACE_MAX 16
+static struct { uint8_t n, props, step2, step5; uint32_t t, lv; } g_trace[TRACE_MAX];
+static int g_ntrace;
+
+static void trace(uint32_t n) {
+    if (g_ntrace == TRACE_MAX) return;
+    g_trace[g_ntrace].n = (uint8_t)n;
+    g_trace[g_ntrace].t = GR2_FN_SYSTEM_GETTIME();
+    g_trace[g_ntrace].props = (uint8_t)GR2_MODE_PROPS_FINAL;
+    g_trace[g_ntrace].step2 = (uint8_t)GR2_BOOT_STEP_DONE(2);
+    g_trace[g_ntrace].step5 = (uint8_t)GR2_BOOT_STEP_DONE(5);
+    g_trace[g_ntrace].lv = GR2_LV_DISP_ADDR;
+    g_ntrace++;
+}
+
+static void trace_log(void) {
+    for (int i = 0; i < g_ntrace; i++) {
+        cfw_log_hex2("hook: (n, systime)", g_trace[i].n, g_trace[i].t);
+        cfw_log_hex2("hook:   (props final | step2 << 8 | step5 << 16, LV frame)",
+                     g_trace[i].props | (uint32_t)g_trace[i].step2 << 8 | (uint32_t)g_trace[i].step5 << 16,
+                     g_trace[i].lv);
+    }
+}
+#endif
+
+void cfw_hook(uint32_t n, const cfw_boot_t *boot) {
+    if (!g_early) {
+        g_early = 1;
+        cfw_log_hold();
+        DBG("=== gr2_cfw " CFW_VERSION " debug ===");
+        DBG_HEX("main: loaded at", boot->base);
+        info_set_main_base(boot->base);
+        cfg_load();                    /* card reads only; files closed before the hook returns */
+        recipes_early_load();
+    }
+#if CFW_DEBUG
+    trace(n);
+#endif
+    if (n == PATCH_SECTION && g_installed == 1) {
+        g_installed = install(boot);
+        DBG_HEX("main: installed at hook(10), rc", (uint32_t)g_installed);
+    }
+    if (!g_look_done) g_look_done = recipes_early_look();
+}
 
 int cfw_main(const cfw_boot_t *boot) {
-    DBG("=== gr2_cfw " CFW_VERSION " debug ===");
-    DBG_HEX("main: loaded at", boot->base);
+    if (g_early) {
+        cfw_log_release();
+    } else {
+        DBG("=== gr2_cfw " CFW_VERSION " debug ===");
+        DBG_HEX("main: loaded at", boot->base);
+        info_set_main_base(boot->base);
+    }
     if (boot->loader)
         DBG_HEX2("main: started by the flashed loader (stage 2 read at, now) systime", boot->t_preload,
                  GR2_FN_SYSTEM_GETTIME());
-    info_set_main_base(boot->base);
-    if (cfw_shell_register() != 0) return -1;
-    /* Menus first: they replace the language tables that the task's settings
-     * (Snap labels) patch. */
-    if (cfw_menu_install() == 0 && cfw_hooks_install(boot) == 0) cfw_input_install();
+#if CFW_DEBUG
+    trace_log();
+#endif
+    /* The shell command only serves `cfw status` (and logs its own refusal): menus and
+     * hooks may already be live, so the task must start even without it. */
+    (void)cfw_shell_register();
+    if (g_installed == 1) g_installed = install(boot);
     int task = cfw_task_start();
     if (task == 0) {   /* the id is a TCB pointer (0xA09xxxxx); stock parks the caller on failure (finding 26) */
         ERR_HEX("Task_Create failed", (uint32_t)task);

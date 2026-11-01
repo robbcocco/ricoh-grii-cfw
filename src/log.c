@@ -3,18 +3,43 @@
 #include "gr2_hw.h"
 
 #define LINE_MAX 128
+#define HOLD_MAX 2048
 
 void (*volatile cfw_log_tap)(const char *line, uint32_t len);
-volatile uint8_t cfw_log_mute;
+static uint8_t g_held;
+static char g_hold[HOLD_MAX];
+static uint32_t g_hold_len, g_hold_lost;
 
-static void log_write(const char *buf, uint32_t len) {
-    void (*tap)(const char *, uint32_t) = cfw_log_tap;
-    if (tap) tap(buf, len);
-    if (cfw_log_mute) return;
+static void file_append(const char *buf, uint32_t len) {
     int fd = GR2_FN_FILE_OPEN(CFW_LOG_PATH, GR2_FILE_APPEND);
     if (fd == 0) return;
     GR2_FN_FILE_WRITE(fd, buf, len);
     GR2_FN_FILE_CLOSE(fd);
+}
+
+static void log_write(const char *buf, uint32_t len) {
+    void (*tap)(const char *, uint32_t) = cfw_log_tap;
+    if (tap) tap(buf, len);
+    if (!g_held) {
+        file_append(buf, len);
+    } else if (g_hold_len + len <= HOLD_MAX) {
+        for (uint32_t i = 0; i < len; i++) g_hold[g_hold_len + i] = buf[i];
+        g_hold_len += len;
+    } else {
+        g_hold_lost++;
+    }
+}
+
+void cfw_log_hold(void) {
+    g_held = 1;
+}
+
+void cfw_log_release(void) {
+    if (!g_held) return;
+    g_held = 0;
+    if (g_hold_len) file_append(g_hold, g_hold_len);
+    if (g_hold_lost) cfw_log_hex("ERROR log: lines lost while held", g_hold_lost);
+    g_hold_len = g_hold_lost = 0;
 }
 
 /* Copy at most `room` characters of s; returns the new end. */
