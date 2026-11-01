@@ -2,7 +2,7 @@
 
 A Magic-Lantern-style extension for the Ricoh GR II with firmware 3.00. It loads from the SD card at power-on, runs from RAM next to the stock firmware and never writes flash: remove the card and the camera boots stock. The only lasting changes are settings written through the camera's own setter, always to values the stock menus can select (see *Menus*).
 
-**Status:** every feature below has passed on hardware (2026-10-30 – 11-01). A flashed loader (the M10 debug firmware) is built and emulated but has not been flashed yet. Roadmap and test history: [the project plan](the project plan).
+**Status:** every feature below has passed on hardware (2026-10-30 – 11-01). The flashed debug loader (M10) is installed and passed on the test camera: it starts the CFW from the card without `Startup.ttl`. Roadmap and test history: [the project plan](the project plan).
 
 - Two new Effect-button choices, **CFW Menu** and **Recipes**, in every UI language.
 - **CFW Menu:** Auto ISO slowest shutter, max ISO and *keep shutter*; TAv fixes; Auto ISO in M; Snap distances 0.7 m + 1.2 m; frame lines and zebras; Clarity strength and custom high-ISO NR; an INFO page; DEV tools (telnet developer console, screenshots).

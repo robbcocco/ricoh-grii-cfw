@@ -1,6 +1,6 @@
-# M10 flashed loader: debug firmware (prepared, NOT flashed)
+# M10 flashed loader: debug firmware (flashed and passed on the test camera 2026-11-01)
 
-A 132-byte stub in the APP image that loads the CFW's stage 1 from the card early in boot. The CFW itself stays on the card. Since 2026-11-01 this is the **debug** firmware only: the release flashes the CFW itself and never loads code from the card (the project plan M11), using the same stub with an `A:` path. Nothing here has run on hardware. Nothing has been flashed and nothing is written to any SD card by these tools.
+A 132-byte stub in the APP image that loads the CFW's stage 1 from the card early in boot. The CFW itself stays on the card. Since 2026-11-01 this is the **debug** firmware only: the release flashes the CFW itself and never loads code from the card (the project plan M11), using the same stub with an `A:` path. Steps F0–F3 passed on hardware on 2026-11-01 (§6); the tools here never write to an SD card.
 
 | File | Purpose |
 |---|---|
@@ -212,6 +212,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 - **F2b** — **passed 2026-11-01 [H]**: skip key (`LDR_STATE` 1, section 1 back to 36 ms: the card is not touched), no card (normal), USB (card mounts on the Mac and charges; files unchanged).
 - **F3** debug CFW files + probe `Startup.ttl`: CFW up, `main: started by the flashed loader`, `LDR_STATE` 6; then the skip-key boot. Never with card R inserted (a crash would reflash stock). Optional: the CFW `Startup.ttl` back once → logged refusal, no second CFW.
   - Attempt 1 (2026-11-01) **failed**: the loader started the CFW, but boots crashed or came up with garbled labels; the skip key gave a clean stock boot. Cause (finding 31): the `CFWldr` task had a 0x1000 stack, and `cfw_main`'s file I/O needs up to ~9.3 KB in the stock file API, so it overflowed into the heap. Fixed in stage 1 (stack 0x4000, like the Script task); the loader `.frm` is unchanged. The emulator now checks the stock file API's stack need against each task's stack. Data: the maintainer's hardware data.
+  - Attempt 2 (2026-11-01) **passed [H]**: `main: started by the flashed loader (stage 2 read at, now) systime 0x11F 0x7AF`, CFW task at 2005 ms (Startup.ttl path ≈ 2000 ms, as expected for M10b), menus, recipes, looks and the shutdown status dump work, no `ERROR`; the skip-key boot afterwards read `LDR_STATE` 1. Data: the maintainer's hardware data.
 - **F4** (M10c, not built): patch-on-load and the look before the first live-view frame.
 - **U** menu update with the stock `.frm`: `LDR_STATE` `FFFFFFFF` again.
 
@@ -224,7 +225,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 | F1b | stock bytes | R | auto power-on ~3 s after off; `RESCUE_RAN`, no `RESCUE_UP_RET` | — (**passed 2026-11-01**) |
 | F2 | loader | L, then N + probe | "Firmware update complete."; `LDR_STATE` 3, stock behaviour | — (**passed 2026-11-01**) |
 | F2b | no | N + probe | 1 / normal / USB OK | — (**passed 2026-11-01**) |
-| F3 | no | N + debug zip − CFW TTL + probe | CFW up, log line, `LDR_STATE` 6 | half-press |
+| F3 | no | N + debug zip − CFW TTL + probe | CFW up, log line, `LDR_STATE` 6 | — (**passed 2026-11-01**, attempt 2) |
 | F4 | no | N | look on first frame | half-press |
 | U | stock bytes | S | `LDR_STATE` FFFFFFFF | R + combo |
 
