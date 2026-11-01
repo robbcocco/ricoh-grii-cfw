@@ -841,19 +841,19 @@ def sc_loader(ctx):
     check(mm.file('H:/cfw/cfw_log.txt') is None, 'card written at hook(1)')
     check([t['name'] for t in mm.tasks] == ['CFWldr'], 'CFWldr not started after a failed preload')
     mm.boot_step_done(13)
-    rc = mm.call_addr(mm.syms1['cfw_ldr_start'] | 1)
+    rc = mm.run_ldr_task()
     log = mm.log_lines()
     check(rc == 0xFFFFFFFF and any('gr2_main.bin missing' in l for l in log) and
           any('not loaded at hook(1)' in l for l in log), f'missing stage 2: {log}')
     # Startup.ttl while the loader runs this stage 1
-    rc = mm.call_addr(mm.syms1['_start'] | 1)
+    rc = mm.call_addr(mm.syms1['_start'] | 1, stack=machine.SCRIPT_TASK_STACK, task='Script')
     check(rc == 0xFFFFFFFF and any('flashed loader active' in l for l in mm.log_lines()), 'double load not refused')
     check(mm.u32(mm.syms1['boot.0' if 'boot.0' in mm.syms1 else 'boot']) == 0, 'stage 2 started twice')
     mm.files.pop('H:/CFW/CFW_LOG.TXT')                         # expected ERROR lines
     # JobSystem step 13 never completes
     mt = bare()
     mt.loader_hooks(machine.LOADER_SHOOTING)
-    rc = mt.call_addr(mt.syms1['cfw_ldr_start'] | 1)
+    rc = mt.run_ldr_task()
     check(rc == 0xFFFFFFFF and any('not done after 60 s' in l for l in mt.log_lines()), 'no timeout')
     check(not [t for t in mt.tasks if t['name'] == 'CFW'], 'CFW started without step 13')
     mt.files.pop('H:/CFW/CFW_LOG.TXT')

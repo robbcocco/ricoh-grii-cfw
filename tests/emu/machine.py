@@ -25,6 +25,13 @@ RAM_BASE, RAM_SIZE = 0xA0000000, 0x01000000
 ALIAS_BASE = 0x20000000               # GR2_UNCACHED(a) = (a & 0x1FFFFFFF) | 0x20000000
 STACK_BASE, STACK_SIZE = 0xB0000000, 0x00100000
 STACK_TOP = STACK_BASE + STACK_SIZE - 0x100
+# Task stacks the CFW's code runs on (bytes). Calls default to the CFW task; boot paths name theirs.
+CFW_TASK_STACK = 0x3000               # src/task.c (also CFWcon)
+SCRIPT_TASK_STACK = 0x4000            # Startup.ttl's `ex` runs in the Script task (finding 26 §3)
+ROOT_TASK_STACK = 0x4000              # loader hooks run in the root init task (kernel config 0xA00B5B98)
+# Static worst-case stack of the stock file API incl. the SD driver (finding 31 §3).
+STOCK_FILE_STACK = {'File_Open': 8612 + 712, 'File_Read': 4188 + 712, 'File_Write': 4244 + 712,
+                    'File_Close': 4132 + 712}
 WINDOW, WINDOW_SIZE = 0xA0017000, 0x8000
 SENTINEL = 0xA001F000                 # return address of every call (just past the window)
 FW_BASE = 0xA0020200                  # RAM = 0xA0020200 + file offset
@@ -164,6 +171,7 @@ def yuv_rgb(y, u, v):
 
 class Machine:
     def __init__(self, inputs, variant, cfw_dir, files=None, props=None, slots=None):
+        self.stack_limit, self.stack_task = STACK_TOP - CFW_TASK_STACK, 'CFW'
         self.inputs, self.variant, self.cfw_dir = inputs, variant, cfw_dir
         self.uc = Uc(UC_ARCH_ARM, UC_MODE_ARM | UC_MODE_BIG_ENDIAN)
         self.uc.ctl_set_cpu_model(UC_CPU_ARM_946)   # ARMv5TE: Thumb-2 encodings fault
@@ -354,11 +362,12 @@ class Machine:
         self.uc.reg_write(UC_ARM_REG_R0, v & MASK)
         self.uc.reg_write(UC_ARM_REG_PC, self.uc.reg_read(UC_ARM_REG_LR))
 
-    def call_addr(self, addr, *args):
-        """Call a Thumb function (bit 0 set) or ARM function and return r0."""
-        return self.run_range(addr, SENTINEL, *args)
+    def call_addr(self, addr, *args, stack=CFW_TASK_STACK, task='CFW'):
+        """Call a Thumb function (bit 0 set) or ARM function and return r0, on a task stack of
+        `stack` bytes (the stock file stubs check that their stack need fits)."""
+        return self.run_range(addr, SENTINEL, *args, stack=stack, task=task)
 
-    def run_range(self, begin, until, *args, timeout_s=120):
+    def run_range(self, begin, until, *args, timeout_s=120, stack=CFW_TASK_STACK, task='CFW'):
         """Run from `begin` (Thumb: bit 0 set) until pc == `until`; returns r0.
         LR is the sentinel, so a plain function call stops at its return."""
         if len(args) > 4:
@@ -368,6 +377,7 @@ class Machine:
         cpsr = self.uc.reg_read(UC_ARM_REG_CPSR)
         self.uc.reg_write(UC_ARM_REG_CPSR, (cpsr & ~0x1F) | 0x10)   # tasks run in USR mode (as on hardware)
         self.uc.reg_write(UC_ARM_REG_SP, STACK_TOP)
+        self.stack_limit, self.stack_task = STACK_TOP - stack, task
         self.uc.reg_write(UC_ARM_REG_LR, SENTINEL | 1)
         self._err = None
         try:
@@ -449,7 +459,17 @@ class Machine:
         self.ret(p)
 
     # files (H: drive; B: slot files go through the PDB stubs)
+    def _stack_need(self, api):
+        # The stubs stand in for stock PrFILE2 code that needs a lot of the caller's task stack
+        # (finding 31: static worst case of the file API plus 712 B of SD driver). A task whose
+        # remaining stack is smaller overflows on hardware (F3, 2026-11-01: CFWldr had 0x1000).
+        need = STOCK_FILE_STACK[api]
+        left = self.uc.reg_read(UC_ARM_REG_SP) - self.stack_limit
+        if left < need:
+            self._fail(f'{api} needs ~{need} B of stack, {left} B left in the {self.stack_task} task')
+
     def _file_open(self):
+        self._stack_need('File_Open')
         path, mode = self.cstr(self.r(0)), self.r(1)
         key = path.upper()
         if not key.startswith('H:/'):
@@ -476,6 +496,7 @@ class Machine:
         return h
 
     def _file_read(self):
+        self._stack_need('File_Read')
         h = self._handle(self.r(0))
         buf, n = self.r(1), self.r(2)
         d = self.files[h[0]][h[1]:h[1] + n]
@@ -484,6 +505,7 @@ class Machine:
         self.ret(len(d))
 
     def _file_write(self):
+        self._stack_need('File_Write')
         h = self._handle(self.r(0))
         buf, n = self.r(1), self.r(2)
         if h[2] == 0:
@@ -496,6 +518,7 @@ class Machine:
         self.ret(n)
 
     def _file_close(self):
+        self._stack_need('File_Close')
         self._handle(self.r(0))
         del self.handles[self.r(0)]
         self.ret(0)
@@ -798,9 +821,9 @@ class Machine:
         if loader:
             self.loader_hooks(LOADER_SHOOTING)
             self.boot_step_done(13)
-            rc = self.call_addr(self.syms1['cfw_ldr_start'] | 1)
+            rc = self.run_ldr_task()
         else:
-            rc = self.call_addr(self.syms1['_start'] | 1)
+            rc = self.call_addr(self.syms1['_start'] | 1, stack=SCRIPT_TASK_STACK, task='Script')
         boot = self.syms1['boot.0' if 'boot.0' in self.syms1 else 'boot']   # static in start_main()
         base = self.u32(boot)
         if base == 0:
@@ -822,12 +845,19 @@ class Machine:
         for n in order:
             if self.u32(LDR_STATE) != 5:
                 break
-            self.call_addr(hook, n, LDR_STATE)
+            self.call_addr(hook, n, LDR_STATE, stack=ROOT_TASK_STACK, task='root init')
             ran.append(n)
         return ran
 
     def boot_step_done(self, step):
         self.w32(self.ui_state + 0x54 + 4 * step, 1)
+
+    def run_ldr_task(self):
+        """Run the CFWldr task body (cfw_ldr_start) on the stack size stage 1 created it with."""
+        t = [t for t in self.tasks if t['name'] == 'CFWldr']
+        if len(t) != 1:
+            raise EmuError(f'CFWldr created {len(t)} times')
+        return self.call_addr(self.syms1['cfw_ldr_start'] | 1, stack=t[0]['stack'], task='CFWldr')
 
 
 DEFAULT_PROPS = {

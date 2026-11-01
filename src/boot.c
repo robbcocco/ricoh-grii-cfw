@@ -32,7 +32,10 @@ extern volatile uint32_t cfw_veneer_press_target, cfw_veneer_hold_target;
 #define RELOC_CHUNK 64
 #define LDR_START_SECTION 13           /* last section in both boot orders (finding 22 §3.1) */
 #define LDR_TASK_PRIO     0x96
-#define LDR_TASK_STACK    0x1000
+/* cfw_main runs here and does file I/O: the stock file API alone needs up to ~9.3 KB of the
+ * caller's stack (finding 31). 0x1000 overflowed on hardware (F3, 2026-11-01: crash, garbled
+ * labels); 0x4000 matches the Script task that runs cfw_main in the Startup.ttl path. */
+#define LDR_TASK_STACK    0x4000
 #define LDR_WAIT_MS       60000
 #define LDR_POLL_MS       100
 /* JobSystem_Boot sets Ctrl()+0x54+4*step = 1 after each boot step (FUN_a00e87dc).

@@ -209,8 +209,9 @@ The exact instructions for each step (what to put on the card, what the screens 
 - **F1a** menu update with the stock `.frm` — **passed 2026-11-01 [H]**: "Execute?" with *New Version 3.00* → Yes → "Firmware update complete." → OK switches the camera **off** (no automatic restart, finding 27). Refusal shows "Confirm Firmware Version" without No/Yes (no valid file), "Battery depleted", or a blank *New Version*; nothing is erased in those cases.
 - **F1b** rescue card + combo — **passed 2026-11-01 [H]** (`RESCUE_RAN` only: `up` reflashed stock from BAK and did not return): `backup.ttl` marks `RESCUE_RAN`, runs `up`; success powers off with a 3 s RTC wake into the reflashed APP and never returns; a refusal returns and leaves `RESCUE_UP_RET` before `forcedown` (finding 27). No LCD or LED meanwhile. Release the shutter and leave MOVIE after POWER so the self-restart does not re-enter BAK.
 - **F2** menu update with the loader `.frm` — **passed 2026-11-01 [H]**: the camera accepted the recomputed checksum and boots stock with the loader; probe `LDR_STATE` = 3 (`ST_NOFILE`: loader ran, H: mounted, no stage 1). Section 1 (stock load + mount + failed open) took 229 ms vs 36 ms in F0; all sections were done at 1839 ms (F0: 1907 ms; section 8's DCFMount took 299 vs 392 ms). Data: the maintainer's hardware data.
-- **F2b** skip key (`LDR_STATE` 1), no card, USB.
+- **F2b** — **passed 2026-11-01 [H]**: skip key (`LDR_STATE` 1, section 1 back to 36 ms: the card is not touched), no card (normal), USB (card mounts on the Mac and charges; files unchanged).
 - **F3** debug CFW files + probe `Startup.ttl`: CFW up, `main: started by the flashed loader`, `LDR_STATE` 6; then the skip-key boot. Never with card R inserted (a crash would reflash stock). Optional: the CFW `Startup.ttl` back once → logged refusal, no second CFW.
+  - Attempt 1 (2026-11-01) **failed**: the loader started the CFW, but boots crashed or came up with garbled labels; the skip key gave a clean stock boot. Cause (finding 31): the `CFWldr` task had a 0x1000 stack, and `cfw_main`'s file I/O needs up to ~9.3 KB in the stock file API, so it overflowed into the heap. Fixed in stage 1 (stack 0x4000, like the Script task); the loader `.frm` is unchanged. The emulator now checks the stock file API's stack need against each task's stack. Data: the maintainer's hardware data.
 - **F4** (M10c, not built): patch-on-load and the look before the first live-view frame.
 - **U** menu update with the stock `.frm`: `LDR_STATE` `FFFFFFFF` again.
 
@@ -222,7 +223,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 | F1a | stock bytes | S | "Firmware update complete.", boots | — (**passed 2026-11-01**) |
 | F1b | stock bytes | R | auto power-on ~3 s after off; `RESCUE_RAN`, no `RESCUE_UP_RET` | — (**passed 2026-11-01**) |
 | F2 | loader | L, then N + probe | "Firmware update complete."; `LDR_STATE` 3, stock behaviour | — (**passed 2026-11-01**) |
-| F2b | no | N + probe | 1 / normal / USB OK | as F2 |
+| F2b | no | N + probe | 1 / normal / USB OK | — (**passed 2026-11-01**) |
 | F3 | no | N + debug zip − CFW TTL + probe | CFW up, log line, `LDR_STATE` 6 | half-press |
 | F4 | no | N | look on first frame | half-press |
 | U | stock bytes | S | `LDR_STATE` FFFFFFFF | R + combo |
