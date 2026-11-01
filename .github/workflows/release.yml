@@ -1,0 +1,51 @@
+name: Release
+
+# Bump VERSION in a commit on main, then push a matching tag: git tag v$(cat VERSION) && git push origin --tags
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches VERSION
+        run: test "${GITHUB_REF_NAME}" = "v$(tr -d '[:space:]' < VERSION)"
+
+      - name: Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      - uses: actions/cache@v4
+        with:
+          path: fw
+          key: fw-rg2_v003-3643850f2ae74ae9
+
+      - name: Build, test, package
+        run: |
+          make WERROR=1 test
+          make dist
+          cd dist && sha256sum -c SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: gr2_cfw ${{ github.ref_name }}
+          body_path: dist/RELEASE_NOTES.md
+          files: |
+            dist/gr2_cfw-v*-release.zip
+            dist/gr2_cfw-v*-debug.zip
+            dist/SHA256SUMS.txt

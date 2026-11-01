@@ -1,0 +1,21 @@
+Changes to the spektrafilm material (as asked by SPEKTRAFILM_LICENSE.txt and CC BY-SA 4.0)
+
+No LUT, profile, spectral data or rendered image from spektrafilm is included in this repository.
+Each recipe file encodes the look of one spektrafilm film/print simulation as Ricoh GR II camera
+settings relative to the camera's Standard rendering: a 3x3 colour matrix, three 33-knot tone
+curves, a 3x3 post matrix and twelve 3x3 hue-sector matrices.
+
+Source: spektrafilm 0.3.4 by Andrea Volpato, https://github.com/andreavolpato/spektrafilm, commit
+3bb2c2d2801ff68b92019cf1dbcbb133d60832bc; film and print profiles CC BY-SA 4.0. Profiles used
+(film / print): kodak_portra_400, kodak_ektar_100, kodak_gold_200, fujifilm_xtra_400,
+kodak_ultramax_400, kodak_vision3_50d / kodak_portra_endura; fujifilm_pro_400h /
+fujifilm_crystal_archive_typeii; kodak_vision3_250d, kodak_vision3_500t / kodak_2383.
+
+Method (gr2_cfw project, tool the maintainer's recipe tool): spektrafilm's own runtime
+(init_params, digest_params, simulation pipeline in its deterministic LUT mode: no grain, halation,
+blur or auto exposure; database neutral print filters) renders synthetic scene-linear sRGB samples
+at its nominal exposure: a dense neutral ramp, ColorChecker 24 patches and an sRGB grid at several
+exposures. A model of the GR II look stages (Standard colour matrix, hue sectors, tone curves,
+RGB->YCbCr) is fitted to those renders by least squares in CIELAB: the tone curves from the neutral
+ramp, then the matrices and hue sectors. The fitted values are rounded to the recipe integers.
+Modified by the gr2_cfw project; the recipe files are licensed CC BY-SA 4.0.

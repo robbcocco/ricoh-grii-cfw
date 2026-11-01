@@ -1,0 +1,14 @@
+# build outputs
+build/
+bin/
+dist/
+renders/
+# Ricoh stock firmware and everything extracted from it (make fw): never commit
+fw/
+*.frm
+*.zip
+# host noise
+__pycache__/
+.ruff_cache/
+.DS_Store
+._*

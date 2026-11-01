@@ -1,0 +1,39 @@
+# gr2_cfw recipe: Vision3 50D look (Ricoh GR II, firmware 3.00)
+# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# Approximates Kodak Vision3 50D printed on Kodak Portra Endura.
+# Not affiliated with Kodak or Fujifilm; film names are used descriptively.
+#
+# Film look derived from spektrafilm 0.3.4 (commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc)
+# by Andrea Volpato, https://github.com/andreavolpato/spektrafilm; profiles licensed CC BY-SA 4.0.
+# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the gr2_cfw project.
+# This recipe file is licensed CC BY-SA 4.0.
+# spektrafilm profiles kodak_vision3_50d / kodak_portra_endura; fit CIEDE2000 mean/95th %: Standard 6.1/12.0, this recipe 2.1/3.9.
+
+name=Vision3 50D
+base=setting2
+saturation=0
+contrast=0
+sharpness=0
+vignetting=off
+# look relative to Standard (README, section Recipes)
+# colour matrix, linear RGB, x128, rows R G B
+matrix=119,16,-7,-20,147,1,-12,-37,177
+# film tone curves: output code at Standard code 0, 8, 16, ..., 256
+tone_r=12,14,20,25,32,40,47,56,65,73,82,89,97,107,116,123,129,136,144,151,157,164,170,176,181,186,191,196,199,203,206,210,215
+tone_g=12,16,21,26,32,39,47,55,63,72,81,89,98,106,115,124,132,140,148,155,162,168,175,182,188,192,197,202,206,209,213,215,218
+tone_b=18,19,23,27,34,41,48,57,66,74,83,91,99,108,116,125,132,140,148,155,162,168,175,181,187,193,197,201,205,208,211,214,217
+# post matrix, display RGB, x128, rows R G B
+post_matrix=119,14,-5,16,101,11,5,20,103
+# hue sectors 1-12 (linear RGB, x128; from +Cb towards +Cr: magenta, red, green, blue quadrants)
+hue1=126,4,-2,11,109,8,5,5,118
+hue2=126,4,-2,13,108,7,7,4,117
+hue3=125,4,-1,12,113,3,9,4,115
+hue4=127,2,-1,15,110,3,9,6,113
+hue5=128,1,-1,13,111,4,9,10,109
+hue6=129,0,-1,11,112,5,13,15,100
+hue7=128,-1,1,10,113,5,11,15,102
+hue8=127,-1,2,9,114,5,8,14,106
+hue9=126,1,1,9,113,6,5,14,109
+hue10=124,3,1,9,111,8,3,12,113
+hue11=124,4,0,9,110,9,4,10,114
+hue12=126,4,-2,8,110,10,4,7,117

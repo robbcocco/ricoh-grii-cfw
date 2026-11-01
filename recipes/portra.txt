@@ -1,0 +1,39 @@
+# gr2_cfw recipe: Portra 400 look (Ricoh GR II, firmware 3.00)
+# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# Approximates Kodak Portra 400 printed on Kodak Portra Endura.
+# Not affiliated with Kodak or Fujifilm; film names are used descriptively.
+#
+# Film look derived from spektrafilm 0.3.4 (commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc)
+# by Andrea Volpato, https://github.com/andreavolpato/spektrafilm; profiles licensed CC BY-SA 4.0.
+# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the gr2_cfw project.
+# This recipe file is licensed CC BY-SA 4.0.
+# spektrafilm profiles kodak_portra_400 / kodak_portra_endura; fit CIEDE2000 mean/95th %: Standard 7.3/15.0, this recipe 2.3/4.2.
+
+name=Portra 400
+base=setting2
+saturation=0
+contrast=0
+sharpness=0
+vignetting=off
+# look relative to Standard (README, section Recipes)
+# colour matrix, linear RGB, x128, rows R G B
+matrix=119,20,-11,-19,133,14,-9,-31,168
+# film tone curves: output code at Standard code 0, 8, 16, ..., 256
+tone_r=13,14,17,21,27,34,41,50,60,69,79,87,95,105,115,122,129,137,145,152,159,166,173,179,185,190,195,200,204,208,210,213,217
+tone_g=13,15,20,24,30,37,45,53,61,70,80,88,97,105,114,124,132,140,148,155,162,169,176,183,188,193,198,202,206,209,212,215,217
+tone_b=17,18,21,24,29,35,42,51,59,69,78,86,96,105,114,123,132,140,148,156,164,170,177,183,190,195,199,203,206,209,211,213,215
+# post matrix, display RGB, x128, rows R G B
+post_matrix=120,13,-5,14,101,13,6,17,105
+# hue sectors 1-12 (linear RGB, x128; from +Cb towards +Cr: magenta, red, green, blue quadrants)
+hue1=123,6,-1,2,120,6,4,1,123
+hue2=125,5,-2,6,117,5,5,-1,124
+hue3=127,4,-3,6,119,3,7,-1,122
+hue4=129,3,-4,10,115,3,7,0,121
+hue5=128,3,-3,8,115,5,8,4,116
+hue6=128,3,-3,7,114,7,7,8,113
+hue7=126,4,-2,6,115,7,6,11,111
+hue8=125,5,-2,5,116,7,4,11,113
+hue9=123,6,-1,4,118,6,2,10,116
+hue10=121,7,0,4,118,6,1,8,119
+hue11=120,8,0,2,120,6,2,5,121
+hue12=122,8,-2,-2,122,8,3,3,122

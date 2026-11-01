@@ -1,0 +1,16 @@
+; M0 probe, power-off side (copy to H:/Shutdown.ttl). Data only.
+; Use the camera normally first (shoot, play back, open menus, Wi-Fi), then
+; power off: the same areas are dumped again for comparison.
+; ASCII, CRLF, uppercase drive letters.
+
+foldercreate 'H:/cfw'
+foldercreate 'H:/cfw/probe'
+
+sprintf "fsave H:/cfw/probe/SHUT_A0000000.BIN A0000000 20000"
+sendln inputstr
+sprintf "fsave H:/cfw/probe/SHUT_POOL.BIN A00C2BA0 10"
+sendln inputstr
+
+pause 1
+foldercreate 'H:/cfw/probe/SHUT_DONE'
+end

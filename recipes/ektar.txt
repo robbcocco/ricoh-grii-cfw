@@ -1,0 +1,39 @@
+# gr2_cfw recipe: Ektar 100 look (Ricoh GR II, firmware 3.00)
+# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# Approximates Kodak Ektar 100 printed on Kodak Portra Endura.
+# Not affiliated with Kodak or Fujifilm; film names are used descriptively.
+#
+# Film look derived from spektrafilm 0.3.4 (commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc)
+# by Andrea Volpato, https://github.com/andreavolpato/spektrafilm; profiles licensed CC BY-SA 4.0.
+# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the gr2_cfw project.
+# This recipe file is licensed CC BY-SA 4.0.
+# spektrafilm profiles kodak_ektar_100 / kodak_portra_endura; fit CIEDE2000 mean/95th %: Standard 7.8/16.4, this recipe 2.7/4.5.
+
+name=Ektar 100
+base=setting2
+saturation=0
+contrast=0
+sharpness=0
+vignetting=off
+# look relative to Standard (README, section Recipes)
+# colour matrix, linear RGB, x128, rows R G B
+matrix=138,10,-20,-38,143,23,-23,-41,192
+# film tone curves: output code at Standard code 0, 8, 16, ..., 256
+tone_r=16,17,19,21,26,31,37,45,55,64,74,83,93,105,115,124,131,139,147,155,162,169,175,181,186,191,196,200,204,207,210,213,217
+tone_g=14,16,19,23,28,33,41,48,56,66,76,85,95,103,113,123,132,140,147,154,161,168,175,181,187,191,195,200,204,207,210,213,215
+tone_b=17,18,20,23,29,35,42,50,59,68,77,85,95,105,115,125,133,142,152,160,167,175,182,188,194,199,203,207,209,212,214,216,218
+# post matrix, display RGB, x128, rows R G B
+post_matrix=120,13,-5,17,97,14,8,16,104
+# hue sectors 1-12 (linear RGB, x128; from +Cb towards +Cr: magenta, red, green, blue quadrants)
+hue1=119,8,1,6,117,5,2,-1,127
+hue2=122,6,0,11,111,6,6,-2,124
+hue3=124,6,-2,13,112,3,10,-1,119
+hue4=126,5,-3,20,108,0,13,2,113
+hue5=125,6,-3,17,109,2,11,7,110
+hue6=123,7,-2,14,111,3,12,12,104
+hue7=119,9,0,12,113,3,10,16,102
+hue8=117,10,1,10,116,2,6,15,107
+hue9=114,12,2,8,117,3,2,13,113
+hue10=111,13,4,7,118,3,-1,9,120
+hue11=111,13,4,3,121,4,-2,4,126
+hue12=117,10,1,-1,124,5,-1,0,129

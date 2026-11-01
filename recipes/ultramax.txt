@@ -1,0 +1,39 @@
+# gr2_cfw recipe: UltraMax 400 look (Ricoh GR II, firmware 3.00)
+# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# Approximates Kodak UltraMax 400 printed on Kodak Portra Endura.
+# Not affiliated with Kodak or Fujifilm; film names are used descriptively.
+#
+# Film look derived from spektrafilm 0.3.4 (commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc)
+# by Andrea Volpato, https://github.com/andreavolpato/spektrafilm; profiles licensed CC BY-SA 4.0.
+# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the gr2_cfw project.
+# This recipe file is licensed CC BY-SA 4.0.
+# spektrafilm profiles kodak_ultramax_400 / kodak_portra_endura; fit CIEDE2000 mean/95th %: Standard 6.1/12.8, this recipe 2.3/4.0.
+
+name=UltraMax 400
+base=setting2
+saturation=0
+contrast=0
+sharpness=0
+vignetting=off
+# look relative to Standard (README, section Recipes)
+# colour matrix, linear RGB, x128, rows R G B
+matrix=130,13,-15,-30,151,7,-18,-41,187
+# film tone curves: output code at Standard code 0, 8, 16, ..., 256
+tone_r=12,14,18,22,29,36,43,52,61,70,79,86,95,105,115,123,129,137,145,152,159,166,172,178,183,188,194,198,202,206,209,212,216
+tone_g=12,16,21,26,32,38,46,53,62,71,80,88,97,105,114,124,132,140,147,154,161,168,174,181,186,191,196,200,204,208,211,214,217
+tone_b=18,19,21,25,30,36,43,51,60,70,79,87,96,106,114,123,131,139,147,154,161,168,174,181,187,192,196,200,204,207,210,213,215
+# post matrix, display RGB, x128, rows R G B
+post_matrix=121,11,-4,18,99,11,6,19,103
+# hue sectors 1-12 (linear RGB, x128; from +Cb towards +Cr: magenta, red, green, blue quadrants)
+hue1=122,2,4,8,113,7,9,5,114
+hue2=124,1,3,12,108,8,11,4,113
+hue3=126,0,2,13,111,4,13,4,111
+hue4=129,-1,0,17,109,2,14,6,108
+hue5=127,0,1,15,110,3,15,11,102
+hue6=123,2,3,13,111,4,17,16,95
+hue7=119,4,5,12,111,5,16,17,95
+hue8=117,7,4,10,113,5,13,16,99
+hue9=115,8,5,9,113,6,9,15,104
+hue10=114,8,6,8,113,7,7,12,109
+hue11=116,7,5,6,114,8,7,9,112
+hue12=120,5,3,3,116,9,7,6,115
