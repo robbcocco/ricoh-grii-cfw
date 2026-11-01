@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""Prepare dist/flash/: one folder per M10 flash step (`make flash-kit`).
+
+Each step folder holds STEP.md (what to do, pass/fail, recovery) and card*/
+directories whose contents are exactly the root of the SD card for that step.
+Full rationale and risks: loader/flash/README.md §6/§7. Nothing here touches a
+card or the camera; the user copies the files.
+
+Inputs, all checked: fw/rg2_v003.frm (stock, SHA-256), dist/rg2_v003_loader.frm
+(SHA-256 of the reproducible build), loader/flash/probe/Startup.ttl,
+loader/flash/rescue/backup.ttl (ASCII + CRLF), dist/gr2_cfw-v<VERSION>-debug.zip.
+"""
+import hashlib
+import shutil
+import sys
+import zipfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+OUT = ROOT / "dist" / "flash"
+STOCK = ROOT / "fw" / "rg2_v003.frm"
+LOADER = ROOT / "dist" / "rg2_v003_loader.frm"
+PROBE = ROOT / "loader" / "flash" / "probe" / "Startup.ttl"
+RESCUE = ROOT / "loader" / "flash" / "rescue" / "backup.ttl"
+STOCK_SHA = "3643850f2ae74ae967eb336794048f554caa1b11d05b8569824d5719f1838331"
+LOADER_SHA = "497e5c987f58847d85cfe0eda1ba5f376faebf98e791b6ae5e1986ca650cb514"
+
+COMMON = """\
+Before every flash step (F1a, F1b, F2, U):
+- `make check` printed `STATUS: ALL GATES PASSED` on the Mac.
+- Battery indicator **full**; a second charged battery at hand.
+- Card R (step F1b) prepared and checked, kept out of the camera.
+- Card FAT32 (MBR, <= 32 GB). Copy exactly the `card/` contents to the card root, nothing else
+  (no other `rg2_v*.frm`, no `backup.ttl` unless listed). On macOS: `find /Volumes/<card> -name '._*' -delete`.
+- Check the `.frm` on the card: `shasum -a 256 /Volumes/<card>/rg2_v003.frm` = the hash in STEP.md.
+
+Keys: **skip key** = shutter *half*-pressed while switching on (loader does nothing).
+**Combo** = dial MOVIE + shutter *fully* pressed + POWER (enters BAK, runs `H:/backup.ttl`).
+Never press fully on MOVIE when you mean skip.
+"""
+
+STEPS = [
+    ("F0-timing-probe", "F0 · Timing probe (no flash)", {"card": ["probe"]}, """\
+**Writes flash:** no. Measures the stock boot timeline that the loader will improve.
+
+1. Card root = `card/` (only the probe `Startup.ttl`; any CFW `Startup.ttl` must be gone — other folders may stay).
+2. Power on, wait ~10 s after the LCD comes up, power off.
+3. Copy `H:/cfw/probe/` to the Mac and run
+   `python3 scripts/loader_timing.py <that folder> --task-start <systime>`
+   (`<systime>` from `task: running, systime …` in a debug-build `cfw_log.txt`; 0x7D0 if you have none).
+
+**Pass:** `H:/cfw/probe/PROF_DONE` exists, `BOOT_PROF.BIN` decodes into 12 section loads, `LDR_STATE.BIN` = `FF FF FF FF` (stock APP).
+**Fail:** no files → DEVEL_MODE off or the TTL damaged in copying. Nothing was written to flash.
+Send me: the `H:/cfw/probe/` folder (or the `loader_timing.py` output).
+"""),
+    ("F1a-stock-update", "F1a · Same-version stock update (first flash, stock bytes)", {"card": ["stock"]}, f"""\
+**Writes flash:** yes, the unmodified factory 3.00 firmware over itself. Proves the camera accepts a 3.00 → 3.00
+install through the menu; everything after depends on it.
+
+`rg2_v003.frm` SHA-256 `{STOCK_SHA}`
+
+1. Card S root = `card/` (only the stock `rg2_v003.frm`). Battery full.
+2. MENU → Set-up tab → *Confirm Firmware Version* → Yes (Ricoh's official update procedure, finding 07).
+3. Do not touch the camera until it has restarted.
+
+**Pass:** the dialog shows current 3.00 / card 3.00, the update runs, the camera restarts; *Confirm Firmware Version* shows 3.00;
+a shot and its playback work.
+**Not offered / error before it starts:** nothing was erased (header and checksum are checked before "Destroy APP."). **Stop
+here** and note the exact message (a battery message means the battery was not full).
+**Interrupted after it started:** leave card S in and switch on: BAK reflashes from the card automatically. If nothing
+happens: card R + combo (F1b).
+"""),
+    ("F1b-rescue-path", "F1b · Rescue card + combo (stock bytes)", {"card": ["stock", "rescue"]}, f"""\
+**Writes flash:** yes, stock 3.00 again, this time through BAK. Proves the last-resort recovery.
+
+`rg2_v003.frm` SHA-256 `{STOCK_SHA}`; `backup.ttl` runs `up`, then `forcedown`.
+
+1. Card R root = `card/` (stock `rg2_v003.frm` + `backup.ttl`). Battery full.
+2. Combo (cold start): dial MOVIE, hold the shutter fully down, press POWER. Then wait without touching anything until the
+   camera switches itself off (minutes; the LCD may stay dark).
+3. Remove card R (never leave it in the camera), insert your normal card, power on.
+
+**Pass:** the camera was busy for minutes (LED activity) before switching off, and boots stock 3.00 afterwards.
+**Unclear:** off after only seconds means `up` refused (the camera is unchanged). Report it; do not continue to F2.
+**Fail (stays on in BAK):** battery out, remove R, normal boot. If the APP was already erased, card S or R in + power on
+reflashes again.
+Keep card R ready (and out of the camera) for all later steps.
+"""),
+    ("F2-flash-loader", "F2 · Flash the debug loader (first modified firmware)", {"card-L": ["loader"], "card-N": ["probe"]}, f"""\
+**Writes flash:** yes: stock 3.00 + the 132-byte loader stub (only APP changes; RES identical; checksum recomputed).
+
+Loader `rg2_v003.frm` (renamed from `rg2_v003_loader.frm`) SHA-256 `{LOADER_SHA}`
+
+1. Card L root = `card-L/` (only the loader `rg2_v003.frm`). Battery full.
+2. Menu update as in F1a. After the restart, power off.
+3. Card N root = `card-N/` (probe `Startup.ttl`, **no** `cfw/gr2_cfw.bin`: move or delete the `cfw/` folder). Power on,
+   wait ~10 s, power off. Copy `H:/cfw/probe/` to the Mac, run `scripts/loader_timing.py` on it.
+4. Power-cycle three times; shoot, play back, browse the card.
+
+**Pass:** the camera looks and behaves stock; `LDR_STATE.BIN` = `00 00 00 03` (loader ran, no stage 1 on the card); section 1
+takes about the F0 time plus a card mount.
+**Update refused:** nothing erased; report the message.
+**Interrupted:** leave card L in and switch on (BAK installs the loader `.frm` again).
+**No LCD / hang:** battery out; boot with the skip key; then uninstall (U). No usable menu at all: card R + combo.
+"""),
+    ("F2b-skip-nocard-usb", "F2b · Skip key, no card, USB (no flash)", {"card": ["probe"]}, """\
+**Writes flash:** no.
+
+Card N root = `card/` as in F2 (probe `Startup.ttl`, no `cfw/gr2_cfw.bin`).
+
+a. Hold the shutter half-pressed while switching on → `LDR_STATE.BIN` = `00 00 00 01`.
+b. No card in the camera → it works normally.
+c. Card N in, connect USB to the Mac (USB boot) → the card mounts on the Mac, its files unchanged.
+
+**Fail:** as F2 (skip key, then U).
+"""),
+    ("F3-loader-starts-cfw", "F3 · The loader starts the CFW (no flash)", {"card": ["debug", "probe"]}, """\
+**Writes flash:** no. The flashed loader loads the CFW from the card without `Startup.ttl` doing it.
+
+Card N root = `card/`: the debug zip contents with its `Startup.ttl` **replaced by the probe** `Startup.ttl` (the CFW
+`Startup.ttl` must never be on a card while the loader is flashed). Never have card R in the camera for this step.
+
+1. Power on. Use the CFW as usual (Effect → CFW Menu / Recipes).
+2. Power off. Copy `H:/cfw/cfw_log.txt` and `H:/cfw/probe/` to the Mac.
+3. Power on with the skip key held: stock camera, no CFW; `LDR_STATE.BIN` = `00 00 00 01`.
+
+**Pass:** CFW up as usual; `cfw_log.txt` has `main: started by the flashed loader …`; `LDR_STATE.BIN` = `00 00 00 06`;
+`loader_timing.py` shows the hook(1) preload time.
+**Crash (camera powers off):** next boot with the skip key; report the log. **Hang:** battery out + skip key.
+Send me: `cfw_log.txt`, `H:/cfw/probe/`.
+"""),
+    ("U-uninstall", "U · Uninstall (back to stock 3.00)", {"card": ["stock"]}, f"""\
+**Writes flash:** yes, the stock firmware (any time after F2).
+
+`rg2_v003.frm` SHA-256 `{STOCK_SHA}`
+
+1. Card S root = `card/` (only the stock `rg2_v003.frm`). Battery full. Boot with the skip key if the CFW misbehaves.
+2. Menu update as in F1a.
+3. Optional: card N with the probe `Startup.ttl` → `LDR_STATE.BIN` = `FF FF FF FF`.
+
+**Fail:** card R + combo (F1b).
+"""),
+]
+
+
+def sha256(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def need(path, sha=None):
+    if not path.is_file():
+        sys.exit(f"missing {path.relative_to(ROOT)} (run make loader dist)")
+    data = path.read_bytes()
+    if sha and sha256(data) != sha:
+        sys.exit(f"{path.relative_to(ROOT)}: SHA-256 {sha256(data)} != expected {sha}")
+    return data
+
+
+def ttl(path):
+    data = need(path)
+    if not data.isascii() or b"\n" in data.replace(b"\r\n", b""):
+        sys.exit(f"{path.relative_to(ROOT)} is not ASCII with CRLF only")
+    return data
+
+
+def main():
+    version = (ROOT / "VERSION").read_text().strip()
+    stock, loader = need(STOCK, STOCK_SHA), need(LOADER, LOADER_SHA)
+    debug = zipfile.ZipFile(ROOT / "dist" / f"gr2_cfw-v{version}-debug.zip")
+    parts = {
+        "stock": {"rg2_v003.frm": stock},
+        "loader": {"rg2_v003.frm": loader},
+        "probe": {"Startup.ttl": ttl(PROBE)},
+        "rescue": {"backup.ttl": ttl(RESCUE)},
+        "debug": {n: debug.read(n) for n in debug.namelist() if not n.endswith("/") and n != "Startup.ttl"},
+    }
+    shutil.rmtree(OUT, ignore_errors=True)
+    index = ["# M10 flash steps", "", f"Built from gr2_cfw v{version}. Do them in order; each only after the previous one "
+             "passed and you reported the result. Details and risks: `loader/flash/README.md` §6/§7.", "", COMMON,
+             "| Step | Writes flash | Folder |", "|---|---|---|"]
+    for folder, title, cards, text in STEPS:
+        d = OUT / folder
+        for card, kinds in cards.items():
+            for kind in kinds:
+                for name, data in parts[kind].items():
+                    p = d / card / name
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.write_bytes(data)
+        (d / "STEP.md").write_text(f"# {title}\n\n{text}\n---\n{COMMON}")
+        flash = "**yes**" if "Writes flash:** yes" in text else "no"
+        index.append(f"| {title} | {flash} | `{folder}/` |")
+        print(f"prepared dist/flash/{folder}/ ({', '.join(cards)})")
+    (OUT / "README.md").write_text("\n".join(index) + "\n")
+
+
+if __name__ == "__main__":
+    main()

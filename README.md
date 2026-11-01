@@ -133,7 +133,7 @@ make help       # every target
 | `gr2_boot.ld`, `gr2_main.ld` | Stage-1 window and stage-2 link scripts |
 | `loader/` | `Startup.ttl` / `Shutdown.ttl` (SD loader), `probe/` (window check), `flash/` (M10 flashed loader: stub, rescue script, test plan) |
 | `recipes/`, `fonts/` | Shipped recipe files and overlay fonts, with their licences |
-| `scripts/` | `package_sd.py` (zips), `mkmain.py` (stage-2 relocations), `fetch_firmware.py` (`make fw`), `build_loader_frm.py` + `emu_loader.py` (`make loader`), `loader_timing.py`, `check_probe.py`, `make_fonts.py` |
+| `scripts/` | `package_sd.py` (zips), `mkmain.py` (stage-2 relocations), `fetch_firmware.py` (`make fw`), `build_loader_frm.py` + `emu_loader.py` (`make loader`), `flash_kit.py` (`make flash-kit`: per-step card folders for the flash tests), `loader_timing.py`, `check_probe.py`, `make_fonts.py` |
 | `tests/emu/` | Unicorn emulator tests of both builds against the stock firmware |
 | `tools/gr2frm.py` | `.frm` container tool (unpack, checksum, repack) |
 

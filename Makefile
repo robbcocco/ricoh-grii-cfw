@@ -36,7 +36,7 @@ ELFS      := $(foreach v,$(VARIANTS),bin/$(v)/gr2_cfw.elf bin/$(v)/gr2_main.elf)
 objs = $(patsubst src/%.S,build/$(1)/%.o,$(filter %.S,$(2))) \
        $(patsubst src/%.c,build/$(1)/%.o,$(filter %.c,$(2)))
 
-.PHONY: all disasm audit dist fw emu loader lint test check clean help
+.PHONY: all disasm audit dist fw emu loader flash-kit lint test check clean help
 
 all: $(foreach v,$(VARIANTS),bin/$(v)/gr2_cfw.bin bin/$(v)/gr2_main.bin)
 
@@ -66,6 +66,10 @@ loader: all fw
 	$(PYTHON) scripts/build_loader_frm.py
 	$(PYTHON) scripts/emu_loader.py
 
+# One folder per M10 flash step with the exact card contents (dist/flash/, never published).
+flash-kit: loader dist
+	$(PYTHON) scripts/flash_kit.py
+
 lint:
 	$(RUFF) check scripts tests tools
 
@@ -76,7 +80,7 @@ check:
 	$(PYTHON) the maintainer's safety check
 
 clean:
-	rm -rf build bin
+	rm -rf build bin dist/flash
 	rm -f dist/*.zip dist/*.frm dist/*.diff.txt dist/SHA256SUMS.txt dist/RELEASE_NOTES.md
 
 help:
@@ -85,6 +89,7 @@ help:
 	@echo "make fw         stock firmware inputs into fw/"
 	@echo "make emu        emulator tests (EMU_ARGS=\"--render DIR\" for screen PNGs)"
 	@echo "make loader     build + check dist/rg2_v003_loader.frm (never publish it)"
+	@echo "make flash-kit  dist/flash/: one folder per M10 flash step with the card contents"
 	@echo "make test       lint + audit + emu + loader (what CI runs)"
 	@echo "make check      pre-flight safety gates before flashing"
 	@echo "make disasm     bin/<variant>/*.asm"

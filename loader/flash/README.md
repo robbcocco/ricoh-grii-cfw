@@ -154,13 +154,19 @@ The stage-1 side of the ABI runs for real in `make emu` (scenario `loader`, `tes
 
 The models return what the decompiles show: Port_Get 0/1, MountMedia −1 on failure, LoadFile bytes or −1. Real mount, card and timing behaviour can only be checked on hardware.
 
-## 5. Time gained (static estimate; the probe measures it)
+## 5. Time gained (measured by F0, 2026-11-01 [H])
 
-- **Today:** `Startup.ttl` runs in JobSystem step 13, after every section load and every JobSystem step. CFW task start is 2.0 s systime [H, M1].
-- **hook(1)** runs right after stage 0, before 5,432,820 B of sections 1–13. Sections 1+4+2+3+5 are 1,328,336 B; 10, 8 and 6 are 2.18 MB, 1.02 MB and 0.57 MB.
-  - Estimate: stage 1 in RAM **≈ 1.5–2.5 s** earlier [I, finding 22 §4].
-  - The look can land before the first LV frame, which the SD build cannot do at all.
-- **hook(13)** saves the JobSystem steps 1–13 tail plus stage `0xE` [I]. The tasks/menus would come up perhaps a few hundred ms earlier.
+F0 on the stock APP (`LDR_STATE` `FFFFFFFF`; data in the maintainer's hardware data), section loads in systime ms:
+
+| Section | 1 | 4 | 2 | 3 | 5 | 10 | 11 | 8 | 9 | 6 | 12 | 13 | 14 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| start | 29 | 114 | 177 | 274 | 301 | 538 | 887 | 888 | 1281 | 1500 | 1702 | 1876 | 1907 |
+| load ms | 36 | 32 | 0 | 27 | 33 | 279 | 1 | 392 | 0 | 201 | 9 | 25 | 0 |
+
+- **Today:** `Startup.ttl` runs in JobSystem step 13; CFW task start ≈ 2.0 s systime [H, M1].
+- **hook(1)** runs at **29 ms**: stage 1 in RAM ~1.97 s earlier than today.
+- **IQ RAM ready** by the hook after section 10 at **817 ms**: the recipe look (M10c) can be written ~1.2 s before the SD build could, before live view starts.
+- **hook(13) / step 13 (M10b as built):** all sections are loaded at 1907 ms, so starting the CFW task after step 13 gains only **~0.1 s**. M10b's value is independence from `Startup.ttl`/DEVEL_MODE; the time gain needs M10c (patch-on-load, early look).
 - **Cost:** with a card inserted and no skip key, every boot also pays one early H: mount plus reading ≤ 32 KiB. In the probe that time shows up inside section 1's load time.
 - **Measure without flashing (F0):**
   1. Copy `probe/Startup.ttl` to the card as `H:/Startup.ttl`, power on, wait for `H:/cfw/probe/PROF_DONE`, power off.
@@ -175,7 +181,7 @@ Nothing below has been run. Steps F0–F4 are M10; M11's P-steps come after F3 a
 
 1. Run `make check` (= `verify_safety.py`). It must print `STATUS: ALL GATES PASSED`: the stock `rg2_v003.frm` is factory stock and the NAND dump the maintainer's hardware data is present. It never inspects the card.
 2. Run `make test` (lint, ISA audit, `make emu` with `PASS release/loader` and `PASS debug/loader`, `make loader` with `ALL PASSED`). Passed on 2026-11-01 [R]. `dist/rg2_v003_loader.frm` must have SHA-256 `497e5c98…b514`.
-3. Prepare the cards. Format each one FAT32, MBR, ≤ 32 GB. Delete `._*` files after every copy from macOS. After copying, check each `.frm` on the card with `shasum -a 256`. There are four roles:
+3. Prepare the cards. `make flash-kit` writes `dist/flash/<step>/` with a `STEP.md` and the exact card-root contents per step (`card/`, or `card-L/` + `card-N/` for F2), all hashes checked. Format each card FAT32, MBR, ≤ 32 GB. Delete `._*` files after every copy from macOS. After copying, check each `.frm` on the card with `shasum -a 256`. There are four roles:
 
    | Card | Root contents | Notes |
    |---|---|---|
