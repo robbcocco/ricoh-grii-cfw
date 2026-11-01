@@ -191,7 +191,7 @@ Nothing below has been run. Steps F0–F4 are M10; M11's P-steps come after F3 a
    | **L** loader flash | only `dist/rg2_v003_loader.frm`, **renamed `rg2_v003.frm`** (`f8c4f9b6…a7d5`) | F2. Exactly one `rg2_v*.frm`, no `backup.ttl`. |
    | **N** normal | per step: `loader/flash/probe/Startup.ttl` as `Startup.ttl`, plus the debug zip for F3 | DCIM etc. may stay |
 
-   - Card R deliberately departs from the "no `backup.ttl`" parachute rule (AGENTS.md §3/§4). That rule exists because a `backup.ttl` replaces BAK's automatic cause-6 `up`. This script runs `up` itself, so cause 6 still reflashes, and the combo (cause 8) becomes a manual reflash path. Amend the rule only after F1b passes.
+   - Card R has a `backup.ttl` on purpose: it runs `up` itself, so BAK's automatic cause-6 reflash is kept and the combo (cause 8) becomes a manual reflash path. Confirmed by F1b (2026-11-01); the maintainer's rescue rule describes this card.
    - The combo, BAK running `backup.ttl` and shell commands from it are [H] 2026-10-31 (`bak_test`).
 4. Camera prerequisites:
    - `PROPID_DEVEL_MODE = 1` (already set for the CFW), so the probe `Startup.ttl` runs.
@@ -207,7 +207,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 
 - **F0** timing probe — passed 2026-11-01 (§5).
 - **F1a** menu update with the stock `.frm` — **passed 2026-11-01 [H]**: "Execute?" with *New Version 3.00* → Yes → "Firmware update complete." → OK switches the camera **off** (no automatic restart, finding 27). Refusal shows "Confirm Firmware Version" without No/Yes (no valid file), "Battery depleted", or a blank *New Version*; nothing is erased in those cases.
-- **F1b** rescue card + combo: `backup.ttl` marks `RESCUE_RAN`, runs `up`; success powers off with a 3 s RTC wake into the reflashed APP and never returns; a refusal returns and leaves `RESCUE_UP_RET` before `forcedown` (finding 27). No LCD or LED meanwhile. Release the shutter and leave MOVIE after POWER so the self-restart does not re-enter BAK.
+- **F1b** rescue card + combo — **passed 2026-11-01 [H]** (`RESCUE_RAN` only: `up` reflashed stock from BAK and did not return): `backup.ttl` marks `RESCUE_RAN`, runs `up`; success powers off with a 3 s RTC wake into the reflashed APP and never returns; a refusal returns and leaves `RESCUE_UP_RET` before `forcedown` (finding 27). No LCD or LED meanwhile. Release the shutter and leave MOVIE after POWER so the self-restart does not re-enter BAK.
 - **F2** menu update with the loader `.frm` (check *New Version 3.00* before Yes), first boot with card L still in, then card N with the probe: `LDR_STATE` 3, also after a cold start.
 - **F2b** skip key (`LDR_STATE` 1), no card, USB.
 - **F3** debug CFW files + probe `Startup.ttl`: CFW up, `main: started by the flashed loader`, `LDR_STATE` 6; then the skip-key boot. Never with card R inserted (a crash would reflash stock). Optional: the CFW `Startup.ttl` back once → logged refusal, no second CFW.
@@ -220,7 +220,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 |---|---|---|---|---|
 | F0 | no | N + probe | `LDR_STATE` FFFFFFFF, profile decodes | — (**passed 2026-11-01**) |
 | F1a | stock bytes | S | "Firmware update complete.", boots | — (**passed 2026-11-01**) |
-| F1b | stock bytes | R | auto power-on ~3 s after off; `RESCUE_RAN`, no `RESCUE_UP_RET` | battery pull, normal boot |
+| F1b | stock bytes | R | auto power-on ~3 s after off; `RESCUE_RAN`, no `RESCUE_UP_RET` | — (**passed 2026-11-01**) |
 | F2 | loader | L, then N + probe | "Firmware update complete."; `LDR_STATE` 3, stock behaviour | half-press, U; R + combo |
 | F2b | no | N + probe | 1 / normal / USB OK | as F2 |
 | F3 | no | N + debug zip − CFW TTL + probe | CFW up, log line, `LDR_STATE` 6 | half-press |
@@ -242,7 +242,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 3. **The early H: mount (after `Section_Load(1)`) is untested on hardware.** Static review (finding 28): no wait depends on a task that does not exist yet; no card returns −1 quickly; DCFMount's later remount is a designed path (unmount, re-init, one retry with a card power cycle); `LoadFile` closes its file. Open: PrFILE2's internal writes on mount, UHS-I cards.
    - −1 → stock boot. A hang → no LCD → battery pull + half-press. Breaking DCFMount's remount → card errors → half-press boot, then U.
    - Fixed 2026-11-01: the first stub mounted before section 1 was loaded; that build must never be flashed (§1).
-4. **BAK specifics untested on hardware:** the RTC wake after a successful `up`, `forcedown`, exFAT in BAK (keep FAT32). The F1b markers distinguish success from refusal.
+4. **BAK specifics:** F1b showed on hardware that BAK's `up` from `backup.ttl` reflashes and does not return on success. Still untested: `forcedown` after a refusal, exFAT in BAK (keep FAT32).
 5. **Card-content mistakes.**
    - The debug zip contains the CFW `Startup.ttl`; with the loader armed it must be removed (F3), or it causes a double load (§3).
    - BAK/`up` take the **highest** `rg2_vNNN.frm` in the root, fall back to `gr_vNNN.frm`, and open loose `b01firm0…9` files first (finding 27): cards hold exactly one `.frm` and nothing else of that kind.
