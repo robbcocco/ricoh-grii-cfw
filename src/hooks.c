@@ -1,113 +1,87 @@
+/* Route the Effect button to the CFW when "CFW Menu" or "Recipes" is selected.
+ * Two stock Thumb BLs are retargeted in RAM (finding 16 §4):
+ *   press  0xA03A1F92  bl 0xA039607C (availability(value), r0 = assigned value)
+ *   hold   0xA03A5790  bl 0xA0396EA0 (Wi-Fi toggle, no arguments)
+ *
+ * Tasks run in USR mode, so the I-cache cannot be invalidated. The patch is
+ * therefore a single aligned 16-bit store of the BL's first halfword (the
+ * veneers in src/veneers.S share the low 12 address bits of the stock
+ * targets, so the second halfword is unchanged). A stale I-cache line can only
+ * hold the complete old BL: until the line is refilled the stock function
+ * runs, which is harmless. DRAM is write-through with no write buffer, so the
+ * store reaches memory immediately.
+ *
+ * The hooks run in the camera's UI task: they only count requests per menu;
+ * the CFW task does the work. Any other value falls through to the stock
+ * function. */
+#include <stdint.h>
+#include "boot.h"
+#include "cfw.h"
+#include "cfw_log.h"
 #include "gr2_hw.h"
-#include "gr2_ui.h"
 
-/* Convert ASCII string to Big-Endian UTF-16 in destination buffer */
-static void str_to_utf16_be(uint16_t *dest, const char *src, int max_chars) {
-    int i = 0;
-    while (src[i] && i < max_chars - 1) {
-        dest[i] = (uint16_t)((uint8_t)src[i]);
-        i++;
+uint32_t cfw_cpsr(void);           /* src/arm.S */
+
+#define SITE_PRESS      0xA03A1F92u
+#define ORIG_PRESS      0xA039607Cu
+#define SITE_HOLD       0xA03A5790u
+#define ORIG_HOLD       0xA0396EA0u
+
+static volatile uint32_t g_requests[CFW_MENU_COUNT];
+
+int cfw_press_hook(uint32_t value) {
+    if (value >= CFW_EFX_VALUE && value < CFW_EFX_VALUE + CFW_MENU_COUNT) {
+        g_requests[value - CFW_EFX_VALUE]++;
+        return 0;   /* stock "no function" exit */
     }
-    while (i < max_chars) {
-        dest[i] = 0;
-        i++;
-    }
+    return ((int (*)(uint32_t))(ORIG_PRESS | 1))(value);
 }
 
-/* Native RTOS file logger to H:/cfw_log.txt */
-void cfw_log(const char *msg) {
-    int fd = GR2_FN_FILE_OPEN("H:/cfw_log.txt", 0x302);
-    if (fd != 0) {
-        int len = 0;
-        while (msg[len]) len++;
-        GR2_FN_FILE_WRITE(fd, msg, len);
-        GR2_FN_FILE_CLOSE(fd);
+void cfw_hold_hook(void) {
+    uint32_t value = GR2_FN_PROP_GET(GR2_PROPID_EFX_BTN_CONT);
+    if (value >= CFW_HOLD_VALUE && value < CFW_HOLD_VALUE + CFW_MENU_COUNT) {
+        g_requests[value - CFW_HOLD_VALUE]++;
+        return;     /* skip the stock Wi-Fi toggle */
     }
+    ((void (*)(void))(ORIG_HOLD | 1))();
 }
 
-/* Effect Button Hold Action Hook:
- * Active ONLY when 'Open Custom OS' (value 1) is selected in Key Custom Options -> Effect Button Hold Setting.
- * If Wi-Fi (value 0) or stock function is selected, passes through to original factory handler.
- */
-void hook_efx_hold(void) {
-    uint32_t val = 0;
-    uint32_t ret = GR2_FN_PROP_GET(GR2_PROPID_EFX_BTN_CONT, (uint32_t)&val);
-    if (val == 1 || ret == 1) {
-        cfw_log("--> Effect button hold: 'Open Custom OS' active -> ui_toggle_menu()\n");
-        ui_toggle_menu();
-    } else {
-        cfw_log("--> Effect button hold: Stock Wi-Fi active -> GR2_ORIG_EFX_HOLD_FN()\n");
-        GR2_ORIG_EFX_HOLD_FN();
-    }
+uint32_t cfw_hook_requests(int menu) {
+    return g_requests[menu];
 }
 
-/* Initialize Custom Firmware Hooks */
-void hooks_init(void) {
-    /* 1. Unconditionally hook the state machine action vector in DRAM (Thumb mode: bit 0 set) */
-    *GR2_ADDR_EFX_HOLD_HOOK = ((uint32_t)hook_efx_hold) | 1;
-
-    /* 2. Patch stock menu text to 'Open Custom OS' so it is always visible in settings */
-    str_to_utf16_be(GR2_ADDR_EFX_HOLD_TEXT, "Open Custom OS", 17);
+/* Thumb BL encoding (ARMv5T: two 16-bit halves, +-4 MiB). */
+static int encode_bl(uint32_t site, uint32_t target, uint32_t *hi, uint32_t *lo) {
+    int32_t off = (int32_t)((target & ~1u) - (site + 4));
+    if (off < -(1 << 22) || off >= (1 << 22)) return -1;
+    *hi = 0xF000u | (((uint32_t)off >> 12) & 0x7FFu);
+    *lo = 0xF800u | (((uint32_t)off >> 1) & 0x7FFu);
+    return 0;
 }
 
-/* Feature 1: In-Camera Clarity Slider (Row 4 in Fn sub-menu) */
-void hooks_set_clarity_slider(bool enable) {
-    if (enable) {
-        str_to_utf16_be(GR2_ADDR_NAME_VIGN, "Clarity", 11);
-    } else {
-        str_to_utf16_be(GR2_ADDR_NAME_VIGN, "Vignetting", 11);
+static int patch_site(uint32_t site, uint32_t orig, uint32_t veneer) {
+    volatile uint16_t *p = (volatile uint16_t *)site;
+    uint32_t ohi, olo, nhi, nlo;
+    if (encode_bl(site, orig, &ohi, &olo) != 0 || encode_bl(site, veneer, &nhi, &nlo) != 0 ||
+        nlo != olo) {
+        ERR_HEX2("hooks: veneer not reachable with one halfword (site, veneer)", site, veneer);
+        return -1;
     }
+    if (p[0] != ohi || p[1] != olo) {
+        ERR_HEX2("hooks: site not stock (site, found)", site, ((uint32_t)p[0] << 16) | p[1]);
+        return -1;
+    }
+    p[0] = (uint16_t)nhi;
+    DBG_HEX2("hooks: patched (site, now)", site, ((uint32_t)p[0] << 16) | p[1]);
+    return 0;
 }
 
-/* Feature 2: Smart Photographic S-Curve on Contrast */
-void hooks_set_scurve_contrast(bool enable) {
-    if (enable) {
-        /* D=6 provides extended highlight roll-off shoulder */
-        GR2_FN_DISPATCH_CMD("efcset efc_posiFilm 65617 warm");
-    } else {
-        /* Restore factory Ricoh curve baseline */
-        GR2_FN_DISPATCH_CMD("efcset efc_posiFilm 55509 _");
-    }
-}
-
-/* Feature 3: Auto-ISO Minimum Shutter Speed Floor */
-void hooks_set_auto_iso_floor(bool enable) {
-    if (enable) {
-        /* Minimum 1/125s shutter speed floor */
-        GR2_FN_DISPATCH_CMD("svautoset 100 6400 1.125");
-    } else {
-        /* Restore factory auto floor */
-        GR2_FN_DISPATCH_CMD("svautoset 100 25600 auto");
-    }
-}
-
-/* Feature 4: Fine-Grain High-ISO Noise Reduction */
-void hooks_set_fine_grain_nr(bool enable) {
-    if (enable) {
-        /* Preserves grain up to ISO 1600 */
-        GR2_FN_DISPATCH_CMD("nrset wms 100 800 1600");
-    } else {
-        /* Restore factory NR thresholds */
-        GR2_FN_DISPATCH_CMD("nrset wms 100 400 800");
-    }
-}
-
-/* Slot Name Patching (Only applied when user assigns a film to a slot) */
-void hooks_patch_slot_name(AssignableSlot slot, const char *film_name) {
-    switch (slot) {
-        case SLOT_POSI:
-            str_to_utf16_be(GR2_ADDR_NAME_POSI, film_name ? film_name : "Positive Film", 14);
-            break;
-        case SLOT_BLEACH:
-            str_to_utf16_be(GR2_ADDR_NAME_BLEACH, film_name ? film_name : "Bleach Bypass", 14);
-            break;
-        case SLOT_RETRO:
-            str_to_utf16_be(GR2_ADDR_NAME_RETRO, film_name ? film_name : "Retro", 6);
-            break;
-        case SLOT_CROSS:
-            str_to_utf16_be(GR2_ADDR_NAME_CROSS, film_name ? film_name : "Cross Process", 14);
-            break;
-        default:
-            break;
-    }
+int cfw_hooks_install(const cfw_boot_t *boot) {
+    DBG_HEX("hooks: cpsr", cfw_cpsr());
+    /* The veneers (stage 1) jump through these words: fill them before any BL points there. */
+    *boot->press_target = (uint32_t)cfw_press_hook;
+    *boot->hold_target = (uint32_t)cfw_hold_hook;
+    int rc = patch_site(SITE_PRESS, ORIG_PRESS, boot->veneer_press);
+    rc |= patch_site(SITE_HOLD, ORIG_HOLD, boot->veneer_hold);
+    return rc;
 }

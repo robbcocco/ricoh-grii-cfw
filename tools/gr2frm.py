@@ -21,13 +21,12 @@ Format facts (all verified against rg2_v003.frm):
   * Every decrypted image starts with a 0x200-byte update header.  A: drive file
     offsets in the directory are relative to the end of that header.
   * The update header carries nUpdateCsum (0x16C): b01firm6 0xA3A80234,
-    b01firm8 0x826A5E33.  Its algorithm is NOT known.  Ruled out (plaintext and
-    ciphertext): 8/16/32-bit additive sums (also negated/complemented) and 32-bit
-    XOR over every contiguous window starting in the first 0x800 bytes; reflected
-    CRC32 variants, one's-complement sums and constant-offset sums over the
-    common windows.  This tool therefore reports the field but cannot recompute
-    it: repacked output is only valid for byte-identical payloads and must not
-    be flashed after edits.
+    b01firm8 0x826A5E33.  Algorithm (updater `up`, RTOS 0xA003FCE6 / BAK
+    0xA701DF4A, enforced when bCompareCsum (0x178) == 1):
+        sum(payload[i] * (((pLoadAddr + i) % 6) + 2)) mod 2**32
+    over the nUpdateTotalSize decrypted bytes after the 0x200 header, with
+    pLoadAddr = header +0x20.  Reproduces all four stock modules (ipl, system,
+    APP, RES).  `repack` recomputes it for every image whose payload changed.
 """
 import argparse
 import hashlib
@@ -117,7 +116,11 @@ def unpack(frm):
 
 
 def repack(frm, images):
-    """Re-encrypt `images` into a copy of `frm`. Every image must keep its length."""
+    """Re-encrypt `images` into a copy of `frm`. Every image must keep its length.
+
+    An image whose payload (bytes after the 0x200 header) differs from the one
+    in `frm` gets its nUpdateCsum recomputed; unchanged images are left as-is.
+    """
     out = bytearray(frm)
 
     def apply(buf_off, buf):
@@ -134,6 +137,8 @@ def repack(frm, images):
             if len(new) != e.length:
                 raise ValueError(f"{e.name}: length {len(new)} != {e.length} "
                                  "(resizing is not supported)")
+            if new[IMAGE_HDR:] != xor_blocks(raw)[IMAGE_HDR:]:
+                new = with_csum(new)
             out[buf_off + e.offset:buf_off + e.offset + e.length] = xor_blocks(new)
         return bytes(out[buf_off:buf_off + len(buf)])
 
@@ -168,6 +173,27 @@ def update_header(img):
         "nRevision": u32(0x190),
         "sUpdateIcode": _s(img[0x1F0:0x200]),
     }
+
+
+CSUM_OFF = 0x16C
+
+
+def nupdate_csum(img):
+    """nUpdateCsum of a decrypted image, as computed by the camera's `up` verifier:
+    sum(payload[i] * (((pLoadAddr + i) % 6) + 2)) mod 2**32 over nUpdateTotalSize
+    bytes after the 0x200 header."""
+    load, total = struct.unpack_from(">I", img, 0x20)[0], struct.unpack_from(">I", img, 0x164)[0]
+    payload = img[IMAGE_HDR:IMAGE_HDR + total]
+    if len(payload) != total:
+        raise ValueError(f"nUpdateTotalSize 0x{total:X} runs past image end")
+    return sum((((load + k) % 6) + 2) * sum(payload[k::6]) for k in range(6)) & 0xFFFFFFFF
+
+
+def with_csum(img):
+    """Copy of `img` with nUpdateCsum (header +0x16C) set to the computed value."""
+    out = bytearray(img)
+    struct.pack_into(">I", out, CSUM_OFF, nupdate_csum(img))
+    return bytes(out)
 
 
 # ── A: drive ───────────────────────────────────────────────────────────────
@@ -206,6 +232,9 @@ def cmd_info(a):
         for k, v in update_header(data).items():
             val = f"0x{v:08X}" if isinstance(v, int) and k.startswith(("p", "nUpdate")) else v
             print(f"{pad}    {k:18s} {val}")
+        calc = nupdate_csum(data)
+        print(f"{pad}    {'computed csum':18s} 0x{calc:08X} "
+              f"({'matches' if calc == update_header(data)['nUpdateCsum'] else 'MISMATCH'})")
         if e.name == RTOS_IMAGE:
             print(f"{pad}    {'ram base':18s} 0x{RTOS_BASE:08X} (+ file offset)")
 
@@ -284,15 +313,19 @@ def cmd_verify(a):
     ok = again == frm
     print(f"images: {', '.join(f'{k} ({len(v):,} B)' for k, v in images.items())}")
     print(f"round trip: {'byte-identical' if ok else 'MISMATCH'}")
+    csum_ok = True
     for name, img in images.items():
         h = update_header(img)
         size_ok = h["nUpdateFileSize"] == len(img) and h["nUpdateTotalSize"] == len(img) - IMAGE_HDR
+        calc = nupdate_csum(img)
+        csum_ok &= calc == h["nUpdateCsum"]
         print(f"{name}: header sizes {'consistent' if size_ok else 'INCONSISTENT'} "
               f"(file 0x{h['nUpdateFileSize']:X}, total 0x{h['nUpdateTotalSize']:X}); "
-              f"nUpdateCsum 0x{h['nUpdateCsum']:08X} not verifiable (algorithm unknown)")
+              f"nUpdateCsum 0x{h['nUpdateCsum']:08X} "
+              f"{'matches computed' if calc == h['nUpdateCsum'] else f'MISMATCH (computed 0x{calc:08X})'}")
     afs = afs_entries(images[AFS_IMAGE])
     print(f"A: drive: {len(afs)} files, all inside image")
-    return 0 if ok else 1
+    return 0 if ok and csum_ok else 1
 
 
 def cmd_repack(a):
@@ -300,8 +333,11 @@ def cmd_repack(a):
     images = {p.name[:-4]: p.read_bytes() for p in Path(a.imgdir).glob("*.bin")}
     out = repack(frm, images)
     Path(a.out).write_bytes(out)
-    changed = unpack(out) != unpack(frm)
-    print(f"wrote {a.out} ({len(out):,} B){' - payload CHANGED, nUpdateCsum NOT recomputed: do not flash' if changed else ''}")
+    old, new = unpack(frm), unpack(out)
+    for name, img in new.items():
+        if img != old[name]:
+            print(f"{name}: payload changed, nUpdateCsum recomputed -> 0x{update_header(img)['nUpdateCsum']:08X}")
+    print(f"wrote {a.out} ({len(out):,} B)")
 
 
 def main(argv=None):

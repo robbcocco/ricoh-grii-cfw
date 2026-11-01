@@ -1,7 +1,7 @@
 build/
+bin/
+dist/
 .DS_Store
-dist/*.frm
-dist/*.bin
 rg2_v003.frm
 rg2_v003.zip
 __pycache__/

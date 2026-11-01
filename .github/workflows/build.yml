@@ -1,4 +1,4 @@
-name: Build & Verify Custom Firmware
+name: Build & Package CFW
 
 on:
   push:
@@ -8,104 +8,66 @@ on:
   workflow_dispatch:
 
 jobs:
-  check-and-build:
-    name: Check, Build & Package CFW
+  build:
+    name: Build release + debug, package SD bundles
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install ARM GNU Bare-Metal Toolchain
+      - name: Install ARM GNU bare-metal toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
-
-      - name: Verify Toolchain
-        run: |
           arm-none-eabi-gcc --version
-          python3 --version
 
-      - name: Compile Bare-Metal ARM Payload
+      - name: Build both variants
+        run: make clean all disasm
+
+      - name: Size & ISA audit
         run: |
-          make clean
-          make all
-          make disasm
+          echo "### Payload size (v$(tr -d '[:space:]' < VERSION))" >> $GITHUB_STEP_SUMMARY
+          echo "| Variant | Stage | .text | .data | .bss | bin |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|---|---|---|---|" >> $GITHUB_STEP_SUMMARY
+          for v in release debug; do
+            for s in cfw main; do
+              ELF=bin/$v/gr2_$s.elf
+              sz() { arm-none-eabi-size -A $ELF | awk -v s="$1" '$1==s{print $2}'; }
+              BIN=$(stat -c%s bin/$v/gr2_$s.bin)
+              echo "| $v | gr2_$s | $(sz .text) | $(sz .data) | $(sz .bss) | $BIN |" >> $GITHUB_STEP_SUMMARY
+              # gr2_boot.ld asserts the window layout; the camera CPU is ARMv5TE, Thumb-1 only.
+              arm-none-eabi-readelf -A $ELF | grep -q 'Tag_CPU_arch: v5TE'
+              arm-none-eabi-readelf -A $ELF | grep -q 'Tag_THUMB_ISA_use: Thumb-1'
+            done
+          done
 
-      - name: Memory Size Budget Audit
+      # The firmware image is not in the repo, so this is a skip in CI; it runs the
+      # Unicorn scenarios wherever fw/b01firm8.bin (or GR2_FW) exists.
+      - name: Emulator smoke test (skips without the firmware image)
         run: |
-          TEXT_SZ=$(arm-none-eabi-size -A bin/gr2_cfw.elf | grep '\.text' | awk '{print $2}')
-          DATA_SZ=$(arm-none-eabi-size -A bin/gr2_cfw.elf | grep '\.data' | awk '{print $2}')
-          BSS_SZ=$(arm-none-eabi-size -A bin/gr2_cfw.elf | grep '\.bss' | awk '{print $2}')
-          TOTAL_SZ=$((TEXT_SZ + DATA_SZ))
-          POOL_LIMIT=65536
-          PCT=$(awk "BEGIN {printf \"%.1f\", ($TOTAL_SZ / $POOL_LIMIT) * 100}")
+          if [ -f "${GR2_FW:-fw/b01firm8.bin}" ]; then pip install unicorn pillow numpy; fi
+          make emu
 
-          echo "### 📊 Bare-Metal Memory Pool Audit" >> $GITHUB_STEP_SUMMARY
-          echo "| Section | Size (Bytes) | DRAM Budget | Pool Usage |" >> $GITHUB_STEP_SUMMARY
-          echo "| :--- | :---: | :---: | :---: |" >> $GITHUB_STEP_SUMMARY
-          echo "| **.text (Code)** | $TEXT_SZ B | — | — |" >> $GITHUB_STEP_SUMMARY
-          echo "| **.data (Globals)** | $DATA_SZ B | — | — |" >> $GITHUB_STEP_SUMMARY
-          echo "| **.bss (Zeroed)** | $BSS_SZ B | — | — |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Total Payload** | **$TOTAL_SZ B** | **65,536 B (64 KB)** | **$PCT %** |" >> $GITHUB_STEP_SUMMARY
+      - name: Package SD bundles
+        run: python3 scripts/package_sd.py
 
-          if [ $TOTAL_SZ -gt $POOL_LIMIT ]; then
-            echo "❌ **ERROR**: Payload size ($TOTAL_SZ B) exceeds 64 KB memory pool!" >> $GITHUB_STEP_SUMMARY
-            exit 1
-          else
-            echo "✅ **PASS**: Memory pool fits comfortably within safe high DRAM." >> $GITHUB_STEP_SUMMARY
-          fi
+      - name: Verify checksums
+        run: cd dist && sha256sum -c SHA256SUMS.txt
 
-      - name: Build Firmware Release Package
-        env:
-          CI: "true"
-        run: |
-          python3 scripts/build_release.py --skip-sd-check
-
-      - name: Package Emergency Recovery Kit
-        run: |
-          mkdir -p dist/rescue_kit
-          python3 tools/make_recovery_card.py --dest dist/rescue_kit
-          cd dist/rescue_kit
-          zip -r ../ricoh_gr2_sd_rescue_kit.zip SD.dat backup.ttl
-          cd ..
-          rm -rf rescue_kit
-          sha256sum ricoh_gr2_sd_rescue_kit.zip >> SHA256SUMS.txt
-          ls -lh ricoh_gr2_sd_rescue_kit.zip
-
-      - name: Validate Release Manifest Checksums
-        run: |
-          cd dist
-          sha256sum -c SHA256SUMS.txt
-
-      - name: Publish Build Summary
-        run: |
-          VER=$(cat VERSION | tr -d '[:space:]')
-          echo "### 🚀 Custom Firmware Build Summary (v$VER)" >> $GITHUB_STEP_SUMMARY
-          echo "```" >> $GITHUB_STEP_SUMMARY
-          cat dist/SHA256SUMS.txt >> $GITHUB_STEP_SUMMARY
-          echo "```" >> $GITHUB_STEP_SUMMARY
-
-      - name: Read Version
-        id: get_version
-        run: |
-          VER=$(cat VERSION | tr -d '[:space:]')
-          echo "version=$VER" >> $GITHUB_OUTPUT
-
-      - name: Upload Build Artifacts
+      - name: Upload SD bundles
         uses: actions/upload-artifact@v4
         with:
-          name: ricoh-gr2-cfw-v${{ steps.get_version.outputs.version }}
+          name: gr2_cfw-sd-bundles
           path: |
-            dist/*.frm
-            dist/*.bin
             dist/*.zip
             dist/SHA256SUMS.txt
             dist/RELEASE_NOTES.md
-            bin/gr2_cfw.elf
-            bin/gr2_cfw.asm
+
+      - name: Upload ELF + disassembly (debugging)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gr2_cfw-elf
+          path: |
+            bin/*/gr2_*.elf
+            bin/*/gr2_*.asm

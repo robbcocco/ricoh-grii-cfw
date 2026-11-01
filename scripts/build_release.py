@@ -32,7 +32,7 @@ elif PARENT_TOOLS.exists():
 else:
     raise RuntimeError("Cannot locate tools/ directory")
 
-from gr2frm import load, repack, parse_container, xor_blocks
+from gr2frm import load, repack, parse_container, nupdate_csum, update_header
 from verify_safety import check_safety
 
 STOCK_ZIP_URL = "https://www.ricoh-imaging.co.jp/english/support/digital/firmware/rg2_v003.zip"
@@ -93,7 +93,7 @@ def ensure_stock_firmware() -> Path:
     print(f"[OK] Extracted stock {target_path.name} ({len(frm_data):,} bytes)")
     return target_path
 
-def build_cfw_v001(custom_logo_brp_path=None, dist_dir=None, skip_sd_check=False, version=None):
+def build_cfw_v001(custom_logo_brp_path=None, dist_dir=None, skip_safety_gate=False, version=None):
     version = get_version(version)
     print("=" * 70)
     print(f"      RICOH GR II CUSTOM FIRMWARE (CFW v{version}) BUILD PIPELINE")
@@ -106,17 +106,15 @@ def build_cfw_v001(custom_logo_brp_path=None, dist_dir=None, skip_sd_check=False
     # -------------------------------------------------------------
     # Step 1: Pre-Flight Safety Verification
     # -------------------------------------------------------------
-    print("\n>>> STEP 1: Running Pre-Flight Safety Gate...")
-    sd_path = "/Volumes/RICOH_GR"
-    if not os.path.exists(sd_path) or skip_sd_check:
-        print("[INFO] Physical SD card not mounted (CI environment); checking core safety gates.")
-        # In CI, audit passes if stock firmware and assets are verified
+    print("\n>>> STEP 1: Running Pre-Flight Safety Gate (local workspace)...")
+    if skip_safety_gate:
+        print("[SKIPPED] Safety gate skipped (--skip-safety-gate / CI). Output must not be flashed before running verify_safety.py.\n")
+    elif not check_safety():
+        print("\n[CRITICAL ERROR] Pre-flight safety checks failed.")
+        print("Resolve all failures before building release firmware, or pass --skip-safety-gate for an unflashed build.")
+        return False
     else:
-        if not check_safety(sd_path):
-            print("\n[CRITICAL ERROR] Pre-flight safety checks failed!")
-            print("Resolve all safety warnings before building release firmware.")
-            return False
-    print("[OK] Safety gate cleared.\n")
+        print("[OK] Safety gate cleared.\n")
 
     # -------------------------------------------------------------
     # Step 2: Validate / Fetch Source Firmware
@@ -201,9 +199,13 @@ def build_cfw_v001(custom_logo_brp_path=None, dist_dir=None, skip_sd_check=False
         raise ValueError("Decrypted boot logo does not match injected payload!")
     if verify_images["b01firm8"] != images["b01firm8"]:
         raise ValueError("RTOS binary was modified unexpectedly!")
+    for name, img in verify_images.items():
+        if nupdate_csum(img) != update_header(img)["nUpdateCsum"]:
+            raise ValueError(f"{name}: nUpdateCsum does not match payload")
 
-    print("[PASS] Decrypted round-trip verification: 100% byte-exact payload match!")
-    print("[PASS] RTOS executable partition (b01firm8) confirmed 100% UNTOUCHED stock code.")
+    print("[PASS] Decrypted round-trip verification: byte-exact payload match.")
+    print("[PASS] b01firm8 (APP) identical to stock; nUpdateCsum valid for every image "
+          f"(b01firm6 0x{update_header(verify_images['b01firm6'])['nUpdateCsum']:08X}).")
 
     # -------------------------------------------------------------
     # Step 6: Generate Release Checksums & Documentation
@@ -226,28 +228,30 @@ def build_cfw_v001(custom_logo_brp_path=None, dist_dir=None, skip_sd_check=False
     release_notes = dist_dir / "RELEASE_NOTES.md"
     release_notes.write_text(f"""# Ricoh GR II Custom Firmware v{version} (Custom Boot Screen)
 
-**Release Date:** 2026-10-29  
-**Target:** Ricoh GR II (16.2MP APS-C, Fujitsu/Socionext Milbeaut RC2015)  
-**Safety Classification:** **Tier 2 (Near-Zero Risk — Data Only)**
-
-## What's Included
-- **Custom Boot Splash Screen (`A:/img/dvf_TDSt.brp`)**:
-  Replaces the factory white screen with a custom dark high-contrast boot screen.
-- **Main RTOS Executable Partition (`b01firm8`)**: **100.000% UNTOUCHED stock factory code**.
-  Carries zero machine-code or CPU execution risk.
-- **Bare-Metal CFW Payload (`gr2_cfw_v{version}.bin`)**: Compiled ARM Big-Endian payload for optional SD-card resident execution.
+**Target:** Ricoh GR II, firmware 3.00 (`rg2_v003.frm`)  
+**Change:** `A:/img/dvf_TDSt.brp` (boot logo, RES module `b01firm6`) replaced in place, same length;
+`nUpdateCsum` of `b01firm6` recomputed with the verified algorithm. `b01firm8` (APP) is byte-identical to stock.  
+**Status:** Untested on hardware. The camera's acceptance of a recomputed checksum and of a same-version
+(3.00 -> 3.00) install is statically derived, not observed.
 
 ## Checksums
 ```
 {sha_manifest.read_text().strip()}
 ```
 
-## Flashing Instructions
-1. Ensure your SD card has the Emergency Rescue Kit (`SD.dat`, `backup.ttl`, `rg2_v003.frm`).
-2. Copy `{out_frm_path.name}` to your SD card root and rename it to `rg2_v003.frm`.
-3. Insert a fully charged battery (>= 80%).
-4. Power on while holding the firmware update button combination.
-5. Follow on-screen confirmation prompts. Do NOT turn off the camera while updating.
+## Risks
+- The updater destroys the APP header before writing. If the update is interrupted, the IPL boots BAK, which
+  reflashes from `rg2_v*.frm` on the card - only if the card has no `backup.ttl`.
+- If the new logo makes APP crash, APP still passes the IPL header check; an exception boots BAK, which then
+  powers off instead of reflashing. Recovery then needs shell access to BAK (UART); not tested.
+
+## Flashing (official menu procedure)
+1. Prepare the rescue card by hand: the stock `rg2_v003.frm` as the only `rg2_v*.frm` in the root, no
+   `backup.ttl`. Keep that card unchanged.
+2. On a **separate** card, copy `{out_frm_path.name}` to the root as `rg2_v003.frm` (the updater only finds
+   `rg2_v*.frm`). Never put it on the rescue card.
+3. Fully charged battery. MENU -> Fn1 -> WB (Set-up) -> [Confirm Firmware Version] -> Yes. Do not power off.
+4. To revert, repeat step 3 with the rescue card (stock `rg2_v003.frm`).
 """)
 
     print(f"[SUCCESS] Release package ready in {dist_dir}:")
@@ -258,6 +262,6 @@ def build_cfw_v001(custom_logo_brp_path=None, dist_dir=None, skip_sd_check=False
     return True
 
 if __name__ == "__main__":
-    skip_sd = "--skip-sd-check" in sys.argv or os.environ.get("CI") == "true"
-    success = build_cfw_v001(skip_sd_check=skip_sd)
+    skip_gate = "--skip-safety-gate" in sys.argv or os.environ.get("CI") == "true"
+    success = build_cfw_v001(skip_safety_gate=skip_gate)
     sys.exit(0 if success else 1)

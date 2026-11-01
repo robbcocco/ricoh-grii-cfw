@@ -1,116 +1,69 @@
 #!/usr/bin/env python3
-"""Ricoh GR II Custom Firmware Safety & Verification Suite.
+"""Ricoh GR II pre-flight safety audit (local workspace only; never inspects the SD card).
 
-Performs exhaustive pre-flight verification on:
-1. Physical flash dump backup (the NAND backup)
-2. SD Card Emergency Recovery Kit (SD.dat, backup.ttl, stock rg2_v003.frm)
-3. Master stock firmware file
+Gates (all must pass):
+1. Workspace stock firmware: rg2_v003.frm is byte-exact factory stock.
+2. NAND backup: the maintainer's hardware data is the known 90,409,984-byte
+   `fd -f` dump (covers IPL, BAK, APP, RES; not the B:/C:/D: FTL area).
+
+The rescue-card requirements (finding 15 §10) are a manual checklist.
 """
 
-import os
-import sys
 import hashlib
+import sys
 from pathlib import Path
 
-# Always resolve paths relative to git workspace root
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent
 
 STOCK_FRM_SHA256 = "3643850f2ae74ae967eb336794048f554caa1b11d05b8569824d5719f1838331"
-EXPECTED_PAYLOAD_SHA256 = "0e885d525b33b92c18159b261936f09044d676cf4b55ae68c7ab3b08ae4e4195"
-EXPECTED_PAYLOAD_SIZE = 6131796
+FLASHDUMP_SHA256 = "00263e785a2043442c9116e6b83fc3df46af128e4e1fdaf550a0c52a184e1bab"
+FLASHDUMP_SIZE = 90409984
+
 
 def sha256_file(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
-        while chunk := f.read(65536):
+        while chunk := f.read(1 << 20):
             h.update(chunk)
     return h.hexdigest()
 
-def check_safety(sd_card_path="/Volumes/RICOH_GR"):
+
+def check_stock_frm():
+    path = WORKSPACE_ROOT / "rg2_v003.frm"
+    print(f"\n[GATE 1] Stock firmware ({path}):")
+    if not path.exists():
+        print("  [FAIL] missing")
+        return False
+    if sha256_file(path) != STOCK_FRM_SHA256:
+        print("  [FAIL] sha256 does not match factory rg2_v003.frm")
+        return False
+    print("  [OK] byte-exact factory stock")
+    return True
+
+
+def check_flashdump():
+    path = WORKSPACE_ROOT / "the reverse-engineering notes" / "dumps" / "the NAND backup"
+    print(f"\n[GATE 2] NAND backup ({path}):")
+    if not path.exists():
+        print("  [FAIL] missing")
+        return False
+    if path.stat().st_size != FLASHDUMP_SIZE or sha256_file(path) != FLASHDUMP_SHA256:
+        print("  [FAIL] size/sha256 differ from the recorded fd -f dump")
+        return False
+    print("  [OK] matches recorded dump (flash 0x0-0x5638BFF)")
+    return True
+
+
+def check_safety():
     print("=" * 65)
-    print("      RICOH GR II CUSTOM FIRMWARE PRE-FLIGHT SAFETY AUDIT")
+    print("      RICOH GR II PRE-FLIGHT SAFETY AUDIT")
     print("=" * 65)
-    all_pass = True
-
-    # Check 1: Master Stock Firmware File
-    stock_frm = WORKSPACE_ROOT / "rg2_v003.frm"
-    print("\n[CHECK 1] Master Factory Firmware (rg2_v003.frm):")
-    if stock_frm.exists():
-        actual_hash = sha256_file(stock_frm)
-        if actual_hash == STOCK_FRM_SHA256:
-            print(f"  [OK] rg2_v003.frm verified (Byte-exact factory stock)")
-        else:
-            print(f"  [FAIL] rg2_v003.frm hash mismatch: {actual_hash}")
-            all_pass = False
-    else:
-        print(f"  [FAIL] rg2_v003.frm not found at {stock_frm}!")
-        all_pass = False
-
-    # Check 2: Physical Flash Dump (NAND backup)
-    print("\n[CHECK 2] Physical Hardware Flash Backup (the NAND backup):")
-    dump_path = WORKSPACE_ROOT / "the reverse-engineering notes" / "dumps" / "the NAND backup"
-    if dump_path.exists():
-        size = dump_path.stat().st_size
-        print(f"  [OK] the NAND backup present ({size:,} bytes, 86.2 MB NAND image)")
-    else:
-        print(f"  [WARN] the NAND backup not found at {dump_path}")
-        all_pass = False
-
-    # Check 3: SD Card Emergency Parachute
-    print(f"\n[CHECK 3] SD Card Emergency Recovery Kit ({sd_card_path}):")
-    card_dir = Path(sd_card_path)
-    if card_dir.exists():
-        # 3a. SD.dat
-        sd_dat = card_dir / "SD.dat"
-        if sd_dat.exists():
-            size = sd_dat.stat().st_size
-            actual_hash = sha256_file(sd_dat)
-            if size == EXPECTED_PAYLOAD_SIZE and actual_hash == EXPECTED_PAYLOAD_SHA256:
-                print(f"  [OK] H:/SD.dat verified ({size:,} bytes, 100% factory payload match)")
-            else:
-                print(f"  [FAIL] H:/SD.dat corrupt or mismatched (size {size}, hash {actual_hash})")
-                all_pass = False
-        else:
-            print("  [FAIL] H:/SD.dat missing on SD card root!")
-            all_pass = False
-
-        # 3b. backup.ttl
-        backup_ttl = card_dir / "backup.ttl"
-        if backup_ttl.exists():
-            content = backup_ttl.read_bytes()
-            if b"\r\n" in content and b"up " in content:
-                print("  [OK] H:/backup.ttl verified (CRLF ASCII recovery script present)")
-            else:
-                print("  [FAIL] H:/backup.ttl invalid format or missing update command!")
-                all_pass = False
-        else:
-            print("  [FAIL] H:/backup.ttl missing on SD card root!")
-            all_pass = False
-
-        # 3c. Stock .frm on SD card
-        card_frm = card_dir / "rg2_v003.frm"
-        if card_frm.exists():
-            card_hash = sha256_file(card_frm)
-            if card_hash == STOCK_FRM_SHA256:
-                print("  [OK] H:/rg2_v003.frm verified on SD card (Emergency restore ready)")
-            else:
-                print("  [FAIL] H:/rg2_v003.frm on SD card does not match official stock!")
-                all_pass = False
-        else:
-            print("  [FAIL] H:/rg2_v003.frm missing on SD card root!")
-            all_pass = False
-    else:
-        print(f"  [INFO] SD card not mounted at {sd_card_path}; skip live card audit.")
-
+    results = [check_stock_frm(), check_flashdump()]
     print("\n" + "=" * 65)
-    if all_pass:
-        print("  STATUS: ALL SAFETY GATES PASSED (100% READY FOR CFW)")
-    else:
-        print("  STATUS: SAFETY CHECKS FAILED - RESOLVE BEFORE FLASHING")
+    print("  STATUS: ALL GATES PASSED" if all(results) else "  STATUS: FAILED - resolve before flashing or testing")
     print("=" * 65)
-    return all_pass
+    return all(results)
+
 
 if __name__ == "__main__":
-    sd_path = sys.argv[1] if len(sys.argv) > 1 else "/Volumes/RICOH_GR"
-    success = check_safety(sd_path)
-    sys.exit(0 if success else 1)
+    sys.exit(0 if check_safety() else 1)

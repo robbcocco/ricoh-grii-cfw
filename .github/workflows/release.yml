@@ -1,10 +1,10 @@
-name: Manual Release (Bump Version & Publish GitHub Release)
+name: Release (bump version, publish SD bundles)
 
 on:
   workflow_dispatch:
     inputs:
       bump_type:
-        description: 'SemVer Bump Type'
+        description: 'SemVer bump type'
         required: true
         default: 'patch'
         type: choice
@@ -13,36 +13,31 @@ on:
           - minor
           - major
       custom_version:
-        description: 'Custom Version Override (e.g. 0.2.0, leaves blank to use bump type)'
+        description: 'Explicit version (e.g. 0.2.0); leave blank to use the bump type'
         required: false
         default: ''
         type: string
 
 jobs:
   publish-release:
-    name: Bump Version, Build & Create Release
+    name: Bump version, build, publish
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install ARM GNU Bare-Metal Toolchain
+      - name: Install ARM GNU bare-metal toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
 
-      - name: Bump Version
+      - name: Bump version
         id: bump
         run: |
           if [ -n "${{ inputs.custom_version }}" ]; then
@@ -51,56 +46,38 @@ jobs:
             BUMP_ARG="${{ inputs.bump_type }}"
           fi
           python3 scripts/bump_version.py "$BUMP_ARG"
-          NEW_VER=$(cat VERSION | tr -d '[:space:]')
+          NEW_VER=$(tr -d '[:space:]' < VERSION)
           echo "version=$NEW_VER" >> $GITHUB_OUTPUT
           echo "tag=v$NEW_VER" >> $GITHUB_OUTPUT
 
-      - name: Compile Bare-Metal ARM Payload
-        run: |
-          make clean all disasm
+      - name: Build both variants
+        run: make clean all
 
-      - name: Build Firmware Release Package
-        env:
-          CI: "true"
-        run: |
-          python3 scripts/build_release.py --skip-sd-check
+      - name: Package SD bundles
+        run: python3 scripts/package_sd.py
 
-      - name: Package Emergency Recovery Kit
-        run: |
-          mkdir -p dist/rescue_kit
-          python3 tools/make_recovery_card.py --dest dist/rescue_kit
-          cd dist/rescue_kit
-          zip -r ../ricoh_gr2_sd_rescue_kit.zip SD.dat backup.ttl
-          cd ..
-          rm -rf rescue_kit
-          sha256sum ricoh_gr2_sd_rescue_kit.zip >> SHA256SUMS.txt
+      - name: Verify checksums
+        run: cd dist && sha256sum -c SHA256SUMS.txt
 
-      - name: Validate Checksums
-        run: |
-          cd dist
-          sha256sum -c SHA256SUMS.txt
-
-      - name: Commit Version Bump & Manifest
+      - name: Commit version bump and release notes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add VERSION dist/RELEASE_NOTES.md dist/SHA256SUMS.txt
-          git commit -m "chore(release): bump version to ${{ steps.bump.outputs.tag }}"
+          git commit -m "chore(release): ${{ steps.bump.outputs.tag }}"
           git tag ${{ steps.bump.outputs.tag }}
           git push origin main
           git push origin ${{ steps.bump.outputs.tag }}
 
-      - name: Publish GitHub Release
+      - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.bump.outputs.tag }}
-          name: "Ricoh GR II Custom Firmware ${{ steps.bump.outputs.tag }}"
+          name: "gr2_cfw ${{ steps.bump.outputs.tag }}"
           body_path: dist/RELEASE_NOTES.md
           files: |
-            dist/*.frm
-            dist/*.bin
-            dist/*.zip
+            dist/gr2_cfw-v*-release.zip
+            dist/gr2_cfw-v*-debug.zip
             dist/SHA256SUMS.txt
-            bin/gr2_cfw.elf
           draft: false
           prerelease: false

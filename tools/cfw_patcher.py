@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Ricoh GR II Safe Custom Firmware Patcher.
+"""Ricoh GR II in-place firmware patcher.
 
-Applies verified in-place patches or resource replacements to rg2_v003.frm
-with strict length preservation, expected-bytes assertions, and automated
-round-trip container verification.
+Applies exact-length patches or A: drive file replacements to rg2_v003.frm with
+expected-bytes assertions.  `build_frm` repacks via gr2frm.repack, which
+recomputes nUpdateCsum for every changed image.
 """
 
 import os
 import sys
 import argparse
 import hashlib
-from gr2frm import load, repack, parse_container, is_container, xor_blocks
+from gr2frm import load, repack, parse_container, afs_entries
 
 STOCK_FRM = "rg2_v003.frm"
 
@@ -26,23 +26,16 @@ class CfwPatcher:
         self.modified_images = {k: bytearray(v) for k, v in self.images.items()}
         self.log = []
 
-    def replace_afs_file(self, afs_rel_path, replacement_bytes):
-        """Replace a file inside b01firm6 (A: drive) with exact length assertion."""
+    def replace_afs_file(self, afs_path, replacement_bytes):
+        """Replace an A: drive file (e.g. "A:/img/dvf_TDSt.brp") in b01firm6; same length only."""
         f6 = self.modified_images["b01firm6"]
-        # Find file in AFS table
-        needle = afs_rel_path.encode("ascii") + b"\0"
-        pos = f6.find(needle)
-        if pos == -1:
-            raise FileNotFoundError(f"AFS path {afs_rel_path} not found in b01firm6")
-
-        # In b01firm6, AFS directory entries have offset and length
-        # Let's verify by finding the payload offset
-        # AFS filesystem format in b01firm6: 64-byte records
-        # Name at record offset, offset and size are 32-bit big endian
-        rec_start = pos - 0x20
-        # Parse entry
-        entry_name = f6[pos:pos+len(needle)-1].decode('ascii')
-        print(f"[*] Found AFS file: {entry_name}")
+        for name, off, size in afs_entries(bytes(f6)):
+            if name == afs_path:
+                if len(replacement_bytes) != size:
+                    raise ValueError(f"{afs_path}: replacement is {len(replacement_bytes)} B, file is {size} B")
+                self.patch_binary_bytes("b01firm6", off, bytes(f6[off:off + size]), replacement_bytes, afs_path)
+                return
+        raise FileNotFoundError(f"AFS path {afs_path} not found in b01firm6")
 
     def patch_binary_bytes(self, target_image, offset, expected_bytes, replacement_bytes, description=""):
         """Apply an in-place patch to target_image with pre-condition assertion."""

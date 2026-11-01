@@ -1,0 +1,39 @@
+# gr2_cfw recipe: Gold 200 look (Ricoh GR II, firmware 3.00)
+# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# Approximates Kodak Gold 200 printed on Kodak Portra Endura.
+# Not affiliated with Kodak or Fujifilm; film names are used descriptively.
+#
+# Film look derived from spektrafilm 0.3.4 (commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc)
+# by Andrea Volpato, https://github.com/andreavolpato/spektrafilm; profiles licensed CC BY-SA 4.0.
+# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the gr2_cfw project.
+# This recipe file is licensed CC BY-SA 4.0.
+# spektrafilm profiles kodak_gold_200 / kodak_portra_endura; fit CIEDE2000 mean/95th %: Standard 6.8/13.9, this recipe 2.3/4.2.
+
+name=Gold 200
+base=setting2
+saturation=0
+contrast=0
+sharpness=0
+vignetting=off
+# look relative to Standard (README, section Recipes)
+# colour matrix, linear RGB, x128, rows R G B
+matrix=113,17,-2,-20,142,6,-8,-30,166
+# film tone curves: output code at Standard code 0, 8, 16, ..., 256
+tone_r=12,14,17,21,27,34,41,49,59,68,77,85,95,105,115,123,130,138,146,153,160,167,174,180,185,190,195,200,204,207,210,213,216
+tone_g=13,16,20,24,30,36,44,52,60,69,79,87,97,105,114,124,132,140,148,155,162,169,176,182,188,192,197,202,205,208,211,214,217
+tone_b=18,18,20,23,27,33,39,47,57,66,76,85,95,105,114,123,132,140,148,156,163,170,176,182,188,193,197,201,204,207,210,212,215
+# post matrix, display RGB, x128, rows R G B
+post_matrix=121,8,-1,14,99,15,3,19,106
+# hue sectors 1-12 (linear RGB, x128; from +Cb towards +Cr: magenta, red, green, blue quadrants)
+hue1=136,-8,0,7,112,9,2,9,117
+hue2=138,-9,-1,9,110,9,4,9,115
+hue3=141,-10,-3,7,116,5,5,8,115
+hue4=144,-11,-5,11,112,5,5,9,114
+hue5=139,-8,-3,9,113,6,5,12,111
+hue6=135,-5,-2,8,115,5,8,15,105
+hue7=132,-3,-1,7,116,5,6,15,107
+hue8=129,1,-2,6,116,6,3,14,111
+hue9=128,1,-1,6,114,8,1,15,112
+hue10=128,0,0,6,113,9,0,13,115
+hue11=129,-2,1,5,112,11,1,12,115
+hue12=134,-5,-1,4,111,13,2,11,115
