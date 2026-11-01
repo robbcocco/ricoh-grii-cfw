@@ -206,7 +206,7 @@ Nothing below has been run. Steps F0–F4 are M10; M11's P-steps come after F3 a
 The exact instructions for each step (what to put on the card, what the screens show, pass/fail, recovery) are in `scripts/flash_kit.py`, written to `dist/flash/<step>/STEP.md` by `make flash-kit`. That file is the single source; the summary below follows it.
 
 - **F0** timing probe — passed 2026-11-01 (§5).
-- **F1a** menu update with the stock `.frm`: "Execute?" with *New Version 3.00* → Yes → "Firmware update complete." → OK switches the camera **off** (no automatic restart, finding 27). Refusal shows "Confirm Firmware Version" without No/Yes (no valid file), "Battery depleted", or a blank *New Version*; nothing is erased in those cases. **If F1a is refused, stop: M10 and M11 need another install path.**
+- **F1a** menu update with the stock `.frm` — **passed 2026-11-01 [H]**: "Execute?" with *New Version 3.00* → Yes → "Firmware update complete." → OK switches the camera **off** (no automatic restart, finding 27). Refusal shows "Confirm Firmware Version" without No/Yes (no valid file), "Battery depleted", or a blank *New Version*; nothing is erased in those cases.
 - **F1b** rescue card + combo: `backup.ttl` marks `RESCUE_RAN`, runs `up`; success powers off with a 3 s RTC wake into the reflashed APP and never returns; a refusal returns and leaves `RESCUE_UP_RET` before `forcedown` (finding 27). No LCD or LED meanwhile. Release the shutter and leave MOVIE after POWER so the self-restart does not re-enter BAK.
 - **F2** menu update with the loader `.frm` (check *New Version 3.00* before Yes), first boot with card L still in, then card N with the probe: `LDR_STATE` 3, also after a cold start.
 - **F2b** skip key (`LDR_STATE` 1), no card, USB.
@@ -219,7 +219,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 | Step | Writes flash | Card | Pass | Recovery |
 |---|---|---|---|---|
 | F0 | no | N + probe | `LDR_STATE` FFFFFFFF, profile decodes | — (**passed 2026-11-01**) |
-| F1a | stock bytes | S | "Firmware update complete.", boots | refused: stop; "Error occurred.": S in, power-cycle |
+| F1a | stock bytes | S | "Firmware update complete.", boots | — (**passed 2026-11-01**) |
 | F1b | stock bytes | R | auto power-on ~3 s after off; `RESCUE_RAN`, no `RESCUE_UP_RET` | battery pull, normal boot |
 | F2 | loader | L, then N + probe | "Firmware update complete."; `LDR_STATE` 3, stock behaviour | half-press, U; R + combo |
 | F2b | no | N + probe | 1 / normal / USB OK | as F2 |
@@ -236,7 +236,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 
 ## 7. Risks and discrepancies (ranked 2026-11-01; open until the step that covers them)
 
-1. **Same-version install: never observed on hardware.** Static evidence is now complete: neither the menu check job, the dialog nor `up` (APP and BAK) compares versions; `bcdUpdateCmpVer` = 0 in every stock and installed header (finding 27). F1a confirms.
+1. **Same-version install: resolved.** F1a passed on hardware 2026-11-01: the menu installs 3.00 over 3.00, as the static evidence predicted (finding 27). M11 can keep the version "3.00".
 2. **Hardware acceptance of a recomputed nUpdateCsum: never observed.**
    - The formula is byte-exact on all 4 stock modules and on the patched APP [R]. The menu's check job runs the full header + checksum check before showing "Execute?", so a bad checksum shows a blank *New Version* or no Yes, before anything is erased [V finding 27]. F2 is the first flash using it.
 3. **The early H: mount (after `Section_Load(1)`) is untested on hardware.** Static review (finding 28): no wait depends on a task that does not exist yet; no card returns −1 quickly; DCFMount's later remount is a designed path (unmount, re-init, one retry with a card power cycle); `LoadFile` closes its file. Open: PrFILE2's internal writes on mount, UHS-I cards.
