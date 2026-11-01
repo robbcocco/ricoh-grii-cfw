@@ -208,7 +208,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 - **F0** timing probe — passed 2026-11-01 (§5).
 - **F1a** menu update with the stock `.frm` — **passed 2026-11-01 [H]**: "Execute?" with *New Version 3.00* → Yes → "Firmware update complete." → OK switches the camera **off** (no automatic restart, finding 27). Refusal shows "Confirm Firmware Version" without No/Yes (no valid file), "Battery depleted", or a blank *New Version*; nothing is erased in those cases.
 - **F1b** rescue card + combo — **passed 2026-11-01 [H]** (`RESCUE_RAN` only: `up` reflashed stock from BAK and did not return): `backup.ttl` marks `RESCUE_RAN`, runs `up`; success powers off with a 3 s RTC wake into the reflashed APP and never returns; a refusal returns and leaves `RESCUE_UP_RET` before `forcedown` (finding 27). No LCD or LED meanwhile. Release the shutter and leave MOVIE after POWER so the self-restart does not re-enter BAK.
-- **F2** menu update with the loader `.frm` (check *New Version 3.00* before Yes), first boot with card L still in, then card N with the probe: `LDR_STATE` 3, also after a cold start.
+- **F2** menu update with the loader `.frm` — **passed 2026-11-01 [H]**: the camera accepted the recomputed checksum and boots stock with the loader; probe `LDR_STATE` = 3 (`ST_NOFILE`: loader ran, H: mounted, no stage 1). Section 1 (stock load + mount + failed open) took 229 ms vs 36 ms in F0; all sections were done at 1839 ms (F0: 1907 ms; section 8's DCFMount took 299 vs 392 ms). Data: the maintainer's hardware data.
 - **F2b** skip key (`LDR_STATE` 1), no card, USB.
 - **F3** debug CFW files + probe `Startup.ttl`: CFW up, `main: started by the flashed loader`, `LDR_STATE` 6; then the skip-key boot. Never with card R inserted (a crash would reflash stock). Optional: the CFW `Startup.ttl` back once → logged refusal, no second CFW.
 - **F4** (M10c, not built): patch-on-load and the look before the first live-view frame.
@@ -221,7 +221,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 | F0 | no | N + probe | `LDR_STATE` FFFFFFFF, profile decodes | — (**passed 2026-11-01**) |
 | F1a | stock bytes | S | "Firmware update complete.", boots | — (**passed 2026-11-01**) |
 | F1b | stock bytes | R | auto power-on ~3 s after off; `RESCUE_RAN`, no `RESCUE_UP_RET` | — (**passed 2026-11-01**) |
-| F2 | loader | L, then N + probe | "Firmware update complete."; `LDR_STATE` 3, stock behaviour | half-press, U; R + combo |
+| F2 | loader | L, then N + probe | "Firmware update complete."; `LDR_STATE` 3, stock behaviour | — (**passed 2026-11-01**) |
 | F2b | no | N + probe | 1 / normal / USB OK | as F2 |
 | F3 | no | N + debug zip − CFW TTL + probe | CFW up, log line, `LDR_STATE` 6 | half-press |
 | F4 | no | N | look on first frame | half-press |
@@ -237,11 +237,9 @@ The exact instructions for each step (what to put on the card, what the screens 
 ## 7. Risks and discrepancies (ranked 2026-11-01; open until the step that covers them)
 
 1. **Same-version install: resolved.** F1a passed on hardware 2026-11-01: the menu installs 3.00 over 3.00, as the static evidence predicted (finding 27). M11 can keep the version "3.00".
-2. **Hardware acceptance of a recomputed nUpdateCsum: never observed.**
-   - The formula is byte-exact on all 4 stock modules and on the patched APP [R]. The menu's check job runs the full header + checksum check before showing "Execute?", so a bad checksum shows a blank *New Version* or no Yes, before anything is erased [V finding 27]. F2 is the first flash using it.
-3. **The early H: mount (after `Section_Load(1)`) is untested on hardware.** Static review (finding 28): no wait depends on a task that does not exist yet; no card returns −1 quickly; DCFMount's later remount is a designed path (unmount, re-init, one retry with a card power cycle); `LoadFile` closes its file. Open: PrFILE2's internal writes on mount, UHS-I cards.
-   - −1 → stock boot. A hang → no LCD → battery pull + half-press. Breaking DCFMount's remount → card errors → half-press boot, then U.
-   - Fixed 2026-11-01: the first stub mounted before section 1 was loaded; that build must never be flashed (§1).
+2. **Recomputed nUpdateCsum: resolved.** F2 installed the patched APP through the menu (2026-11-01 [H]).
+3. **The early H: mount (after `Section_Load(1)`): works on hardware** (F2, `LDR_STATE` 3, normal boots). Open: UHS-I cards, other card sizes/formats.
+   - Fixed 2026-11-01 before flashing: the first stub mounted before section 1 was loaded; that build must never be flashed (§1).
 4. **BAK specifics:** F1b showed on hardware that BAK's `up` from `backup.ttl` reflashes and does not return on success. Still untested: `forcedown` after a refusal, exFAT in BAK (keep FAT32).
 5. **Card-content mistakes.**
    - The debug zip contains the CFW `Startup.ttl`; with the loader armed it must be removed (F3), or it causes a double load (§3).
@@ -254,7 +252,7 @@ The exact instructions for each step (what to put on the card, what the screens 
    - There is no watchdog for hangs [V finding 22 §2.3]: battery pull.
    - The skip key restores a stock boot without touching the card.
 8. **A crashing armed stage 1** (cause 1–4) → BAK → power off. A crash with card R inserted → full stock reflash.
-9. **Every boot with a card and without the skip key pays the mount + ≤ 32 KiB read**, even without a CFW (`ST_NOFILE`). F2 measures it.
+9. **Every boot with a card and without the skip key pays the mount + ≤ 32 KiB read**, even without a CFW (`ST_NOFILE`): ~190 ms more in section 1 (F2), offset by a faster DCFMount later; the boot finished 70 ms earlier than F0.
 10. **`LoadFile` truncates silently at 32 KiB** [V].
     - Today's stage 1 is 32,424 B, but only because the hook veneers sit at `0xA001E07C`/`0xA001EEA0`. Code + data is 1,860 B + 180 B `.bss` [R].
     - `package_sd.py` and `gr2_boot.ld` assert the limits. Release and debug `gr2_cfw.bin` are byte-identical.
