@@ -23,15 +23,17 @@ LOADER = ROOT / "dist" / "rg2_v003_loader.frm"
 PROBE = ROOT / "loader" / "flash" / "probe" / "Startup.ttl"
 RESCUE = ROOT / "loader" / "flash" / "rescue" / "backup.ttl"
 STOCK_SHA = "3643850f2ae74ae967eb336794048f554caa1b11d05b8569824d5719f1838331"
-LOADER_SHA = "497e5c987f58847d85cfe0eda1ba5f376faebf98e791b6ae5e1986ca650cb514"
+LOADER_SHA = "f8c4f9b68aec10fc63bb9e290445294e0f689acb002e9ae4ed7976537058a7d5"
 
 COMMON = """\
 Before every flash step (F1a, F1b, F2, U):
 - `make check` printed `STATUS: ALL GATES PASSED` on the Mac.
 - Battery indicator **full**; a second charged battery at hand.
 - Card R (step F1b) prepared and checked, kept out of the camera.
-- Card FAT32 (MBR, <= 32 GB). Copy exactly the `card/` contents to the card root, nothing else
-  (no other `rg2_v*.frm`, no `backup.ttl` unless listed). On macOS: `find /Volumes/<card> -name '._*' -delete`.
+- Card formatted **in the camera** (the firmware refuses card layouts outside the SD specification; a Mac-formatted
+  card may not mount, finding 28), FAT32 if <= 32 GB. Copy exactly the `card/` contents to the card root, nothing else
+  (no other `rg2_v*.frm` — the highest number wins —, no `gr_v*.frm`, no `b01firm*` or `update.ttl` files, no `backup.ttl`
+  unless listed). On macOS: `find /Volumes/<card> -name '._*' -delete`.
 - Check the `.frm` on the card: `shasum -a 256 /Volumes/<card>/rg2_v003.frm` = the hash in STEP.md.
 
 Keys: **skip key** = shutter *half*-pressed while switching on (loader does nothing).
@@ -60,30 +62,43 @@ install through the menu; everything after depends on it.
 `rg2_v003.frm` SHA-256 `{STOCK_SHA}`
 
 1. Card S root = `card/` (only the stock `rg2_v003.frm`). Battery full.
-2. MENU → Set-up tab → *Confirm Firmware Version* → Yes (Ricoh's official update procedure, finding 07).
-3. Do not touch the camera until it has restarted.
+2. MENU → Set-up tab → *Confirm Firmware Version* (Ricoh's official update procedure). The camera checks the file for a
+   few seconds, then shows **"Execute?"** with *Current Version 3.00* and *New Version 3.00* and No/Yes (the page closes
+   by itself after 20 s idle). There is no version comparison: same-version installs are accepted (finding 27).
+3. Select **Yes**. Progress page: "Checking rewrite file", then "Rewriting program" (the bar is a timer, not real
+   progress). Do not touch the camera.
+4. **"Firmware update complete."** appears with *Finish*: press **OK** (not PLAY). The camera switches **off**; it does
+   not restart by itself. Switch it on.
 
-**Pass:** the dialog shows current 3.00 / card 3.00, the update runs, the camera restarts; *Confirm Firmware Version* shows 3.00;
-a shot and its playback work.
-**Not offered / error before it starts:** nothing was erased (header and checksum are checked before "Destroy APP."). **Stop
-here** and note the exact message (a battery message means the battery was not full).
-**Interrupted after it started:** leave card S in and switch on: BAK reflashes from the card automatically. If nothing
-happens: card R + combo (F1b).
+**Pass:** "Firmware update complete." appeared, the camera boots, a shot and its playback work. (*Confirm Firmware
+Version* showing 3.00 proves nothing in a same-version install.)
+**Refused before anything is erased** — **stop here** and note the exact screen:
+- title "Confirm Firmware Version" without No/Yes: the camera found no valid file (missing, misnamed, or the checksum failed);
+- "Battery depleted" after Yes: battery not full;
+- *New Version* blank: one module failed its check; do not press Yes (it would only fail with "Error occurred.").
+**"Error occurred." during the update:** keep card S in and power-cycle. If the APP was already erased, the camera boots
+into recovery and reflashes from card S by itself (LED on). If nothing happens: card R + combo (F1b).
 """),
     ("F1b-rescue-path", "F1b · Rescue card + combo (stock bytes)", {"card": ["stock", "rescue"]}, f"""\
-**Writes flash:** yes, stock 3.00 again, this time through BAK. Proves the last-resort recovery.
+**Writes flash:** yes, stock 3.00 again, this time through the recovery firmware (BAK). Proves the last-resort recovery.
 
-`rg2_v003.frm` SHA-256 `{STOCK_SHA}`; `backup.ttl` runs `up`, then `forcedown`.
+`rg2_v003.frm` SHA-256 `{STOCK_SHA}`. `backup.ttl` creates `H:/RESCUE_RAN`, runs `up`, and only if `up` returns
+(refused or failed) creates `H:/RESCUE_UP_RET` and switches off. On success `up` powers off with a 3 s wake-up and
+never returns (finding 27).
 
-1. Card R root = `card/` (stock `rg2_v003.frm` + `backup.ttl`). Battery full.
-2. Combo (cold start): dial MOVIE, hold the shutter fully down, press POWER. Then wait without touching anything until the
-   camera switches itself off (minutes; the LCD may stay dark).
-3. Remove card R (never leave it in the camera), insert your normal card, power on.
+1. Card R root = `card/` (stock `rg2_v003.frm` + `backup.ttl`), card formatted in the camera. Battery full.
+2. Combo (cold start): dial MOVIE, hold the shutter fully down, press POWER. **Then release the shutter and turn the
+   dial off MOVIE**, so the self-restart cannot enter recovery again.
+3. Wait without touching anything. Nothing is shown (no LCD, no LED) for tens of seconds to a few minutes.
+4. Expected: the camera switches off and **about 3 s later switches itself back on** into a normal stock boot.
+5. Power off, remove card R (never leave it in the camera), check it on the Mac.
 
-**Pass:** the camera was busy for minutes (LED activity) before switching off, and boots stock 3.00 afterwards.
-**Unclear:** off after only seconds means `up` refused (the camera is unchanged). Report it; do not continue to F2.
-**Fail (stays on in BAK):** battery out, remove R, normal boot. If the APP was already erased, card S or R in + power on
-reflashes again.
+**Pass:** the camera came back on by itself and works; card R holds `RESCUE_RAN` and **no** `RESCUE_UP_RET`.
+**Refused:** off and stays off, `RESCUE_UP_RET` exists: `up` refused (nothing erased if it happened in the search). Switch on
+normally; report it and do not continue to F2.
+**No `RESCUE_RAN`:** the script did not run (combo not taken, or the card did not mount: format it in the camera).
+**Stays on in recovery (no auto power-off):** battery out, remove R, normal boot. If the APP was already erased, card S or
+R in + power on reflashes again.
 Keep card R ready (and out of the camera) for all later steps.
 """),
     ("F2-flash-loader", "F2 · Flash the debug loader (first modified firmware)", {"card-L": ["loader"], "card-N": ["probe"]}, f"""\
@@ -92,16 +107,21 @@ Keep card R ready (and out of the camera) for all later steps.
 Loader `rg2_v003.frm` (renamed from `rg2_v003_loader.frm`) SHA-256 `{LOADER_SHA}`
 
 1. Card L root = `card-L/` (only the loader `rg2_v003.frm`). Battery full.
-2. Menu update as in F1a. After the restart, power off.
-3. Card N root = `card-N/` (probe `Startup.ttl`, **no** `cfw/gr2_cfw.bin`: move or delete the `cfw/` folder). Power on,
+2. Menu update as in F1a. **Before Yes:** the page must say "Execute?" with *New Version 3.00*. If it shows
+   "Confirm Firmware Version" without No/Yes, or *New Version* is blank, the camera rejected the file (header or
+   checksum): nothing was erased; stop and report.
+3. "Firmware update complete." → OK → the camera switches off. Switch it on **with card L still in**: it must boot normally
+   (the loader mounts the card, finds no `cfw/gr2_cfw.bin`, and stays stock).
+4. Card N root = `card-N/` (probe `Startup.ttl`, **no** `cfw/gr2_cfw.bin`: move or delete the `cfw/` folder). Power on,
    wait ~10 s, power off. Copy `H:/cfw/probe/` to the Mac, run `scripts/loader_timing.py` on it.
-4. Power-cycle three times; shoot, play back, browse the card.
+5. Once more after a cold start (battery out for 30 s). Then power-cycle a few times; shoot, play back, check the files
+   on the Mac.
 
-**Pass:** the camera looks and behaves stock; `LDR_STATE.BIN` = `00 00 00 03` (loader ran, no stage 1 on the card); section 1
-takes about the F0 time plus a card mount.
-**Update refused:** nothing erased; report the message.
-**Interrupted:** leave card L in and switch on (BAK installs the loader `.frm` again).
-**No LCD / hang:** battery out; boot with the skip key; then uninstall (U). No usable menu at all: card R + combo.
+**Pass:** the camera looks and behaves stock; `LDR_STATE.BIN` = `00 00 00 03` (loader ran, no stage 1 on the card), also
+after the cold start; section 1 takes about the F0 time (36 ms) plus a card mount.
+**Rejected / "Error occurred.":** as F1a.
+**No LCD / hang at power-on:** battery out; boot with the skip key (stock, the card is not touched); then uninstall (U).
+No usable menu at all: card R + combo.
 """),
     ("F2b-skip-nocard-usb", "F2b · Skip key, no card, USB (no flash)", {"card": ["probe"]}, """\
 **Writes flash:** no.
@@ -174,12 +194,13 @@ def main():
         "rescue": {"backup.ttl": ttl(RESCUE)},
         "debug": {n: debug.read(n) for n in debug.namelist() if not n.endswith("/") and n != "Startup.ttl"},
     }
-    shutil.rmtree(OUT, ignore_errors=True)
     index = ["# M10 flash steps", "", f"Built from gr2_cfw v{version}. Do them in order; each only after the previous one "
              "passed and you reported the result. Details and risks: `loader/flash/README.md` §6/§7.", "", COMMON,
              "| Step | Writes flash | Folder |", "|---|---|---|"]
     for folder, title, cards, text in STEPS:
         d = OUT / folder
+        for card in d.glob("card*"):                # replace only what this script writes; results the user
+            shutil.rmtree(card)                      # copied next to them (e.g. probe/) stay
         for card, kinds in cards.items():
             for kind in kinds:
                 for name, data in parts[kind].items():

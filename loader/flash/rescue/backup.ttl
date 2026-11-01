@@ -1,12 +1,17 @@
-; M10 rescue card (FAT32), H:/backup.ttl next to the stock rg2_v003.frm.
+; M10 rescue card (format it in the camera, FAT32): H:/backup.ttl next to the stock rg2_v003.frm.
 ; BAK runs this for every boot cause before its own dispatch (finding 22 2.1):
 ; combo (dial MOVIE + shutter fully pressed + POWER), APP header failure, crash.
 ; Reflashes stock APP + RES; `up` checks header and nUpdateCsum before erasing.
+; On success `up` powers off with a 3 s RTC wake and never returns (finding 27):
+; the camera switches itself back on into the reflashed firmware.
+; Markers: RESCUE_RAN = this script started; RESCUE_UP_RET = `up` refused or failed.
 ; Never leave this card in the camera for normal use. ASCII, CRLF.
 
+foldercreate 'H:/RESCUE_RAN'
 sprintf "up"
 sendln inputstr
-; reached only if up failed or returned: switch off instead of idling in BAK
+; reached only if up refused or failed: mark it, then switch off instead of idling in BAK
+foldercreate 'H:/RESCUE_UP_RET'
 sprintf "forcedown"
 sendln inputstr
 end

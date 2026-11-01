@@ -12,15 +12,18 @@
  * the result and keeps r4-r7. Stage 0 (GlobalHeap, RTOS task module, File_Init)
  * has run; H: is not mounted yet. See README.md.
  *
- * First call only (status word 0): decide once and record the outcome.
+ * Every call starts with the stock Section_Load(n, 0). The card must not be
+ * touched before section 1 is resident: every SD sector read calls FUN_a00f9888
+ * (section 1) through FUN_a00ae8a2 (finding 28).
+ *
+ * First call only (status word 0), after section 1 has loaded: decide once.
  *   shutter half-press held (RL1, pin 0x27 = P6.1, active low) -> ST_SKIP
  *   File_MountMedia(H:...) returns -1 (no card, mount error)     -> ST_NOMOUNT
  *   LoadFile(H:/cfw/gr2_cfw.bin -> 0xA0017000, max 0x8000) <= 0  -> ST_NOFILE
  *   word +4 != LDR_MAGIC (stage 1 without the loader ABI)       -> ST_NOABI
  *   otherwise                                                   -> ST_ARMED
- * Every call: stock section load, then, if ST_ARMED, call the stage-1 hook
- *   (word +8, Thumb) with r0 = n, r1 = &ldr_state. Stage 1 may write another
- *   value to *r1 to stop further calls.
+ * Then, if ST_ARMED, call the stage-1 hook (word +8, Thumb) with r0 = n,
+ *   r1 = &ldr_state. Stage 1 may write another value to *r1 to stop further calls.
  * Anything but ST_ARMED leaves the boot stock apart from the H: mount and the
  * window contents (the IPL copy's erased tail, unused by the APP).
  */
@@ -54,10 +57,13 @@
 ldr_stub:
     push    {r3-r7, lr}                 /* 6 words: SP stays 8-byte aligned */
     movs    r4, r0                      /* n (r1 is always 0 at the hook site) */
+    movs    r1, #0
+    bl      Section_Load                /* the stock call first: section n is resident */
+    movs    r5, r0                      /* keep the stock result */
     adr     r6, .Lstate
     ldr     r0, [r6]
     cmp     r0, #0
-    bne     .Lload                      /* decided on an earlier call */
+    bne     .Lhook                      /* decided on an earlier call */
 
     movs    r7, #ST_SKIP
     movs    r0, #PIN_RL1
@@ -67,7 +73,7 @@ ldr_stub:
 
     movs    r7, #ST_NOMOUNT
     adr     r0, cfw_path
-    bl      File_MountMedia             /* nothing has mounted H: yet (README) */
+    bl      File_MountMedia             /* section 1 resident; nothing has mounted H: yet */
     adds    r0, r0, #1
     beq     .Ldecided                   /* -1: no card / mount failed */
 
@@ -90,21 +96,17 @@ ldr_stub:
 .Ldecided:
     str     r7, [r6]
 
-.Lload:
-    movs    r0, r4
-    movs    r1, #0
-    bl      Section_Load                /* the stock call: Section_Load(n, 0) */
+.Lhook:
     ldr     r1, [r6]
     cmp     r1, #ST_ARMED
     bne     .Lret
-    movs    r5, r0                      /* keep the stock result */
     ldr     r1, =CFW_BASE
     ldr     r3, [r1, #8]
     movs    r0, r4
     movs    r1, r6
     blx     r3                          /* stage-1 hook(n, &ldr_state) */
-    movs    r0, r5
 .Lret:
+    movs    r0, r5                      /* the stock result */
     pop     {r3-r7, pc}
 
     .ltorg

@@ -118,7 +118,7 @@ def check_bytes(stock_frm, frm_path):
 class Emu:
     def __init__(self, app, *, card=True, skip=False, file=None, order=SHOOTING, disarm_at=None, hook=STAGE1_HOOK):
         self.card, self.skip, self.file, self.order, self.disarm_at = card, skip, file, order, disarm_at
-        self.events, self.err = [], None
+        self.events, self.err, self.loaded = [], None, set()
         self.fn = {a: n for a, n in FN.items() if n != "stage1_hook"}
         self.fn[hook & ~1] = "stage1_hook"                     # the model stands in for stage 1's hook code
         uc = self.uc = Uc(UC_ARCH_ARM, UC_MODE_ARM | UC_MODE_BIG_ENDIAN)
@@ -173,9 +173,16 @@ class Emu:
             raise Fail(f"Port_Get pin 0x{pin:X}, expected RL1 0x27")
         return 0 if self.skip else 1                            # active low
 
+    def _card_access(self, name):
+        # Every SD sector read calls FUN_a00f9888 in section 1 (finding 28): the card must not be
+        # touched before section 1 is resident.
+        if 1 not in self.loaded:
+            raise Fail(f"{name} before Section_Load(1): SD reads need section 1 code (finding 28)")
+
     def _File_MountMedia(self):
         path = self.cstr(self.r(0))
         self.events.append(("File_MountMedia", path))
+        self._card_access("File_MountMedia")
         if path != CFW_PATH:
             raise Fail(f"mount path {path!r}")
         return 0 if self.card else -1
@@ -183,6 +190,7 @@ class Emu:
     def _LoadFile(self):
         path, dst, size = self.cstr(self.r(0)), self.r(1), self.r(2)
         self.events.append(("LoadFile", path, dst, size))
+        self._card_access("LoadFile")
         if (path, dst, size) != (CFW_PATH, WINDOW, WINDOW_SIZE):
             raise Fail(f"LoadFile({path!r}, 0x{dst:08X}, 0x{size:X})")
         if not self.card or self.file is None:
@@ -196,6 +204,7 @@ class Emu:
         self.events.append(("Section_Load", n))
         if (n, arg) != (self.cur, 0):
             raise Fail(f"Section_Load({n}, {arg}) during section {self.cur}")
+        self.loaded.add(n)
         return 0x5EC00000 | n
 
     def _stage1_hook(self):
@@ -203,8 +212,9 @@ class Emu:
         self.events.append(("stage1_hook", n))
         if state != STATE or self.u32(STATE) != 5:
             raise Fail(f"stage1_hook r1=0x{state:08X}, state {self.u32(STATE)}")
-        if self.events[-2] != ("Section_Load", n):
-            raise Fail(f"stage1_hook({n}) not right after Section_Load({n})")
+        last_load = [e for e in self.events if e[0] == "Section_Load"][-1]
+        if last_load != ("Section_Load", n) or ("stage1_hook", n) in self.events[:-1]:
+            raise Fail(f"stage1_hook({n}) not once, after Section_Load({n})")
         if n == self.disarm_at:
             self.uc.mem_write(STATE, struct.pack(">I", 6))
         return 0

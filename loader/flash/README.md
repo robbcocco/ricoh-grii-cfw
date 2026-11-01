@@ -18,17 +18,17 @@ Only APP (`b01firm8`, type 1) changes. RES (`b01firm6`) is byte-identical. The c
 
 | Image offset | RAM | Bytes | Stock → patched |
 |---|---|---|---|
-| `0x00016C` | header | 4 | nUpdateCsum `826A5E33` → `8268CB1D` (recomputed by `gr2frm.repack`) |
+| `0x00016C` | header | 4 | nUpdateCsum `826A5E33` → `8268D223` (recomputed by `gr2frm.repack`) |
 | `0x002C5C` | `0xA0022E5C` | 4 | `F01C FE51` `bl 0xA003FB02` → `F08C FF48` `bl 0xA00AFCF0` |
-| `0x08FAF0` | `0xA00AFCF0` | 132 | all `0xFF` → stub: 100 B code, 8 B literals, 19 B path, 1 B `0xFF` fill, status word `ldr_state` = 0 at `0xA00AFD70` |
+| `0x08FAF0` | `0xA00AFCF0` | 132 | all `0xFF` → stub: code, literals, the path, `0xFF` fill, status word `ldr_state` = 0 at `0xA00AFD70` |
 
-137 bytes differ in the `.frm`, all inside the APP payload. `gr2frm.py verify` passes: round trip, header sizes and both checksums. Output SHA-256: `497e5c987f58847d85cfe0eda1ba5f376faebf98e791b6ae5e1986ca650cb514`. The full byte listing and disassembly are in `dist/rg2_v003_loader.diff.txt`.
+136 bytes differ in the `.frm`, all inside the APP payload. `gr2frm.py verify` passes: round trip, header sizes and both checksums. Output SHA-256: `f8c4f9b68aec10fc63bb9e290445294e0f689acb002e9ae4ed7976537058a7d5` (stub fixed 2026-11-01, finding 28; the earlier build `497e5c98…b514` mounted the card before section 1 was loaded and must never be flashed). The full byte listing and disassembly are in `dist/rg2_v003_loader.diff.txt`.
 
-**[R 2026-11-01]** Everything in this table, re-checked:
+**[R 2026-11-01]** Everything in this table, re-checked (for the first stub; the fixed stub changes only the stub bytes and the checksum, both re-checked by `make loader`):
 - `fw/b01firm8.bin` is byte-identical to the APP image unpacked from the stock `.frm` (`.frm` SHA-256 `3643850f…8331`); RES is identical in the loader `.frm`.
 - Rebuilding from a clean copy reproduces the SHA-256 above, so the build is deterministic.
 - The APP diff is exactly the three ranges in the table.
-- Own checksum loop (finding 15 §7.1, load base = header `+0x20` = 0, `nUpdateTotalSize` `0x5D9054`): stock `0x826A5E33` and patched `0x8268CB1D`, both equal to the header word.
+- Own checksum loop (finding 15 §7.1, load base = header `+0x20` = 0, `nUpdateTotalSize` `0x5D9054`): stock `0x826A5E33` and patched equal to the header word.
 - Hook disassembly, stock and patched: `movs r1,#0; movs r0,r5; bl …; movs r0,r7`.
 - The stub disassembles as Thumb. Every `adr` and PC-relative `ldr` resolves to the right slot: `ldr_state` `0xA00AFD70`, literals `0xA0017000`/`GRL1` at `0xA00AFD54`/`D58`, path at `D5C`. Its BL targets are the four functions in §2, each starting with `push`.
 - `Port_Get(0x27)` resolves through the pin table `0xA00B9550` to entry `0x0061` = port 6 bit 1, register `0x90001018` (single-argument function).
@@ -61,8 +61,8 @@ Only APP (`b01firm8`, type 1) changes. RES (`b01firm6`) is byte-identical. The c
   - GlobalHeap (2 MiB) has been created (`FUN_a0024bca`), so `Memory_Alloc` works.
   - The RTOS module has been initialised (`FUN_a0026670`, "RTOS.c"). `Task_Create` allocates its TCB with `Memory_Alloc`.
   - `File_Init` (`FUN_a002c11a`) has run.
-  - Stage 0 also loads `A:/fix/Sys_F.bin` with `LoadFile`, so file I/O works by then.
-  - The SD driver is in section 0 (`0xA00A2058`…).
+  - Stage 0 also loads `A:/fix/Sys_F.bin` with `LoadFile`, so file I/O on the **NAND** drives works by then.
+  - The SD driver is in section 0 (`0xA00A2058`…), **but every SD sector read calls `FUN_a00f9888` in section 1** (`FUN_a00a219c` → `FUN_a00ae8a2`, finding 28 [V]). The card must not be touched before `Section_Load(1)` has returned; everything else the mount needs exists after stage 0.
 - **What is not ready at the first hook:**
   - H: is not mounted. File_MountMedia is called only by DCFMount, its caller `FUN_a029e5b8` (both section 8), the shell, card hotplug and `up` [V callers]. So the stub mounts H: itself, which is BAK's pattern [I].
   - DCFMount later calls File_MountMedia again unconditionally [V], which unmounts and remounts [I].
@@ -89,7 +89,7 @@ Only APP (`b01firm8`, type 1) changes. RES (`b01firm6`) is byte-identical. The c
 
 ## 3. Stub behaviour (`ldr_stub.S`)
 
-First call only (`ldr_state == 0`), in this order:
+Every call first runs the stock `Section_Load(n, 0)` (so section 1 is resident before the card is touched, finding 28). Then, on the first call only (`ldr_state == 0`), in this order:
 
 1. If `Port_Get(0x27)` is 0 (shutter half-press held): `ST_SKIP` = 1.
 2. If `File_MountMedia("H:/cfw/gr2_cfw.bin")` returns −1: `ST_NOMOUNT` = 2.
@@ -97,8 +97,9 @@ First call only (`ldr_state == 0`), in this order:
 4. If the word at `0xA0017004` is not `0x47524C31` ("GRL1", loader ABI v1): `ST_NOABI` = 4. Stage 1 carries it since M10b (2026-11-01); an older stage 1 is loaded but never run.
 5. Otherwise `ST_ARMED` = 5.
 
-Every call then runs the stock `Section_Load(n, 0)`. If `ldr_state` is still 5, it calls `*(0xA0017008)(n, &ldr_state)` (Thumb) and returns the stock result.
+If `ldr_state` is 5, it then calls `*(0xA0017008)(n, &ldr_state)` (Thumb) and returns the stock result.
 - The skip key is read before anything touches the card, so it also bypasses a mount or file-load that hangs.
+- `emu_loader.py` fails any card access before `Section_Load(1)`; the first stub (built until 2026-11-01) failed 7 of 8 cases that way.
 - `ldr_state` lives in section 0, which the IPL loads from NAND before every APP start, so it is 0 again on every boot [V cold boot; I warm `reboot app`, which also re-reads the IPL and its window tail as `0xFF`].
 
 The 132 bytes left no room for a `DriveMounted` pre-check or a range check of the entry pointer. On a cold boot nothing has mounted H: before hook(1) (§2). The magic word is the guard that an old stage 1 is never called.
@@ -180,14 +181,14 @@ Nothing below has been run. Steps F0–F4 are M10; M11's P-steps come after F3 a
 ### 6.1 Preparation (once, on the Mac; no camera)
 
 1. Run `make check` (= `verify_safety.py`). It must print `STATUS: ALL GATES PASSED`: the stock `rg2_v003.frm` is factory stock and the NAND dump the maintainer's hardware data is present. It never inspects the card.
-2. Run `make test` (lint, ISA audit, `make emu` with `PASS release/loader` and `PASS debug/loader`, `make loader` with `ALL PASSED`). Passed on 2026-11-01 [R]. `dist/rg2_v003_loader.frm` must have SHA-256 `497e5c98…b514`.
-3. Prepare the cards. `make flash-kit` writes `dist/flash/<step>/` with a `STEP.md` and the exact card-root contents per step (`card/`, or `card-L/` + `card-N/` for F2), all hashes checked. Format each card FAT32, MBR, ≤ 32 GB. Delete `._*` files after every copy from macOS. After copying, check each `.frm` on the card with `shasum -a 256`. There are four roles:
+2. Run `make test` (lint, ISA audit, `make emu` with `PASS release/loader` and `PASS debug/loader`, `make loader` with `ALL PASSED`). `dist/rg2_v003_loader.frm` must have SHA-256 `f8c4f9b6…a7d5`.
+3. Prepare the cards. `make flash-kit` writes `dist/flash/<step>/` with a `STEP.md` and the exact card-root contents per step (`card/`, or `card-L/` + `card-N/` for F2), all hashes checked. **Format each card in the camera** (MENU → format): for H: the firmware checks the cluster size and FS type against the SD-card specification table and refuses other layouts (BAK has the same table), so a Mac-formatted card can fail to mount (finding 28 [V]). FAT32 for cards ≤ 32 GB. Delete `._*` files after every copy from macOS. After copying, check each `.frm` on the card with `shasum -a 256`. There are four roles:
 
    | Card | Root contents | Notes |
    |---|---|---|
    | **R** rescue | stock `rg2_v003.frm` (`3643850f…8331`) + `loader/flash/rescue/backup.ttl` as `backup.ttl` (ASCII, CRLF) | Never left in the camera. Each BAK entry (combo, crash, broken APP header) runs `up` from it. |
    | **S** stock flash | only the stock `rg2_v003.frm` | F1a, uninstall |
-   | **L** loader flash | only `dist/rg2_v003_loader.frm`, **renamed `rg2_v003.frm`** (`497e5c98…b514`) | F2. Exactly one `rg2_v*.frm`, no `backup.ttl`. |
+   | **L** loader flash | only `dist/rg2_v003_loader.frm`, **renamed `rg2_v003.frm`** (`f8c4f9b6…a7d5`) | F2. Exactly one `rg2_v*.frm`, no `backup.ttl`. |
    | **N** normal | per step: `loader/flash/probe/Startup.ttl` as `Startup.ttl`, plus the debug zip for F3 | DCIM etc. may stay |
 
    - Card R deliberately departs from the "no `backup.ttl`" parachute rule (AGENTS.md §3/§4). That rule exists because a `backup.ttl` replaces BAK's automatic cause-6 `up`. This script runs `up` itself, so cause 6 still reflashes, and the combo (cause 8) becomes a manual reflash path. Amend the rule only after F1b passes.
@@ -202,79 +203,25 @@ Nothing below has been run. Steps F0–F4 are M10; M11's P-steps come after F3 a
 
 ### 6.2 Steps
 
-**F0. Timing probe (no flash).**
-- Card: N with the probe `Startup.ttl`. Any CFW `Startup.ttl` must be removed.
-- Do: power on, wait until `H:/cfw/probe/PROF_DONE` exists (a few seconds after the LCD comes up), power off. Copy `H:/cfw/probe/` to the Mac. Run `python3 scripts/loader_timing.py <dir> --task-start <systime>`, taking the systime from a debug CFW boot's `cfw_log.txt` (`task: running`).
-- Pass: `BOOT_PROF.BIN` (168 B) decodes into 12 section loads; `LDR_STATE.BIN` = `FF FF FF FF` (stock APP).
-- Fail: no files means DEVEL_MODE is off or the TTL encoding is wrong. Nothing was written to flash.
+The exact instructions for each step (what to put on the card, what the screens show, pass/fail, recovery) are in `scripts/flash_kit.py`, written to `dist/flash/<step>/STEP.md` by `make flash-kit`. That file is the single source; the summary below follows it.
 
-**F1a. Same-version stock update (first flash; stock bytes).**
-- Card: S. Battery full.
-- Do: MENU → Fn1 → WB (Set-up) → Confirm Firmware Version → Yes (official procedure, finding 07).
-- Expected: the dialog shows current 3.00 and card 3.00. The update runs ("Update … firmware", LED activity) and the camera restarts.
-- Pass: the camera boots, Confirm Firmware Version shows 3.00, a shot and its playback work.
-- If not offered, or an error before the update starts: nothing was erased, because header and checksum are checked in "Search Files." before "Destroy APP." [V]. **Stop: M10 and M11 need another install path.** Note the exact message. A battery message means the battery was not full.
-- If interrupted (power loss, battery out) after "Destroy APP.": leave card S in and switch on. IPL → BAK cause 6 → BAK's automatic `up` from the `.frm` in the slot [V static, I hardware]. If nothing happens: card R + combo (F1b).
-
-**F1b. Rescue path (stock bytes).**
-- Card: R.
-- Do: combo (cold). Then wait without touching anything until the camera switches itself off.
-- Expected: IPL cause 8 → BAK → `backup.ttl` → `up` (LED, minutes) → reboot or `forcedown`.
-- Pass: the off phase came after minutes of activity, not seconds. Remove R, insert N, power on: stock 3.00 boots.
-- Caveat: a refused `up` followed by `forcedown` also ends with the camera off, only sooner. Duration is the only distinguishing observation (§7 risk 4).
-- Fail (stays in BAK, or off within seconds): battery pull, remove R, normal boot. The APP is intact unless `up` reached "Destroy APP."; then card S or R + any power-on runs `up` again. Report it, and do not go to F2.
-
-**F2. Flash the debug loader (first recomputed checksum).**
-- Card: L. Battery full.
-- Do: menu update as in F1a. After the restart, power off, swap to card N with the probe `Startup.ttl` and **no** `cfw/gr2_cfw.bin` (move the `cfw/` folder away). Power on and wait for `PROF_DONE`.
-- Pass:
-  - The boot looks stock.
-  - `LDR_STATE.BIN` = `00 00 00 03` (`ST_NOFILE`).
-  - `loader_timing.py`: section 1's time ≈ F0 + the mount/open cost.
-  - Shooting, playback and card access are OK across 3 power cycles.
-- Fail:
-  - Update refused: nothing erased. Report the message (likely checksum or header).
-  - Interrupted: leave L in and switch on. BAK `up` installs the loader `.frm` again (it is the `.frm` in the slot).
-  - Boot hangs (no LCD): battery pull. Boot with the half-press held (`LDR_STATE` 1, the card is not touched), then uninstall (U).
-  - No usable menu at all: card R + combo.
-
-**F2b. Skip key, no card, USB (no flash).**
-- Card: N as in F2.
-- (a) Hold the half-press while switching on: `LDR_STATE` = `00 00 00 01`.
-- (b) No card: the camera works normally (no probe data possible).
-- (c) USB to the Mac with card N in (USB/PC boot = section 1 only): the card mounts on the Mac and its files are unchanged.
-- Fail: as F2.
-
-**F3. M10b: the loader starts the CFW (card only).**
-- Card: N with the debug zip contents (`gr2_cfw-v<ver>-debug.zip`), but with its `Startup.ttl` **replaced by the probe `Startup.ttl`**. The CFW's `Startup.ttl` must not be on the card (double load, §3). The probe only dumps data and is safe with the armed loader.
-- Pass:
-  - The CFW is up as usual (CFW Menu, live-view features).
-  - `cfw_log.txt` holds `main: started by the flashed loader (stage 2 read at, now) systime …`.
-  - `LDR_STATE.BIN` = `00 00 00 06`.
-  - `loader_timing.py` shows the hook(1) preload time.
-- Then the half-press boot: `LDR_STATE` 1, stock camera, no CFW.
-- Optional: put the CFW `Startup.ttl` back once. Expected: log `boot: flashed loader active, Startup.ttl must not load the CFW …`, no second CFW, no crash. Remove it again.
-- Fail:
-  - Crash (camera powers off via BAK): next boot with the half-press, fix the card.
-  - Hang: battery pull + half-press.
-  - Never leave card R inserted for these tests: a crash would reflash stock.
-
-**F4. M10c (not built).** Patch-on-load and the look before the first live-view frame. Pass: the recipe look shows from the first LV frame. Recovery as F3.
-
-**U. Uninstall (any time after F2).**
-- Card: S. Boot with the half-press if the CFW misbehaves.
-- Do: menu update.
-- Pass: the probe on card N reads `LDR_STATE` = `FF FF FF FF` again.
-- Fail: card R + combo.
+- **F0** timing probe — passed 2026-11-01 (§5).
+- **F1a** menu update with the stock `.frm`: "Execute?" with *New Version 3.00* → Yes → "Firmware update complete." → OK switches the camera **off** (no automatic restart, finding 27). Refusal shows "Confirm Firmware Version" without No/Yes (no valid file), "Battery depleted", or a blank *New Version*; nothing is erased in those cases. **If F1a is refused, stop: M10 and M11 need another install path.**
+- **F1b** rescue card + combo: `backup.ttl` marks `RESCUE_RAN`, runs `up`; success powers off with a 3 s RTC wake into the reflashed APP and never returns; a refusal returns and leaves `RESCUE_UP_RET` before `forcedown` (finding 27). No LCD or LED meanwhile. Release the shutter and leave MOVIE after POWER so the self-restart does not re-enter BAK.
+- **F2** menu update with the loader `.frm` (check *New Version 3.00* before Yes), first boot with card L still in, then card N with the probe: `LDR_STATE` 3, also after a cold start.
+- **F2b** skip key (`LDR_STATE` 1), no card, USB.
+- **F3** debug CFW files + probe `Startup.ttl`: CFW up, `main: started by the flashed loader`, `LDR_STATE` 6; then the skip-key boot. Never with card R inserted (a crash would reflash stock). Optional: the CFW `Startup.ttl` back once → logged refusal, no second CFW.
+- **F4** (M10c, not built): patch-on-load and the look before the first live-view frame.
+- **U** menu update with the stock `.frm`: `LDR_STATE` `FFFFFFFF` again.
 
 ### 6.3 Summary
 
 | Step | Writes flash | Card | Pass | Recovery |
 |---|---|---|---|---|
-| F0 | no | N + probe | `LDR_STATE` FFFFFFFF, profile decodes | — |
-| F1a | stock bytes | S | update offered, boots 3.00 | refused: stop; interrupted: S in, power on |
-| F1b | stock bytes | R | minutes of `up`, then stock boot | battery pull, normal boot |
-| F2 | loader | L, then N + probe | `LDR_STATE` 3, stock behaviour | half-press, U; R + combo |
+| F0 | no | N + probe | `LDR_STATE` FFFFFFFF, profile decodes | — (**passed 2026-11-01**) |
+| F1a | stock bytes | S | "Firmware update complete.", boots | refused: stop; "Error occurred.": S in, power-cycle |
+| F1b | stock bytes | R | auto power-on ~3 s after off; `RESCUE_RAN`, no `RESCUE_UP_RET` | battery pull, normal boot |
+| F2 | loader | L, then N + probe | "Firmware update complete."; `LDR_STATE` 3, stock behaviour | half-press, U; R + combo |
 | F2b | no | N + probe | 1 / normal / USB OK | as F2 |
 | F3 | no | N + debug zip − CFW TTL + probe | CFW up, log line, `LDR_STATE` 6 | half-press |
 | F4 | no | N | look on first frame | half-press |
@@ -282,31 +229,26 @@ Nothing below has been run. Steps F0–F4 are M10; M11's P-steps come after F3 a
 
 ### 6.4 M11 P-steps (release firmware; after F3; not buildable yet)
 
-`scripts/build_cfw_frm.py` does not exist yet, and R1a–c (A: drive directory, larger RES in `up`, `LoadFile("A:/…")`) are open (milestone M11). F1a passing settles R1d. The planned steps follow milestone M11. Each needs the §6.1 preconditions and cards R/S:
+`scripts/build_cfw_frm.py` does not exist yet. R1a–c are answered statically and in emulation by finding 29 (A: drive append with a new directory, RES ≤ `0x7E0000`, `LoadFile("A:/…")`, plan B APP section 7); F1a settles R1d. The planned steps follow milestone M11. Each needs the §6.1 preconditions and cards R/S:
 - **P1:** flash `rg2_v003_cfw.frm` from a card holding only it (renamed `rg2_v003.frm`). Pass: CFW up without a card, INFO shows the release version, release log empty. Recovery: half-press boot, then U.
 - **P2:** skip key, no card, USB, playback-first boot. Pass: stock where expected, no card access in USB mode.
 - **P3:** uninstall with card S. Pass: stock APP + RES back (byte-identical if a BAK/shell checksum is available).
 
 ## 7. Risks and discrepancies (ranked 2026-11-01; open until the step that covers them)
 
-1. **Same-version install: never observed on hardware.**
-   - Static evidence now favours acceptance: `bcdUpdateCmpVer` = 0 in the stock modules, so `up`'s header check does no version compare, and the menu flow compares nothing [R §2].
-   - The section-10 dialog code was not read [I]. F1a decides.
+1. **Same-version install: never observed on hardware.** Static evidence is now complete: neither the menu check job, the dialog nor `up` (APP and BAK) compares versions; `bcdUpdateCmpVer` = 0 in every stock and installed header (finding 27). F1a confirms.
 2. **Hardware acceptance of a recomputed nUpdateCsum: never observed.**
-   - The formula is byte-exact on all 4 stock modules and on the patched APP [R]. F2 is the first flash using it.
-   - A rejection happens before "Destroy APP." [V].
-3. **The early H: mount is untested on hardware [I].**
-   - It is the same function DCFMount uses, about 2 s earlier, before the DCF/card-detect state exists.
+   - The formula is byte-exact on all 4 stock modules and on the patched APP [R]. The menu's check job runs the full header + checksum check before showing "Execute?", so a bad checksum shows a blank *New Version* or no Yes, before anything is erased [V finding 27]. F2 is the first flash using it.
+3. **The early H: mount (after `Section_Load(1)`) is untested on hardware.** Static review (finding 28): no wait depends on a task that does not exist yet; no card returns −1 quickly; DCFMount's later remount is a designed path (unmount, re-init, one retry with a card power cycle); `LoadFile` closes its file. Open: PrFILE2's internal writes on mount, UHS-I cards.
    - −1 → stock boot. A hang → no LCD → battery pull + half-press. Breaking DCFMount's remount → card errors → half-press boot, then U.
-4. **F1b cannot tell success from refusal except by duration.** `rescue/backup.ttl` runs `up` then `forcedown`, and both outcomes end with the camera off.
-   - Suggestion (not applied; the loader files are outside this review's scope): add a `foldercreate 'H:/RESCUE_UP_RET'` between `up` and `forcedown`. Its presence would mean `up` returned.
-   - Still untested: whether `up` returns or reboots on success, `forcedown`, and exFAT in BAK.
+   - Fixed 2026-11-01: the first stub mounted before section 1 was loaded; that build must never be flashed (§1).
+4. **BAK specifics untested on hardware:** the RTC wake after a successful `up`, `forcedown`, exFAT in BAK (keep FAT32). The F1b markers distinguish success from refusal.
 5. **Card-content mistakes.**
    - The debug zip contains the CFW `Startup.ttl`; with the loader armed it must be removed (F3), or it causes a double load (§3).
-   - Two `rg2_v*.frm` on one card is an untested `up` case.
-   - `dist/` also holds the loader `.frm` under its build name, which must be renamed on the card.
-   - The previous plan's F3 pass criterion `LDR_STATE` 6 could not be observed without a TTL. It is now the probe `Startup.ttl` (§6.2 F3).
-6. **USB/PC boots** mount H: in the stub before the PC takes the card. The stub only reads, and stage 1 must never write to H: from hook(1). Untested [I] (F2b c).
+   - BAK/`up` take the **highest** `rg2_vNNN.frm` in the root, fall back to `gr_vNNN.frm`, and open loose `b01firm0…9` files first (finding 27): cards hold exactly one `.frm` and nothing else of that kind.
+   - `dist/` holds the loader `.frm` under its build name; `make flash-kit` renames it for card L.
+   - Cards must be formatted in the camera: H: mounts only SD-spec layouts (finding 28).
+6. **The `notify(1) == 2` boot (section 1 only)** is most likely USB charging, not a PC session (MSC lives in section 8, finding 28 [I]). The stub's mount there only reads. F2b c.
 7. **Skip key and hangs.**
    - RL1 (P6.1, active 0) is read before the Button task exists [V pin decode, R]. The IPL reads P0/P14/P15 the same way even earlier, and RL2's polarity is [H] through the combo.
    - There is no watchdog for hangs [V finding 22 §2.3]: battery pull.
@@ -319,4 +261,4 @@ Nothing below has been run. Steps F0–F4 are M10; M11's P-steps come after F3 a
 11. The stub has 1 spare byte. A change needs the 316-byte tail after section 0 (section-0 size `0xA46C4` → `0xA4800`, IPL-checked). Not planned.
 12. IPL and BAK are never touched. They are the only recovery.
 
-No loader-source defect was found in this review.
+One loader-source defect was found and fixed on 2026-11-01 (card access before section 1, finding 28).
