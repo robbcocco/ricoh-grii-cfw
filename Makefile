@@ -50,7 +50,7 @@ audit: all
 	done
 	@$(SIZE) $(ELFS)
 
-dist: audit
+dist: audit loader
 	$(PYTHON) scripts/package_sd.py
 
 # Stock firmware inputs in fw/ (local rg2_v003.frm or the official download; never committed).

@@ -1,27 +1,24 @@
 # gr2_cfw: custom firmware for the Ricoh GR II
 
-A Magic-Lantern-style extension for the Ricoh GR II with firmware 3.00. It loads from the SD card at power-on, runs from RAM next to the stock firmware and never writes flash: remove the card and the camera boots stock. The only lasting changes are settings written through the camera's own setter, always to values the stock menus can select (see *Menus*).
+A Magic-Lantern-style extension for the Ricoh GR II with firmware 3.00. The camera gets Ricoh's firmware 3.00 plus a 132-byte loader; at power-on the loader starts the CFW from the card's `cfw/` folder, and the CFW runs from RAM next to the stock firmware. Without the card, or with the shutter half-pressed while switching on, the camera boots stock. The CFW's only lasting changes are settings written through the camera's own setter, always to values the stock menus can select (see *Menus*).
 
-**Status:** every feature below has passed on hardware (2026-10-30 – 11-01). The flashed debug loader (M10) is installed and passed on the test camera: it starts the CFW from the card without `Startup.ttl`. Roadmap and test history: [the project plan](the project plan).
+**Status:** every feature below has passed on hardware (2026-10-30 – 11-01), and the flashed loader (M10) passed every install, recovery and start test on 2026-11-01. Next: menus and the recipe look applied while the firmware loads (M10c), then the release firmware with the CFW built in (M11). Roadmap and test history: [the project plan](the project plan).
 
 - Two new Effect-button choices, **CFW Menu** and **Recipes**, in every UI language.
 - **CFW Menu:** Auto ISO slowest shutter, max ISO and *keep shutter*; TAv fixes; Auto ISO in M; Snap distances 0.7 m + 1.2 m; frame lines and zebras; Clarity strength and custom high-ISO NR; an INFO page; DEV tools (telnet developer console, screenshots).
 - **Recipes:** film looks in a filmstrip, previewed live in the camera's image pipeline and saved into My Settings slots MY1–MY3.
 
 ## Install
-1. **Unlock the boot script (once per camera).** The camera runs `H:/Startup.ttl` only when property `PROPID_DEVEL_MODE` (0x22D) is 1. `Shutdown.ttl` always runs, so a one-off `H:/Shutdown.ttl` with these lines sets it at the next power-off (ASCII, CRLF line endings):
-   ```
-   sprintf "pset PROPID_DEVEL_MODE 1"
-   sendln inputstr
-   pause 1
-   end
-   ```
-   Power on, power off, then delete that file. `pset PROPID_DEVEL_MODE 0` undoes it.
-2. **Check the load window (once per camera, data only).** Copy `loader/probe/Startup.ttl` and `loader/probe/Shutdown.ttl` to the card root, power on, use the camera normally, power off. Copy `H:/cfw/probe/*.BIN` to a folder and run `python3 scripts/check_probe.py <folder>`. Continue only on `PROBE PASSED`.
-3. **Install.** Unzip `gr2_cfw-v<VERSION>-release.zip` (or `-debug.zip`) from the [releases](../../releases) into the card root (FAT32). It creates `Startup.ttl`, `Shutdown.ttl` and `cfw/` (both stages, fonts, recipes, licences). On macOS, delete the `._*` files afterwards.
+1. Charge the battery to **full**. Format a card **in the camera** (the firmware refuses card layouts outside the SD specification; FAT32 for 32 GB and smaller).
+2. Unzip `gr2_cfw-v<VERSION>-release.zip` (or `-debug.zip`) from the [releases](../../releases) into the card root: `rg2_v003.frm` and `cfw/` (both stages, fonts, recipes, licences; the debug zip adds `Shutdown.ttl`). On macOS, delete the `._*` files afterwards. The card must hold no other `rg2_v*.frm`.
+3. MENU → Set-up → *Confirm Firmware Version*. It shows **Execute?** with *New Version 3.00* (the camera accepts the same version). Choose **Yes**, wait for **Firmware update complete.**, press **OK** (the camera switches off), switch it on.
 4. In *Key Custom Options*, set **Effect Button Setting** and/or **Effect Button Hold Setting** to **CFW Menu** or **Recipes**. With the dial on MY1–MY3 that assignment belongs to the slot: save it with the stock *Save My Settings*, or it is dropped at power-off.
 
-If the camera hangs or reboots, remove the card: the next boot is stock. Load the CFW once per power cycle (no re-running `Startup.ttl` by hand).
+- **Updating** the CFW only needs the new `cfw/` folder; reflash only when the zip's `rg2_v003.frm` changes.
+- **Never** put a `Startup.ttl` from older CFW versions on the card: it would load the CFW a second time over the running one.
+- **Stock boot:** hold the shutter half-pressed while switching on, or remove the card. If the camera hangs, take the battery out and do that.
+- **Uninstall:** flash Ricoh's official `rg2_v003.frm` the same way.
+- **Rescue** (if the camera no longer boots at all): a camera-formatted card with Ricoh's `rg2_v003.frm` and `loader/flash/rescue/backup.ttl` as `backup.ttl`; dial on MOVIE, shutter fully pressed, POWER; release, turn the dial off MOVIE, wait until the camera restarts by itself (`loader/flash/README.md` §6).
 
 | Build | `H:/cfw/cfw_log.txt` |
 |---|---|
@@ -115,14 +112,15 @@ Requirements: `arm-none-eabi-gcc` (GCC 16 locally, Ubuntu's `gcc-arm-none-eabi` 
 
 ```sh
 make            # bin/{release,debug}/gr2_cfw.bin (stage 1) + gr2_main.bin (stage 2)
-make dist       # ISA audit + dist/gr2_cfw-v<VERSION>-{release,debug}.zip, SHA256SUMS.txt, RELEASE_NOTES.md
+make dist       # ISA audit + loader .frm + dist/gr2_cfw-v<VERSION>-{release,debug}.zip, SHA256SUMS.txt, RELEASE_NOTES.md
 make test       # lint + ISA audit + emulator tests + loader .frm check (what CI runs)
 make help       # every target
 ```
 
 - **Stages.** Stage 1 (`gr2_cfw.bin`, loader + hook veneers) runs in the 32 KiB window `0xA0017000–0xA001EFFF`, the erased tail of the IPL copy in DRAM. It loads stage 2 (`gr2_main.bin`, everything else) into a heap block and relocates it; stage 2 is linked twice and `scripts/mkmain.py` turns the difference into its relocation table.
 - **Target.** ARMv5TE, big-endian, Thumb-1, freestanding, no libgcc; `make audit` rejects anything else.
-- **Firmware inputs.** `make fw` puts Ricoh's stock `rg2_v003.frm` (a local copy, or the official download, SHA-256 checked) and its extracted images into `fw/`. The emulator tests (`tests/emu/`) and the loader check need it. Nothing from `fw/` is committed or published.
+- **Firmware inputs.** `make fw` puts Ricoh's stock `rg2_v003.frm` (a local copy, or the official download, SHA-256 checked) and its extracted images into `fw/` (never committed). The emulator tests, the loader build and `make dist` need it; the zips carry the loader `.frm` built from it.
+- **Development without the loader:** `loader/Startup.ttl` (not shipped) loads the CFW the old way on a stock camera with `PROPID_DEVEL_MODE` = 1; never use it on a camera with the loader.
 - **CI** (`.github/workflows/ci.yml`): `make WERROR=1 test` and `make dist` on every push and pull request; uploads the SD zips, ELFs and emulator renders.
 - **Releases** (`.github/workflows/release.yml`): bump `VERSION` on main, then push the tag `v<VERSION>`; the workflow tests, packages and publishes the zips.
 
@@ -131,7 +129,7 @@ make help       # every target
 |---|---|
 | `src/`, `include/` | CFW sources; `include/gr2_hw.h` holds every firmware address the CFW uses |
 | `gr2_boot.ld`, `gr2_main.ld` | Stage-1 window and stage-2 link scripts |
-| `loader/` | `Startup.ttl` / `Shutdown.ttl` (SD loader), `probe/` (window check), `flash/` (M10 flashed loader: stub, rescue script, test plan) |
+| `loader/` | `Startup.ttl` (development loader for stock cameras, not shipped) / `Shutdown.ttl`, `probe/` (window check), `flash/` (M10 flashed loader: stub, rescue script, test plan) |
 | `recipes/`, `fonts/` | Shipped recipe files and overlay fonts, with their licences |
 | `scripts/` | `package_sd.py` (zips), `mkmain.py` (stage-2 relocations), `fetch_firmware.py` (`make fw`), `build_loader_frm.py` + `emu_loader.py` (`make loader`), `flash_kit.py` (`make flash-kit`: per-step card folders for the flash tests), `loader_timing.py`, `check_probe.py`, `make_fonts.py` |
 | `tests/emu/` | Unicorn emulator tests of both builds against the stock firmware |
@@ -140,4 +138,4 @@ make help       # every target
 Reverse-engineering notes live in the separate `the reverse-engineering notes` repository (findings 01–26).
 
 ## Licence
-MIT for the CFW code ([LICENSE](LICENSE)). Fonts (SIL OFL 1.1) and film recipes (CC BY-SA 4.0 / CC BY-NC-SA 4.0) keep their own licences. Ricoh firmware is not included. Not affiliated with Ricoh, Kodak or Fujifilm; use at your own risk.
+MIT for the CFW code ([LICENSE](LICENSE)). Fonts (SIL OFL 1.1) and film recipes (CC BY-SA 4.0 / CC BY-NC-SA 4.0) keep their own licences. The release zips' `rg2_v003.frm` contains Ricoh's firmware 3.00 (Ricoh's property, not covered by the MIT licence) with the loader patch. Not affiliated with Ricoh, Kodak or Fujifilm; use at your own risk.

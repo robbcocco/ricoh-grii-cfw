@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
-"""Package the built payloads as SD-card trees (one zip per build variant).
+"""Package the release and debug zips (`make dist`, after `make loader`).
 
-Run after `make all` (or use `make dist`). For each variant in VARIANTS:
-    dist/gr2_cfw-v<VERSION>-<variant>.zip
-        Startup.ttl          (loader/Startup.ttl)
-        Shutdown.ttl         (loader/Shutdown.ttl)
-        cfw/gr2_cfw.bin      (bin/<variant>/gr2_cfw.bin: stage 1, loaded by Startup.ttl)
-        cfw/gr2_main.bin     (bin/<variant>/gr2_main.bin: stage 2, loaded by stage 1)
-        cfw/recipes/*        (recipes/: recipe files and their licence notice)
-        cfw/fonts/*          (fonts/: overlay fonts from scripts/make_fonts.py, OFL licences)
-        cfw/LICENSE.txt      (LICENSE: MIT for the CFW, third-party notes)
-Unzip into the root of the FAT32 card (H:). Also writes dist/SHA256SUMS.txt
-and dist/RELEASE_NOTES.md.
+Each zip is an SD-card root (H:):
+    rg2_v003.frm         the flashed debug loader (dist/rg2_v003_loader.frm, SHA-256 checked): stock
+                         3.00 + the 132-byte stub that starts the CFW from cfw/ (until M11 replaces it
+                         with the release firmware that carries the CFW itself)
+    Shutdown.ttl         debug only (loader/Shutdown.ttl: `cfw status` at power-off)
+    cfw/gr2_cfw.bin      (bin/<variant>/gr2_cfw.bin: stage 1, loaded by the flashed loader)
+    cfw/gr2_main.bin     (bin/<variant>/gr2_main.bin: stage 2, loaded by stage 1)
+    cfw/recipes/*        (recipes/: recipe files and their licence notice)
+    cfw/fonts/*          (fonts/: overlay fonts from scripts/make_fonts.py, OFL licences)
+    cfw/LICENSE.txt      (LICENSE: MIT for the CFW, third-party notes)
+No Startup.ttl: on a camera with the loader it would load stage 1 a second time over the
+running one (loader/flash/README.md §3). Also writes dist/SHA256SUMS.txt and dist/RELEASE_NOTES.md.
 
-Checks before packaging: TTL and recipe files are ASCII with CRLF only, recipe
-file names are 8.3, stage 1 fits the 32 KiB loader window and links at
-0xA0017000, stage 2 has a valid header and carries the current VERSION string.
+Checks before packaging: TTL and recipe files are ASCII with CRLF only, recipe file names are
+8.3, stage 1 fits the 32 KiB loader window and links at 0xA0017000, stage 2 has a valid header
+and carries the current VERSION string, the .frm is the reviewed loader build.
 """
 
 import hashlib
@@ -28,6 +29,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
+sys.path.insert(0, str(ROOT / "scripts"))
+from flash_kit import LOADER_SHA  # noqa: E402  (the reviewed loader build)
+
+LOADER_FRM = DIST / "rg2_v003_loader.frm"
 VARIANTS = {
     "release": "Errors only in H:/cfw/cfw_log.txt. For everyday use.",
     "debug": "Every log line, the key trace and the `cfw status` dump at power-off. For testing and bug reports.",
@@ -36,7 +41,6 @@ WINDOW_BASE = 0xA0017000
 WINDOW_SIZE = 0x8000
 MAIN_MAGIC = 0x47524D31   # include/boot.h CFW_MAIN_MAGIC
 LDR_MAGIC = 0x47524C31    # include/boot.h CFW_LDR_MAGIC (stage 1 +4, loader ABI v1)
-TTL_FILES = ("Startup.ttl", "Shutdown.ttl")
 RECIPES = ROOT / "recipes"
 FONTS = ROOT / "fonts"
 FONT_FILES = ("inm13.fnt", "insb15.fnt", "inm18.fnt", "insb18.fnt", "bcsb22.fnt")   # src/osd.c FONT_FILE
@@ -139,7 +143,12 @@ def write_zip(path: Path, members: dict) -> None:
 
 def main() -> None:
     version = (ROOT / "VERSION").read_text().strip().lstrip("v")
-    ttls = {name: check_text(ROOT / "loader" / name) for name in TTL_FILES}
+    shutdown = check_text(ROOT / "loader" / "Shutdown.ttl")
+    if not LOADER_FRM.is_file():
+        fail("dist/rg2_v003_loader.frm missing: run make loader")
+    frm = LOADER_FRM.read_bytes()
+    if hashlib.sha256(frm).hexdigest() != LOADER_SHA:
+        fail("dist/rg2_v003_loader.frm is not the reviewed loader build (scripts/flash_kit.py LOADER_SHA)")
     DIST.mkdir(exist_ok=True)
     for old in DIST.glob("gr2_cfw-v*.zip"):
         old.unlink()
@@ -150,8 +159,11 @@ def main() -> None:
     for variant in VARIANTS:
         boot, main_bin = check_payload(variant, version)
         zip_path = DIST / f"gr2_cfw-v{version}-{variant}.zip"
-        write_zip(zip_path, {**ttls, "cfw/gr2_cfw.bin": boot, "cfw/gr2_main.bin": main_bin, **fonts, **recipes,
-                             "cfw/LICENSE.txt": (ROOT / "LICENSE").read_bytes()})
+        members = {"rg2_v003.frm": frm, "cfw/gr2_cfw.bin": boot, "cfw/gr2_main.bin": main_bin, **fonts, **recipes,
+                   "cfw/LICENSE.txt": (ROOT / "LICENSE").read_bytes()}
+        if variant == "debug":
+            members["Shutdown.ttl"] = shutdown
+        write_zip(zip_path, members)
         sums.append((hashlib.sha256(zip_path.read_bytes()).hexdigest(), zip_path.name))
         print(f"packaged {zip_path.relative_to(ROOT)} (stage 2 {len(main_bin)} B, {len(recipes)} recipe files)")
 
@@ -160,20 +172,31 @@ def main() -> None:
     lines = [
         f"# gr2_cfw v{version}",
         "",
-        "SD-loaded custom firmware for the Ricoh GR II (firmware 3.00). It runs from RAM and never writes flash: remove the card and the camera boots stock.",
+        "Custom firmware for the Ricoh GR II (firmware 3.00). `rg2_v003.frm` is Ricoh's firmware 3.00 plus a "
+        "132-byte loader that starts the CFW from the card's `cfw/` folder at power-on. Without the card, or with "
+        "the shutter half-pressed while switching on, the camera boots stock.",
         "",
         "## Install",
-        "1. Prerequisite: `PROPID_DEVEL_MODE = 1` on the camera (see the project README, *Install*), so `H:/Startup.ttl` runs at boot.",
-        "2. Unzip **one** of the zips below into the root of the FAT32 SD card. It creates `Startup.ttl`, `Shutdown.ttl`, `cfw/gr2_cfw.bin`, `cfw/gr2_main.bin`, `cfw/fonts/` and `cfw/recipes/`. On macOS, remove `._*` files afterwards (`find /Volumes/<card> -name '._*' -delete`).",
-        "3. Power on. In *Key Custom Options*, set *Effect Button Setting* (or *Effect Button Hold Setting*) to **CFW Menu** or **Recipes**.",
+        "1. Charge the battery to **full**. Format a card **in the camera** (FAT32 if 32 GB or smaller).",
+        "2. Unzip **one** of the zips below into the card root. On macOS, remove `._*` files afterwards "
+        "(`find /Volumes/<card> -name '._*' -delete`). The card must hold no other `rg2_v*.frm`.",
+        "3. MENU → Set-up → *Confirm Firmware Version*: it shows **Execute?** with *New Version 3.00*. Choose **Yes**, "
+        "wait for **Firmware update complete.**, press OK (the camera switches off), switch it on.",
+        "4. In *Key Custom Options*, set *Effect Button Setting* (or *Effect Button Hold Setting*) to **CFW Menu** or "
+        "**Recipes**.",
         "",
-        "## Recipes and licences",
+        "Updating the CFW later only needs the new `cfw/` folder; reflash only when `rg2_v003.frm` changes. "
+        "Never put a `Startup.ttl` from older CFW versions on the card. Uninstall: flash Ricoh's official "
+        "`rg2_v003.frm` the same way.",
+        "",
+        "## Licences",
+        "The CFW is MIT-licensed (`cfw/LICENSE.txt`). `rg2_v003.frm` contains Ricoh's firmware, which is Ricoh's "
+        "property and not covered by that licence; this project is not affiliated with Ricoh. "
         "The film recipes in `cfw/recipes/` are derived from [a third-party GR III project fits of "
         "[spektrafilm](https://github.com/andreavolpato/spektrafilm) looks by Andrea Volpato (CC BY-SA 4.0) and, for Classic Neg, of "
         "[FujifilmCameraProfiles](https://github.com/abpy/FujifilmCameraProfiles) by abpy (CC BY-NC-SA 4.0: non-commercial only). "
         "Attribution is in each recipe file; licence texts in `cfw/recipes/licenses/`. Film names are used descriptively; not affiliated with Kodak or Fujifilm. "
-        "The overlay fonts in `cfw/fonts/` are rendered from Inter and Barlow Condensed (SIL Open Font License 1.1, `cfw/fonts/licenses/`). "
-        "The CFW itself is MIT-licensed (`cfw/LICENSE.txt`).",
+        "The overlay fonts in `cfw/fonts/` are rendered from Inter and Barlow Condensed (SIL Open Font License 1.1, `cfw/fonts/licenses/`).",
         "",
         "## Downloads",
         "| File | Build | SHA-256 |",
