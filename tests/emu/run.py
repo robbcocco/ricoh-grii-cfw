@@ -102,7 +102,7 @@ class Checks:
 class Session:
     """One emulated camera: boot + the CFW task's start sequence (src/task.c)."""
 
-    def __init__(self, ctx, files=None, props=None, slots=None, loader=False, on_hook=None):
+    def __init__(self, ctx, files=None, props=None, slots=None, loader=False, on_hook=None, drop=()):
         import machine
         self.ctx = ctx
         self.m = m = machine.Machine(ctx.inputs, ctx.variant, str(CFW), files=files, props=props, slots=slots)
@@ -113,6 +113,8 @@ class Session:
             m.put_file('H:/cfw/recipes/licenses/' + p.name, p.read_bytes())
         for p in sorted((CFW / 'fonts').glob('*.fnt')):
             m.put_file('H:/cfw/fonts/' + p.name, p.read_bytes())
+        for path in drop:                       # card files that are gone in this session
+            del m.files[path.upper()]
         self.rc = m.boot(loader=loader, on_hook=on_hook)
         task = [t for t in m.tasks if t['name'] == 'CFW']
         ctx.check(len(task) == 1 and task[0]['entry'] & ~1 == m.syms['cfw_task'] & ~1, 'CFW task not created')
@@ -354,8 +356,9 @@ def sc_menu(ctx):
     check(rows and 60 + 2 * 38 <= rows[0] and rows[-1] < 60 + 2 * 38 + 36, f'INFO tick redrew rows {rows[:1]}..')
     s.keys(KEY_EFFECT)
     check(not s.is_open() and m.layer[3] == machine.OSD_BITMAPS[0], 'stock OSD buffer not back after close')
-    cfg = (m.file('H:/cfw/config.txt') or b'').decode()
-    check('aisomin=00000000' in cfg and 'clarity.s=00000007' in cfg, f'config not saved: {cfg!r}')
+    cfg = m.cfg_text()
+    check('aisomin=00000000' in cfg and 'clarity.s=00000007' in cfg, f'config not saved to D:: {cfg!r}')
+    check(m.file('H:/cfw/config.txt') is None, 'config written to the card')
     finish(ctx, s)
 
 
@@ -442,7 +445,7 @@ def sc_recipes(ctx):
     check(slot[0x2B] == 0 and slot[0x2C] == 4 and name == 'Portra 400', f'slot: {slot[0x2B]} {slot[0x2C]} {name!r}')
     check(m.ustr(m.props[0x1BB]) == 'Portra 400' and m.props[0x1C4] == 0, 'MY2 name cache / box link')
     check(not m.prop_sa_written, 'live name written while the dial is not on MY2')
-    cfg = m.file('H:/cfw/config.txt').decode()
+    cfg = m.cfg_text()
     for k, v in (('rc2.0', 'PORT'), ('rc2.1', 'RA.T'), ('rc2.2', 'XT\0\0')):
         check(f'{k}={v.encode().hex().upper()}\r\n' in cfg, f'config {k} != {v!r}: {cfg!r}')
     s.keys(KEY_EFFECT)
@@ -458,11 +461,16 @@ def sc_recipes(ctx):
     m.call('recipes_poll')
     check(s.look_shown({}), 'dial off MY2: look still shown')
     finish(ctx, s)
-    # Reboot with that config and slot: the look comes back from config.txt.
-    s2 = Session(ctx, files={'H:/cfw/config.txt': m.file('H:/cfw/config.txt')}, slots=m.slots,
-                 props={0x2D: 4, 6: 2})
+    # Reboot with that internal drive and slot: the look comes back from D: (config + look cache) ...
+    s2 = Session(ctx, files=m.d_files(), slots=m.slots, props={0x2D: 4, 6: 2})
     check(s2.look_shown({3: rec[pi]['flags']}), 'after reboot: MY2 look not restored')
     finish(ctx, s2)
+    # ... and from the look cache alone when the recipe file is no longer on the card (no ERROR, no rewrite).
+    d = s2.m.d_files()
+    s3 = Session(ctx, files=d, slots=m.slots, props={0x2D: 4, 6: 2}, drop=['H:/cfw/recipes/portra.txt'])
+    check(s3.look_shown({3: rec[pi]['flags']}), 'recipe file gone: cached MY2 look not shown')
+    check(s3.m.d_files() == d, 'D: rewritten although nothing changed')
+    finish(ctx, s3)
 
 
 def sc_palette(ctx):
@@ -707,11 +715,11 @@ def sc_ae_hooks(ctx):
     check(code() == [0x000A, 0x22F0, 0x2806], f'not stock after OFF: {[hex(v) for v in code()]}')
     m.call('settings_step', S_MAUTO, 1)
     m.call('settings_save')
-    cfg = (m.file('H:/cfw/config.txt') or b'').decode('ascii')
+    cfg = m.cfg_text()
     check('mauto=00000001' in cfg and 'tavmin=00000000' in cfg, f'config: {cfg!r}')
     finish(ctx, s)
     # Reboot with that config: M auto is applied at init. A foreign guard halfword blocks TAv min.
-    s2 = Session(ctx, files={'H:/cfw/config.txt': cfg.encode('ascii')})
+    s2 = Session(ctx, files=m.d_files())
     m2 = s2.m
     check(m2.u16(MSV) == 0x000A, 'M auto not re-applied from the config')
     m2.w16(0xA00DC232, 0x0000)
@@ -921,9 +929,45 @@ def ctx_sym1(ctx, name):
     return machine.Symbols(str(CFW / 'bin' / ctx.variant / 'gr2_cfw.elf'))[name]
 
 
+def sc_store(ctx):
+    """Config on D: (src/store.c): import of the M10 card file, the two generations alternate, a torn newest
+    file falls back to the older one and is the next to be rewritten, an empty D: gives defaults."""
+    check = ctx.check
+    S_MAUTO = 14
+    card = b'mauto=00000001\r\n'
+    s = Session(ctx, files={'H:/cfw/config.txt': card})
+    m = s.m
+    check('mauto=00000001' in m.cfg_text() and m.file('H:/cfw/config.txt') == card, 'card config not imported')
+    check(m.store('D:/CFW/CFG_A.DAT', 'D:/CFW/CFG_B.DAT') is not None and m.file('D:/CFW/CFG_B.DAT') is None,
+          'first save not in CFG_A')
+    m.call('settings_step', S_MAUTO, 1)                         # ON -> OFF
+    m.call('settings_save')
+    a, b = m.file('D:/CFW/CFG_A.DAT'), m.file('D:/CFW/CFG_B.DAT')
+    check(b is not None and 'mauto=00000000' in m.cfg_text() and b'mauto=00000001' in a,
+          'second save did not go to CFG_B, or touched CFG_A')
+    finish(ctx, s)
+    # Power lost while CFG_B was written: the next boot uses CFG_A and rewrites CFG_B, never CFG_A.
+    d = m.d_files()
+    d['D:/CFW/CFG_B.DAT'] = d['D:/CFW/CFG_B.DAT'][:20]
+    s2 = Session(ctx, files=d)
+    m2 = s2.m
+    check(s2.setting(S_MAUTO) == 'ON' and m2.file('D:/CFW/CFG_A.DAT') == a, 'torn CFG_B: CFG_A not used as is')
+    m2.call('settings_step', S_MAUTO, 1)
+    m2.call('settings_save')
+    check(m2.file('D:/CFW/CFG_A.DAT') == a and 'mauto=00000000' in m2.cfg_text(), 'save after a torn CFG_B')
+    finish(ctx, s2)
+    # Wiped D: (Reset Settings) and no card file: built-in defaults.
+    s3 = Session(ctx)
+    check(s3.setting(S_MAUTO) == 'OFF', 'empty D: and no card config: M auto not at its default')
+    if ctx.variant == 'debug':
+        check('config: none' in s3.m.log_lines(), 'empty D: not reported')
+    finish(ctx, s3)
+
+
 SCENARIOS = [('boot', sc_boot), ('menu', sc_menu), ('snap', sc_snap), ('recipes', sc_recipes),
              ('palette', sc_palette), ('dev', sc_dev), ('recipe-files', sc_recipe_files), ('view', sc_view),
-             ('ae-hooks', sc_ae_hooks), ('console', sc_console), ('loader', sc_loader), ('pattern', sc_pattern)]
+             ('ae-hooks', sc_ae_hooks), ('console', sc_console), ('loader', sc_loader), ('pattern', sc_pattern),
+             ('store', sc_store)]
 
 
 # ---- main -----------------------------------------------------------------------------------------------

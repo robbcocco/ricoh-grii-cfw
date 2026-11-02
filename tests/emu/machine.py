@@ -12,6 +12,7 @@ frame and the IQ dump), so both views share their bytes like on the camera.
 """
 import ctypes
 import struct
+import zlib
 
 from unicorn import (UC_ARCH_ARM, UC_HOOK_BLOCK, UC_HOOK_MEM_FETCH_UNMAPPED, UC_HOOK_MEM_READ_UNMAPPED,
                      UC_HOOK_MEM_WRITE_UNMAPPED, UC_MODE_ARM, UC_MODE_BIG_ENDIAN, UC_PROT_ALL, Uc, UcError)
@@ -34,7 +35,9 @@ ROOT_TASK_STACK = 0x4000              # loader hooks run in the root init task (
 FRM_JOB_STACK = 0x3000 - 0x800
 # Static worst-case stack of the stock file API incl. the SD driver (finding 31 §3).
 STOCK_FILE_STACK = {'File_Open': 8612 + 712, 'File_Read': 4188 + 712, 'File_Write': 4244 + 712,
-                    'File_Close': 4132 + 712}
+                    'File_Close': 4132 + 712,
+                    'File_Mkdir': 8612 + 712}   # [I] not measured: assumed like File_Open (path lookup)
+D_DIRS = {'D:/CFW'}                  # subdirectories of the internal D: drive that the CFW may create
 WINDOW, WINDOW_SIZE = 0xA0017000, 0x8000
 SENTINEL = 0xA001F000                 # return address of every call (just past the window)
 FW_BASE = 0xA0020200                  # RAM = 0xA0020200 + file offset
@@ -81,6 +84,7 @@ SYSMODE_SHOOTING = 6
 FN = dict(
     memory_alloc=0xA0024D6E, file_open=0xA002C70E, file_read=0xA002CA98, file_write=0xA002CC4A,
     file_close=0xA002C904, find_first=0xA002EF58, find_next=0xA002F354, find_close=0xA002FA3C,
+    file_mkdir=0xA002E6EC,
     prop_get=0xA00E0E2E, prop_get_raw=0xA00E0E80, prop_set=0xA00E0C94, prop_lock=0xA00E127A,
     prop_unlock=0xA00E1286, prop_sa_read=0xA00E0FFE, prop_sa_write=0xA00E100E, prop_path=0xA00DDB68,
     pdb_clone=0xA0037E14, pdb_load=0xA0037A42, pdb_save=0xA0037AE6, pdb_free=0xA0037478,
@@ -194,7 +198,7 @@ class Machine:
         self.main_base = None
 
         # state of the modelled firmware
-        self.files, self.names = {}, {}
+        self.files, self.names, self.dirs = {}, {}, set()
         for k, v in (files or {}).items():
             self.put_file(k, v)
         self.handles, self.next_fd = {}, 0x100
@@ -285,6 +289,8 @@ class Machine:
         key = path.upper()
         self.files[key] = bytearray(data)
         self.names[key] = path
+        if key.startswith('D:/') and key.count('/') > 1:
+            self.dirs.add(key.rsplit('/', 1)[0])
 
     def file(self, path):
         f = self.files.get(path.upper())
@@ -480,8 +486,12 @@ class Machine:
         self._stack_need('File_Open')
         path, mode = self.cstr(self.r(0)), self.r(1)
         key = path.upper()
-        if not key.startswith('H:/'):
-            raise EmuError(f'File_Open({path!r}): only H: is modelled')
+        if key.startswith('D:/'):
+            parent = key.rsplit('/', 1)[0]
+            if mode != 0 and parent != 'D:' and parent not in self.dirs:
+                return self.ret(0)          # PrFILE2 does not create directories in File_Open
+        elif not key.startswith('H:/'):
+            raise EmuError(f'File_Open({path!r}): only H: and D: are modelled')
         if mode == 0:
             if key not in self.files:
                 return self.ret(0)
@@ -496,6 +506,40 @@ class Machine:
         self.next_fd += 1
         self.handles[fd] = [key, 0, mode]
         self.ret(fd)
+
+    def _file_mkdir(self):
+        self._stack_need('File_Mkdir')
+        path = self.cstr(self.r(0)).upper().rstrip('/')
+        if path not in D_DIRS:
+            raise EmuError(f'File_Mkdir({path!r}) not modelled')
+        if path in self.dirs:
+            return self.ret(0)
+        self.dirs.add(path)
+        self.ret(1)
+
+    def store(self, a, b):
+        """Newest valid payload of a src/store.c pair (D: paths), or None."""
+        best = None
+        for p in (a, b):
+            d = self.file(p)
+            if d is None or len(d) < 16:
+                continue
+            magic, gen, n, crc = struct.unpack('>4I', d[:16])
+            body = d[16:]
+            if len(body) != n or zlib.crc32(struct.pack('>II', gen, n) + body) != crc:
+                continue
+            if best is None or ((gen - best[0]) & MASK) < 0x80000000:
+                best = (gen, body)
+        return None if best is None else best[1]
+
+    def cfg_text(self):
+        """The CFW config as saved on D: (src/config.c), '' if none."""
+        d = self.store('D:/CFW/CFG_A.DAT', 'D:/CFW/CFG_B.DAT')
+        return '' if d is None else d.decode('ascii')
+
+    def d_files(self):
+        """D:/CFW files, to boot another session with the same internal drive."""
+        return {self.names[k]: self.file(k) for k in self.files if k.startswith('D:/CFW/')}
 
     def _handle(self, fd):
         h = self.handles.get(fd)

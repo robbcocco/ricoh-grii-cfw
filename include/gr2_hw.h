@@ -28,6 +28,7 @@
 #define GR2_FN_FILE_READ     ((int (*)(int, void *, uint32_t))0xA002CA99)
 #define GR2_FN_FILE_WRITE    ((int (*)(int, const void *, uint32_t))0xA002CC4B) /* size or -1 */
 #define GR2_FN_FILE_CLOSE    ((int (*)(int))0xA002C905)
+#define GR2_FN_FILE_MKDIR    ((int (*)(const char *))0xA002E6ED)            /* 1 created, 0 exists, -1 error (finding 34) */
 #define GR2_FN_PROP_GET      ((uint32_t (*)(uint32_t))0xA00E0E2F)           /* Prop_Get(id), runs the per-property getter hook */
 #define GR2_FN_PROP_GET_RAW  ((uint32_t (*)(uint32_t))0xA00E0E81)           /* stored value, no getter hook */
 #define GR2_FN_PROP_SET      ((void (*)(uint32_t, uint32_t))0xA00E0C95)     /* scalar setter, no range check */

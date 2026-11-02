@@ -8,7 +8,13 @@
  * is not part of a slot: the config remembers which recipe file each slot
  * holds, and src/look.c shows that look in IQ RAM while the slot is selected
  * and the recipe's base mode is active (or the previewed recipe while the
- * Recipes overlay is open). */
+ * Recipes overlay is open).
+ *
+ * The three slot looks are also cached on D:/CFW (src/store.c, the project plan): the
+ * loader's first hook reads them from NAND, so the look is ready before the
+ * first frame without reading recipe files, and a slot keeps its look when its
+ * recipe file is no longer on the card. */
+#include <stddef.h>
 #include <stdint.h>
 #include "look.h"
 #include "recipes.h"
@@ -16,6 +22,10 @@
 #include "cfw_log.h"
 #include "config.h"
 #include "gr2_hw.h"
+#include "store.h"
+
+void *memset(void *dst, int c, size_t n);              /* src/mem.c */
+void *memcpy(void *dst, const void *src, size_t n);
 
 #define DIR_PATH  "H:/cfw/recipes"
 #define NAME_LEN  24
@@ -115,6 +125,14 @@ typedef struct {
     look_t look;
 } entry_t;
 
+/* One MY slot's look cache entry; all bytes are defined (fill_early), so entries compare bytewise. */
+typedef struct {
+    char sfn[13];      /* recipe file the slot holds (config rcK.*), "" none */
+    int8_t ok;         /* look present */
+    int8_t mode;       /* the recipe's base colour mode */
+    look_t look;
+} early_t;
+
 static const char *g_names[RECIPES_MAX];
 static int g_n;
 /* Large buffers live in one GlobalHeap block (the CFW window is small). */
@@ -123,6 +141,7 @@ typedef struct {
     char buf[4096];        /* one recipe file */
     gr2_find_t find;
     recipe_t r;
+    early_t cache[N_SLOTS];   /* the look cache as it should be (cache_update) */
 } work_t;
 static work_t *W;
 #define g_list (W->list)
@@ -370,6 +389,34 @@ static void sort_list(void) {
     }
 }
 
+/* ---- look cache on D: --------------------------------------------------------------- */
+
+static early_t g_early[N_SLOTS];
+static int g_cache_loaded;
+static int g_cache_stale;              /* g_early differs from the D: copy (or there is none) */
+static store_t g_cache = { { "D:/CFW/LOOK_A.DAT", "D:/CFW/LOOK_B.DAT" }, 0x47524C4Bu /* "GRLK" */, 0, -1 };
+
+static void cache_load(void) {
+    if (g_cache_loaded) return;
+    g_cache_loaded = 1;
+    if (store_load(&g_cache, g_early, sizeof(g_early)) == (int)sizeof(g_early)) return;
+    memset(g_early, 0, sizeof(g_early));
+    g_cache_stale = 1;
+}
+
+/* e = slot entry for file sfn with recipe base mode `mode` and look l; every byte defined. */
+static void fill_early(early_t *e, const char *sfn, int mode, const look_t *l) {
+    memset(e, 0, sizeof(*e));
+    copy_str(e->sfn, sfn, sizeof(e->sfn));
+    e->ok = l->flags != 0;
+    e->mode = (int8_t)mode;
+    e->look.flags = l->flags;
+    memcpy(e->look.matrix, l->matrix, sizeof(l->matrix));
+    memcpy(e->look.post, l->post, sizeof(l->post));
+    memcpy(e->look.hue, l->hue, sizeof(l->hue));
+    memcpy(e->look.tone, l->tone, sizeof(l->tone));
+}
+
 /* ---- which look is shown ---------------------------------------------------------- */
 
 #define PREVIEW 100                    /* g_shown value: 100 + recipe index */
@@ -378,24 +425,38 @@ static int g_preview = -1;             /* recipe previewed while the Recipes ove
 static int g_shown = -1;               /* -1 stock, 0..2 slot, PREVIEW + i; -2 = re-apply */
 static int g_shown_mode = -1;          /* IQ mode the look is shown in */
 
+/* Slot k's look and base mode: from its recipe file, else from the cache (file not on the card). */
+static const look_t *slot_look(int k, int *mode) {
+    if (g_slot_recipe[k] >= 0) {
+        const entry_t *e = &g_list[g_slot_recipe[k]];
+        *mode = e->base->mode;
+        return &e->look;
+    }
+    if (g_early[k].ok) {
+        *mode = g_early[k].mode;
+        return &g_early[k].look;
+    }
+    return 0;
+}
+
 /* What to show: the previewed recipe (overlay open, in the current colour
  * mode if the CFW can change it), else the recipe of the active MY slot while
  * its base mode is active, else stock. */
 static int wanted(uint32_t cm, int *k5) {
     *k5 = look_mode(cm);
     if (g_preview >= 0 && g_list[g_preview].look.flags && *k5 >= 0) return PREVIEW + g_preview;
-    int k = (int)GR2_FN_PROP_GET_RAW(GR2_PROPID_MYSETTING) - 1;
-    if (k >= 0 && k < N_SLOTS && g_slot_recipe[k] >= 0) {
-        const entry_t *e = &g_list[g_slot_recipe[k]];
-        if (e->look.flags && cm == (uint32_t)e->base->mode) return k;
+    int k = (int)GR2_FN_PROP_GET_RAW(GR2_PROPID_MYSETTING) - 1, mode;
+    if (k >= 0 && k < N_SLOTS) {
+        const look_t *l = slot_look(k, &mode);
+        if (l && l->flags && cm == (uint32_t)mode) return k;
     }
     return -1;
 }
 
 void recipes_poll(void) {
-    int k5, want = wanted(GR2_FN_PROP_GET(GR2_PROPID_COLOR_MODE), &k5);
+    int k5, mode, want = wanted(GR2_FN_PROP_GET(GR2_PROPID_COLOR_MODE), &k5);
     if (want == g_shown && (want < 0 || k5 == g_shown_mode)) return;
-    const look_t *l = want < 0 ? 0 : &g_list[want >= PREVIEW ? want - PREVIEW : g_slot_recipe[want]].look;
+    const look_t *l = want < 0 ? 0 : want >= PREVIEW ? &g_list[want - PREVIEW].look : slot_look(want, &mode);
     if (look_apply(l, k5) != 0) return;   /* IQ data not ready yet: retry at the next poll */
     g_shown = want;
     g_shown_mode = k5;
@@ -448,23 +509,60 @@ static void load_slot(int k) {
             g_slot_recipe[k] = (int8_t)i;
             return;
         }
-    ERR_HEX("recipes: recipe file of MY slot no longer on the card, slot", (uint32_t)(k + 1));
+    if (g_early[k].ok && str_eq(g_early[k].sfn, sfn))
+        DBG_HEX("recipes: recipe file of MY slot not on the card, cached look kept, slot", (uint32_t)(k + 1));
+    else
+        ERR_HEX("recipes: recipe file of MY slot no longer on the card, slot", (uint32_t)(k + 1));
+}
+
+/* Make the D: cache match the config's slot recipes: from the scanned files where present,
+ * else keep the cached entry for that file; save only if it changed. */
+static void cache_update(void) {
+    early_t *want = W->cache;
+    for (int k = 0; k < N_SLOTS; k++) {
+        char sfn[13];
+        if (!slot_sfn(k, sfn)) {
+            memset(&want[k], 0, sizeof(want[k]));
+        } else if (g_slot_recipe[k] >= 0) {
+            const entry_t *e = &g_list[g_slot_recipe[k]];
+            fill_early(&want[k], sfn, e->base->mode, &e->look);
+        } else if (g_early[k].ok && str_eq(g_early[k].sfn, sfn)) {
+            want[k] = g_early[k];
+        } else {
+            memset(&want[k], 0, sizeof(want[k]));
+        }
+    }
+    const uint8_t *a = (const uint8_t *)want, *b = (const uint8_t *)g_early;
+    uint32_t i = 0;
+    while (i < sizeof(g_early) && a[i] == b[i]) i++;
+    if (i == sizeof(g_early) && !g_cache_stale) return;
+    memcpy(g_early, want, sizeof(g_early));
+    if (store_save(&g_cache, g_early, sizeof(g_early)) != 0) {
+        ERR("recipes: cannot write the look cache to D:/CFW");
+        return;
+    }
+    g_cache_stale = 0;
+    DBG_HEX("recipes: look cache saved to D:, generation", g_cache.gen);
 }
 
 /* ---- early look (flashed loader, boot-task hooks; M10c) ------------------------------- */
 
-static struct { int8_t ok, mode; look_t look; } g_early[N_SLOTS];
-
+/* First loader hook: the slot looks from the D: cache; a slot the cache does not hold
+ * (or holds for another file) is read from its recipe file if the card is there. */
 void recipes_early_load(void) {
     if (!W) W = GR2_FN_MEMORY_ALLOC(sizeof(work_t));
     if (!W) return;                    /* recipes_init reports it */
+    cache_load();
     for (int k = 0; k < N_SLOTS; k++) {
         char sfn[13];
+        int has = slot_sfn(k, sfn);
+        if (has && g_early[k].ok && str_eq(g_early[k].sfn, sfn)) continue;
+        if (g_early[k].ok || g_early[k].sfn[0]) g_cache_stale = 1;
+        memset(&g_early[k], 0, sizeof(g_early[k]));
         /* quiet: a missing or bad file is reported by recipes_init in the task */
-        if (!slot_sfn(k, sfn) || read_file(sfn) < 0 || parse(&g_r) != 0) continue;
-        g_early[k].ok = g_r.look.flags != 0;
-        g_early[k].mode = g_r.base->mode;
-        g_early[k].look = g_r.look;
+        if (!has || read_file(sfn) < 0 || parse(&g_r) != 0) continue;
+        fill_early(&g_early[k], sfn, g_r.base->mode, &g_r.look);
+        g_cache_stale = 1;
     }
 }
 
@@ -553,6 +651,7 @@ int recipes_apply(int i, int k) {
     g_slot_recipe[k] = (int8_t)i;
     g_shown = -2;
     cfg_save();
+    cache_update();
     DBG_HEX2("recipes: applied (recipe, slot)", (uint32_t)i, (uint32_t)(k + 1));
     return 0;
 }
@@ -572,6 +671,7 @@ void recipes_init(void) {
         ERR("recipes: Memory_Alloc failed");
         return;
     }
+    cache_load();
     void *h = GR2_FN_FIND_FIRST(DIR_PATH, &g_find);
     if (h) {
         do {
@@ -596,6 +696,7 @@ void recipes_init(void) {
     for (int i = 0; i < g_n; i++) g_names[i] = g_list[i].name;
     cfw_ui_set_recipes(g_names, g_n);
     for (int k = 0; k < N_SLOTS; k++) load_slot(k);
+    cache_update();
     g_preview = -1;
     g_shown = -2;   /* indices may have changed: show the slot's look again */
     DBG_HEX("recipes: loaded", (uint32_t)g_n);

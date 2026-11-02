@@ -12,7 +12,7 @@ int settings_tab(int i);                  /* tab of setting i */
 const char *settings_label(int i);
 const char *settings_value(int i);        /* text for the current value */
 void settings_step(int i, int dir);       /* dir -1/+1: change, apply, mark config dirty */
-void settings_save(void);                 /* write H:/cfw/config.txt if changed */
+void settings_save(void);                 /* write the config to D: if changed */
 void settings_log_status(void);           /* debug builds only */
 
 #endif /* SETTINGS_H */

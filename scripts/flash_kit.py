@@ -240,6 +240,35 @@ settings, key trace); the camera switches off as quickly as before; no `ERROR`; 
 LCD comes on (stock) and send the log.
 Send me: `cfw_log.txt`.
 """),
+    ("F8-internal-config", "F8 · Config and recipe looks in internal memory D: (no flash)", {"card": ["debug"]}, """\
+**Writes flash:** no. **Writes the camera's internal D: drive:** yes (files in `D:/CFW` only, next to the camera's own
+logs; Reset Settings clears them).
+
+What changed (all on the card): the CFW keeps its settings and the looks of the recipes saved in MY1–MY3 in
+`D:/CFW` (two copies with checksums, the older one is overwritten). `cfw/config.txt` is no longer written; one from an
+older version is imported once.
+
+Card root = `card/` (debug `cfw/`). Card R stays out.
+
+1. Power on. Save a recipe into a My Settings slot (Recipes → OK → MY1/2/3) and change one CFW Menu setting
+   (e.g. NR weak from), close the menu. Power off.
+2. Power on with the dial on that slot: recipe colours on the first frame, the setting kept. Power off.
+3. Replace the card's `cfw/` folder with a fresh copy of `card/cfw/` (as an update would): power on, the setting and
+   the slot's look are still there.
+4. Move that recipe's file out of `cfw/recipes/` (keep it on the Mac). Power on with the dial on the slot: the look is
+   still on the first frame (from D:). Put the file back.
+5. Change a setting, close the menu and pull the battery right away. Power on: the camera and the CFW start normally;
+   the setting is either the old or the new value.
+6. Optional, console: `dir D:/CFW` lists `CFG_A.DAT`, `CFG_B.DAT`, `LOOK_A.DAT`, `LOOK_B.DAT` (a few hundred bytes to
+   ~1.2 KB each).
+7. Copy `H:/cfw/cfw_log.txt` to the Mac.
+
+**Pass:** 2–5 as described; no `ERROR` in the log; the log shows `config: D: (generation, entries)` at every start and
+`recipes: look cache saved to D:` only after a change.
+**Crash or hang at power-on:** battery out, switch on with the shutter half-pressed until the LCD comes on (stock),
+send the log.
+Send me: `cfw_log.txt`, the `dir D:/CFW` output and what you saw in 2–5.
+"""),
     ("U-uninstall", "U · Uninstall (back to stock 3.00)", {"card": ["stock"]}, f"""\
 **Writes flash:** yes, the stock firmware (any time after F2).
 

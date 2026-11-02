@@ -216,6 +216,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 - **F5** loader v2 — **passed 2026-11-02 [H]**: no lens bounce (with and without `cfw/`); the lens script byte is back to 0 by hook(10) and live view runs by hook(10) (~1.1 s), so the look written there came a moment after the first frames; CFW task at 2.4–3.3 s, slower than F4 because of the T4 unmount (hook 9 → 6: 531–667 ms vs 324 ms in F4) and the look write at hook(10) while live view ran (hook 10 → 11 up to 401 ms). Data: the maintainer's hardware data.
 - **F6** IQ-ready hook, no unmount — **passed 2026-11-02 [H]**: recipe colours on the first frame. Log: the IQ-ready call at 772 ms with the LV frame still 0, followed by `recipes: early look`; hook 9 → 6 back to 338 ms (F5: 531–667 ms); CFW task at 2.32–2.35 s (F5: 2.44–3.28 s); no `ERROR`. Data: the maintainer's hardware data.
 - **F7** power-off status hook, no `Shutdown.ttl` — **passed 2026-11-02 [H]**: both sessions end with `status: power-off` and the full status block (power-off BL `0xA00E9950` patched at hook(10)); the camera switches off faster than with `Shutdown.ttl`; no `ERROR`. Data: the maintainer's hardware data.
+- **F8** (no flash, `dist/flash/F8-internal-config/`): config and MY-slot look cache on `D:/CFW` (finding 34; the project plan step 2). Pass: settings and slot looks survive a `cfw/` replacement and a missing recipe file; a battery pull right after a change leaves the old or the new value; no `ERROR`.
 - **U** menu update with the stock `.frm`: `LDR_STATE` `FFFFFFFF` again.
 
 ### 6.3 Summary
@@ -232,6 +233,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 | F5 | loader v2 | L, then N + debug | one lens extension, look on first frame | — (**passed 2026-11-02**: no bounce; look a moment late → F6) |
 | F6 | no | N + debug | look on the very first frame | — (**passed 2026-11-02**) |
 | F7 | no | N + debug, no `Shutdown.ttl` | `status: power-off` lines at every power-off | — (**passed 2026-11-02**; faster power-off) |
+| F8 | no (writes `D:/CFW`) | N + debug | settings + slot looks from D:, battery pull safe | half-press until the LCD comes on |
 | U | stock bytes | S | `LDR_STATE` FFFFFFFF | R + combo |
 
 ### 6.4 M11 P-steps (release firmware; after F3; not buildable yet)
