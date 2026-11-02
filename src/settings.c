@@ -550,6 +550,7 @@ void settings_init(void) {
     }
     settings_labels();
     cfg_save();
+    cfg_sync_card();
 }
 
 void settings_poll(void) {

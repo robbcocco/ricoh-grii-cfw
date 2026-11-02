@@ -25,6 +25,7 @@ typedef struct { char key[CFG_KEY_LEN]; uint32_t value; } entry_t;
 typedef struct {
     entry_t cfg[CFG_MAX];
     char io[CFG_MAX * (CFG_KEY_LEN + 12)];   /* text image; load and save both run in the CFW task */
+    char card[CFG_MAX * (CFG_KEY_LEN + 12)]; /* the card copy as read, compared by cfg_sync_card */
 } cfg_store_t;
 static cfg_store_t *S;
 #define g_cfg (S->cfg)
@@ -134,8 +135,8 @@ void cfg_set(const char *key, uint32_t value) {
     g_dirty = 1;
 }
 
-void cfg_save(void) {
-    if (!S || !g_dirty) return;
+/* The config as text into g_io; returns its length. */
+static uint32_t render(void) {
     char *p = g_io;
     for (int i = 0; i < g_n; i++) {
         p = put_str(p, g_cfg[i].key);
@@ -144,17 +145,43 @@ void cfg_save(void) {
         *p++ = '\r';
         *p++ = '\n';
     }
-    uint32_t n = (uint32_t)(p - g_io);
-    /* Backup for a wiped D:; best effort: no card (release) is not an error. */
+    return (uint32_t)(p - g_io);
+}
+
+/* Backup for a wiped D:; best effort: no card (release) is not an error. */
+static void write_card(uint32_t n) {
     int fd = GR2_FN_FILE_OPEN(CARD_PATH, FILE_WRITE);
     if (fd) {
         GR2_FN_FILE_WRITE(fd, g_io, n);
         GR2_FN_FILE_CLOSE(fd);
     }
+}
+
+void cfg_save(void) {
+    if (!S || !g_dirty) return;
+    uint32_t n = render();
+    write_card(n);
     if (store_save(&g_file, g_io, n) != 0) {
         ERR("config: cannot write D:/CFW");
         return;
     }
     g_dirty = 0;
     DBG_HEX2("config: saved to D: (generation, entries)", g_file.gen, (uint32_t)g_n);
+}
+
+/* The task's late phase: rewrite the card copy if it is missing (e.g. a fresh cfw/ folder) or differs from the
+ * loaded config, so a wiped D: can always be restored from it. One small read per boot; no card: nothing. */
+void cfg_sync_card(void) {
+    if (!S || !g_n) return;
+    uint32_t n = render();
+    int m = -1, fd = GR2_FN_FILE_OPEN(CARD_PATH, FILE_READ);
+    if (fd) {
+        m = GR2_FN_FILE_READ(fd, S->card, sizeof(S->card));
+        GR2_FN_FILE_CLOSE(fd);
+    }
+    int same = m == (int)n;
+    for (uint32_t i = 0; same && i < n; i++) same = S->card[i] == g_io[i];
+    if (same) return;
+    write_card(n);
+    DBG("config: card copy rewritten");
 }

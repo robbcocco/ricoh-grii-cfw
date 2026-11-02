@@ -222,7 +222,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 - **F8** config and look cache on `D:/CFW` — **partly passed 2026-11-02 [H]**: written once, read back across normal power-offs, the early look came from the cache, and a slot whose recipe file left the card kept its cached look; but every battery pull lost all of `D:/CFW` (sessions 4 and 6: `config: none`, cache rebuilt). Cause: stock formats D: on the first boot after any unclean shutdown (finding 34 §11). Decision: keep D: plus a backup copy of the config on the card (the project plan option C). Data: the maintainer's hardware data.
 - **F8b** card backup copy — **passed 2026-11-02 [H]**: sessions 1–3 read `D:` (generations 1→3, the MY1 recipe changed twice); after the battery pull in session 3, session 4 logged `config: imported H:/cfw/config.txt`, still showed the MY1 look from the first frame (the debug first hook reads the card) and saved config and look cache back to D:; session 5 read D: again; no `ERROR`. Only recipe changes were exercised (settings use the same file). Data: the maintainer's hardware data.
 - **F9** settings at boot, early CFW task — **passed 2026-11-02 [H]** (13 sessions): `settings: applied at boot` at the IQ-ready call (~0.76 s, before hook(10)) in every session; ISO max 6400 and Auto ISO in M in force on the first shots (the shutter then slows below 1/125 as configured: "at max ISO" = SLOWER SHUTTER); Snap 0.7 m from the start; frame lines with the first frames; Effect right after power-on opened Recipes; `task: loop live` at ~1.30–1.36 s, late phase at ~2.2–2.3 s; hook(12)/(13) at ~1.74–1.86/1.95–2.06 s (F8b ~1.88/2.16); no `ERROR`. Data: the maintainer's hardware data.
-- **F10** (no flash, `dist/flash/F10-safe-boot/`): M12 safe boot. Pass: two battery pulls within 20 s of power-on → the next starts are stock until a PLAY power-on; DEV "Boot stock once" gives one stock start; the log's first line per CFW start is `safeboot: state (before, after)`; no `ERROR`.
+- **F10** safe boot — **passed 2026-11-02 [H]** (7 CFW sessions + 3 stock starts, as the user observed): `safeboot: state` 0→1 and `safeboot: healthy` after 20 s; 0→1 then 1→1 (the previous session ended by the power-off job); after the first battery pull 1→2 with the CFW running; after the second pull stock starts (no log) until the PLAY power-on; then 0→1, 1→1 with `next power-on stock`, one stock start, 0→1. Boot timing unchanged (`task: loop live` ~1.30–1.37 s; the start after a pull ~1.67 s, D: formatting). No `ERROR`. The pulls lost the settings: D: was formatted and the fresh `cfw/` folder had no `config.txt` (no setting changed afterwards, so nothing rewrote it) → fixed by `cfg_sync_card` (the late phase rewrites a missing or different card copy). Data: the maintainer's hardware data.
 - **U** menu update with the stock `.frm`: `LDR_STATE` `FFFFFFFF` again.
 
 ### 6.3 Summary
@@ -242,15 +242,15 @@ The exact instructions for each step (what to put on the card, what the screens 
 | F8 | no (writes `D:/CFW`) | N + debug | settings + slot looks from D: | — (**partly passed 2026-11-02**: lost on every battery pull → F8b) |
 | F8b | no (writes `D:/CFW`, `cfw/config.txt`) | N + debug | settings back after a battery pull | — (**passed 2026-11-02**) |
 | F9 | no | N + debug | settings on the first frame, CFW from ~1.2 s | — (**passed 2026-11-02**) |
-| F10 | no (writes OPSR bits 2–3) | N + debug | disarm after two failed starts, PLAY re-arms, stock once | PLAY power-on, or `rtc opsr setb 2 0` / `setb 3 0` |
+| F10 | no (writes OPSR bits 2–3) | N + debug | disarm after two failed starts, PLAY re-arms, stock once | — (**passed 2026-11-02**) |
 | U | stock bytes | S | `LDR_STATE` FFFFFFFF | R + combo |
 
 ### 6.4 M11 P-steps (release firmware; after F3 and M12/F10)
 
 `make rom` builds and checks `dist/rg2_v003_cfw.frm` (§8). R1a–c are answered statically and in emulation by finding 29 and `scripts/emu_release.py` (A: drive append with a new directory, RES ≤ `0x7E0000`, stock `up` search/install, `LoadFile("A:/…")` by the stub); F1a settled R1d. The steps follow milestone M11. Each needs the §6.1 preconditions and cards R/S:
-- **P1:** flash `rg2_v003_cfw.frm` from a card holding only it (renamed `rg2_v003.frm`). Pass: CFW up without a card, INFO shows the release version, release log empty. Recovery: half-press boot, then U.
-- **P2:** skip key, no card, USB, playback-first boot. Pass: stock where expected, no card access in USB mode.
-- **P3:** uninstall with card S. Pass: stock APP + RES back (byte-identical if a BAK/shell checksum is available).
+- **P1** (`dist/flash/P1-release-flash/`): flash `rg2_v003_cfw.frm` from a card holding only it (renamed `rg2_v003.frm`). Pass: CFW up without a card, skip key → stock, card config and own recipes taken in the late phase, no lens bounce, no `cfw_log.txt`. Recovery: skip key or safe boot, then the F5 card (debug loader) or U.
+- **P2** (`dist/flash/P2-release-checks/`, no flash): PLAY start, USB, ten power-ons, "Boot stock once", a card recipe replacing a built-in.
+- **P3** (`dist/flash/P3-uninstall-reinstall/`): stock update (no CFW even with `cfw/` on the card), then the release firmware again.
 
 ## 7. Risks and discrepancies (ranked 2026-11-01; open until the step that covers them)
 

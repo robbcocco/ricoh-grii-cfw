@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare dist/flash/: one folder per M10 flash step (`make flash-kit`).
+"""Prepare dist/flash/: one folder per flash step (M10 F-steps, M11 P-steps; `make flash-kit`).
 
 Each step folder holds STEP.md (what to do, pass/fail, recovery) and card*/
 directories whose contents are exactly the root of the SD card for that step.
@@ -7,8 +7,9 @@ Full rationale and risks: loader/flash/README.md §6/§7. Nothing here touches a
 card or the camera; the user copies the files.
 
 Inputs, all checked: fw/rg2_v003.frm (stock, SHA-256), dist/rg2_v003_loader.frm
-(SHA-256 of the reproducible build), loader/flash/probe/Startup.ttl,
-loader/flash/rescue/backup.ttl (ASCII + CRLF), dist/gr2_cfw-v<VERSION>-debug.zip.
+(SHA-256 of the reproducible build), dist/rg2_v003_cfw.frm (SHA-256 from its
+`make rom` manifest), loader/flash/probe/Startup.ttl, loader/flash/rescue/backup.ttl
+(ASCII + CRLF), dist/gr2_cfw-v<VERSION>-debug.zip.
 """
 import hashlib
 import shutil
@@ -20,13 +21,28 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "dist" / "flash"
 STOCK = ROOT / "fw" / "rg2_v003.frm"
 LOADER = ROOT / "dist" / "rg2_v003_loader.frm"
+ROM = ROOT / "dist" / "rg2_v003_cfw.frm"
+ROM_MANIFEST = ROOT / "dist" / "rg2_v003_cfw.manifest.txt"
 PROBE = ROOT / "loader" / "flash" / "probe" / "Startup.ttl"
 RESCUE = ROOT / "loader" / "flash" / "rescue" / "backup.ttl"
 STOCK_SHA = "3643850f2ae74ae967eb336794048f554caa1b11d05b8569824d5719f1838331"
 LOADER_SHA = "1914ac9069cb5e9803d348bea999258884d0d8199f7ff2e257161ec44c1f91f1"   # stub v2 (card at section 3)
 
+
+def manifest_sha():
+    """The release .frm's SHA-256 as `make rom` recorded it (the build is checked by scripts/emu_release.py)."""
+    if not ROM_MANIFEST.is_file():
+        sys.exit(f"missing {ROM_MANIFEST.relative_to(ROOT)} (run make rom)")
+    for line in ROM_MANIFEST.read_text().splitlines():
+        if line.startswith("output"):
+            return line.split()[-1]
+    sys.exit(f"{ROM_MANIFEST.relative_to(ROOT)}: no output line")
+
+
+ROM_SHA = manifest_sha()
+
 COMMON = """\
-Before every flash step (F1a, F1b, F2, F5, U):
+Before every flash step (F1a, F1b, F2, F5, P1, P3, U):
 - `make check` printed `STATUS: ALL GATES PASSED` on the Mac.
 - Battery indicator **full**; a second charged battery at hand.
 - Card R (step F1b) prepared and checked, kept out of the camera.
@@ -341,6 +357,54 @@ normal start, 1 → 2 for the start after the first pull); no `ERROR`.
 **Stuck without the CFW:** step 4 (PLAY power-on); or from the console `rtc opsr setb 2 0` and `rtc opsr setb 3 0`.
 Send me: `cfw_log.txt` and what you saw in 1–5.
 """),
+    ("P1-release-flash", "P1 · Flash the release firmware (CFW inside the camera)", {"card": ["rom"]}, f"""\
+**Writes flash:** yes: stock 3.00 with the release loader (reads the CFW from the camera's internal A: drive, never
+from the card at boot) and the CFW files added to A:. Replaces the debug loader. Needs F10 passed.
+
+`rg2_v003.frm` (= `dist/rg2_v003_cfw.frm` renamed) SHA-256 `{ROM_SHA}`
+
+1. Still on the debug loader with your card: if the CFW settings or MY-slot recipes are at defaults (F10's battery
+   pulls cleared them), set them again in the CFW Menu / Recipes; each change writes `H:/cfw/config.txt`. Then copy
+   `H:/cfw/config.txt` and any own recipes in `H:/cfw/recipes/` to the Mac.
+2. Card S: format in the camera, root = `card/` (only this `rg2_v003.frm`). Battery full. Menu update as in F1a:
+   *New Version 3.00* → **Yes** → "Firmware update complete." → **OK** → the camera switches off.
+3. Switch on **without a card**: CFW Menu on Effect, Recipes lists the built-in films, frame lines/settings as before.
+   (If the settings are back to defaults, the update cleared D:; step 5 brings them back.)
+4. Power off. Switch on with the **skip key**: stock camera (no CFW Menu). Power off.
+5. Card: format in the camera, create `cfw/` and put `config.txt` (and your own recipes in `cfw/recipes/`) back.
+   Power on: within ~2 s your settings are in force; own recipes appear in Recipes.
+6. Shoot, play back, power off and on a few times: start-up as fast as with the loader, no lens bounce.
+
+**Pass:** 2–6 as described; no `H:/cfw/cfw_log.txt` (the release build writes only `ERROR` lines).
+**CFW misbehaves:** skip key → stock; or two battery pulls within 20 s of power-on → stock until a PLAY power-on.
+Back to the debug loader: the F5 card (`rg2_v003_loader.frm`) by menu update; to stock: U.
+**Rejected / "Error occurred." / no LCD:** as F1a/F5 (card S stays in; card R + combo, F1b).
+Send me: what you saw in 2–6, and `cfw_log.txt` if it exists.
+"""),
+    ("P2-release-checks", "P2 · Release firmware: boot paths (no flash)", {"card": []}, """\
+**Writes flash:** no. Card = your card from P1 step 5.
+
+1. Power on with **PLAY**: playback; switch to shooting: CFW Menu and your settings there.
+2. Camera off, USB cable to the Mac (charging / USB connection): behaves as stock; unplug, power on normally: CFW.
+3. Ten power-ons in a row (any mix of card in / out): no lens bounce, no hang.
+4. DEV → "Boot stock once": the next power-on is stock, the one after has the CFW again.
+5. Put a recipe with a built-in's file name (e.g. an edited `portra.txt`) in `cfw/recipes/`: Recipes shows your version.
+
+**Pass:** 1–5 as described; no `H:/cfw/cfw_log.txt`.
+Send me: what you saw in 1–5, and `cfw_log.txt` if it exists.
+"""),
+    ("P3-uninstall-reinstall", "P3 · Uninstall to stock, then reinstall the release firmware", {
+        "card-stock": ["stock"], "card-cfw": ["rom"]}, f"""\
+**Writes flash:** yes, twice: stock 3.00 (`card-stock/`, SHA-256 `{STOCK_SHA}`), then the release firmware again
+(`card-cfw/`, SHA-256 `{ROM_SHA}`).
+
+1. Card S root = `card-stock/`. Menu update as in F1a. Switch on (any card): stock camera, no CFW Menu.
+2. Card root = `card-cfw/` (format in the camera first). Menu update again. Switch on without a card: the CFW is back.
+3. Your card from P1 step 5 back in.
+
+**Pass:** 1–2 as described. **Fail:** as P1.
+Send me: what you saw.
+"""),
     ("U-uninstall", "U · Uninstall (back to stock 3.00)", {"card": ["stock"]}, f"""\
 **Writes flash:** yes, the stock firmware (any time after F2).
 
@@ -382,16 +446,18 @@ def main():
     parts = {
         "stock": {"rg2_v003.frm": stock},
         "loader": {"rg2_v003.frm": loader},
+        "rom": {"rg2_v003.frm": need(ROM, ROM_SHA)},
         "probe": {"Startup.ttl": ttl(PROBE)},
         "rescue": {"backup.ttl": ttl(RESCUE)},
         # the debug zip without its firmware: cfw/ (the loader is already flashed)
         "debug": {n: debug.read(n) for n in debug.namelist() if not n.endswith("/") and n != "rg2_v003.frm"},
     }
-    index = ["# M10 flash steps", "", f"Built from gr2_cfw v{version}. Do them in order; each only after the previous one "
+    index = ["# Flash steps", "", f"Built from gr2_cfw v{version}. Do them in order; each only after the previous one "
              "passed and you reported the result. Details and risks: `loader/flash/README.md` §6/§7.", "", COMMON,
              "| Step | Writes flash | Folder |", "|---|---|---|"]
     for folder, title, cards, text in STEPS:
         d = OUT / folder
+        d.mkdir(parents=True, exist_ok=True)
         for card in d.glob("card*"):                # replace only what this script writes; results the user
             shutil.rmtree(card)                      # copied next to them (e.g. probe/) stay
         for card, kinds in cards.items():
@@ -403,7 +469,7 @@ def main():
         (d / "STEP.md").write_text(f"# {title}\n\n{text}\n---\n{COMMON}")
         flash = "**yes**" if "Writes flash:** yes" in text else "no"
         index.append(f"| {title} | {flash} | `{folder}/` |")
-        print(f"prepared dist/flash/{folder}/ ({', '.join(cards)})")
+        print(f"prepared dist/flash/{folder}/ ({', '.join(cards) or 'no card files'})")
     (OUT / "README.md").write_text("\n".join(index) + "\n")
 
 

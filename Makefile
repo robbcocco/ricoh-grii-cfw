@@ -74,8 +74,8 @@ rom: all fw
 	$(PYTHON) scripts/build_cfw_frm.py
 	$(PYTHON) scripts/emu_release.py
 
-# One folder per M10 flash step with the exact card contents (dist/flash/, never published).
-flash-kit: loader dist
+# One folder per flash step (M10 F, M11 P) with the exact card contents (dist/flash/, never published).
+flash-kit: loader dist rom
 	$(PYTHON) scripts/flash_kit.py
 
 lint:
@@ -98,7 +98,7 @@ help:
 	@echo "make emu        emulator tests (EMU_ARGS=\"--render DIR\" for screen PNGs)"
 	@echo "make loader     build + check dist/rg2_v003_loader.frm (never publish it)"
 	@echo "make rom        build + check dist/rg2_v003_cfw.frm, the M11 release firmware (never publish it)"
-	@echo "make flash-kit  dist/flash/: one folder per M10 flash step with the card contents"
+	@echo "make flash-kit  dist/flash/: one folder per flash step (F, P) with the card contents"
 	@echo "make test       lint + audit + emu + loader + rom (what CI runs)"
 	@echo "make check      pre-flight safety gates before flashing"
 	@echo "make disasm     bin/<variant>/*.asm"

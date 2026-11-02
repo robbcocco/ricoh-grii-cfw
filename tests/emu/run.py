@@ -998,7 +998,12 @@ def sc_store(ctx):
     d2 = m2.d_files()
     s4 = Session(ctx, files={**d2, 'H:/cfw/config.txt': b'mauto=00000001\r\n'})
     check(s4.setting(S_MAUTO) == 'OFF', 'stale card copy preferred over D:')
+    check(s4.m.file('H:/cfw/config.txt').decode() == s4.m.cfg_text(), 'stale card copy not rewritten from D:')
     finish(ctx, s4)
+    # Fresh cfw/ folder (no card copy), D: valid: the copy is written again, so a later battery pull can restore it.
+    s5 = Session(ctx, files=d2)
+    check(s5.m.file('H:/cfw/config.txt').decode() == s5.m.cfg_text() == m2.cfg_text(), 'missing card copy not written')
+    finish(ctx, s5)
     # Wiped D: (Reset Settings) and no card file: built-in defaults.
     s3 = Session(ctx)
     check(s3.setting(S_MAUTO) == 'OFF', 'empty D: and no card config: M auto not at its default')

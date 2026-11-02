@@ -9,5 +9,6 @@ int cfg_has(const char *key);
 uint32_t cfg_get(const char *key, uint32_t def);
 void cfg_set(const char *key, uint32_t value);   /* marks dirty if changed */
 void cfg_save(void);                             /* writes only when dirty */
+void cfg_sync_card(void);                        /* late phase: card copy rewritten if missing or different */
 
 #endif /* CONFIG_H */
