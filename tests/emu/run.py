@@ -310,12 +310,12 @@ def sc_menu(ctx):
         s.keys(KEY_RIGHT)
     check(len(set(frames.values())) == len(TABS), 'tabs do not render differently')
     check(frames['EXPOSURE'] == m.rd(m.layer[3], 640 * 480), 'Right on the last tab does not wrap')
-    # EXPOSURE rows: TAv, Auto ISO slowest, Auto ISO max, hold, Auto-Hi slowest
+    # EXPOSURE rows by function: Auto ISO max, slowest, at max ISO, in M; Auto-Hi slowest; TAv cap, TAv minimum
     s.keys(KEY_DOWN, KEY_DOWN, KEY_RIGHT)
     check(s.setting(1) == '1/60 + crop' and aef() == [0x60, 0x30, 0x30, 0x50, 0, 0xFFD0], f'aisomin: {aef()}')
-    s.keys(KEY_DOWN, KEY_RIGHT)
+    s.keys(KEY_UP, KEY_RIGHT, KEY_OK)                      # OK does not step a multi-value setting
     check(s.setting(2) == 'ISO 400' and aef() == [0x60, 0x20, 0x20, 0x20, 0, 0xFFD0], f'aisomax: {aef()}')
-    s.keys(KEY_DOWN, KEY_RIGHT)
+    s.keys(KEY_DOWN, KEY_DOWN, KEY_OK)                     # OK toggles a two-value setting
     check(s.setting(3) == 'KEEP SHUTTER' and aef() == [0x60, 0x20, 0x20, 0x20, 0x60, 0x60], f'aisohold: {aef()}')
     m.props[0x21] = 2                                  # 47 mm crop: 1/100
     m.call('settings_poll')
@@ -328,10 +328,10 @@ def sc_menu(ctx):
     m.call('settings_poll')
     check(aef() == [0x60, 0x20, 0x20, 0x20, 0x60, 0x60], 'P mode limits not back after Movie')
     s.render('menu_exposure_aiso')
-    s.keys(KEY_LEFT, KEY_UP, KEY_LEFT, KEY_UP, KEY_LEFT)
+    s.keys(KEY_LEFT, KEY_UP, KEY_LEFT, KEY_UP, KEY_LEFT)   # hold, slowest, max back to STOCK
     check(aef() == AE_STOCK, f'AE_F not stock after STOCK: {aef()}')
     # Auto-Hi slowest shutter (prop 0x113): Auto, 1/2, back to STOCK restores the camera value.
-    s.keys(KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_RIGHT, KEY_RIGHT)
+    s.keys(KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_RIGHT, KEY_RIGHT)
     check(m.props[0x113] == 0x30 and s.setting(8) == '1/2', 'aisotv 1/2 not written')
     s.keys(KEY_LEFT, KEY_LEFT)
     check(m.props[0x113] == 0x989681, 'aisotv not restored')

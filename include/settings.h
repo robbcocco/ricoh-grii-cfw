@@ -8,6 +8,8 @@ void settings_labels(void);               /* the menus are installed: Snap label
 void settings_init(void);                 /* CFW task: load + apply (unless settings_early ran), labels, save */
 void settings_poll(void);                 /* ~200 ms: re-apply after mode/MY changes, TAv sync */
 int settings_count(void);
+int settings_at(int k);                   /* setting shown as row k (display order, grouped by function) */
+int settings_is_toggle(int i);            /* two values: OK toggles it */
 int settings_tab_count(void);
 const char *settings_tab_name(int tab);   /* <= 5 characters */
 int settings_tab(int i);                  /* tab of setting i */

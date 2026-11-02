@@ -35,7 +35,8 @@ typedef struct {
     uint8_t tab;
 } desc_t;
 
-/* Rows appear in their tab in this order (labels/values sized for the 18-px font). */
+/* Settings and their config keys; the enum order is stable, rows are listed in ORDER
+ * (labels/values sized for the 18-px font). */
 static const desc_t DESC[S_COUNT] = {
     { "TAv: cap ISO at Auto-Hi max", "tav",     2,  1,  TAB_EXPOSURE },   /* OFF, ON */
     { "Auto ISO slowest shutter",    "aisomin", 15, 0,  TAB_EXPOSURE },   /* STOCK, 1/60+crop, 1/15..1/250 */
@@ -52,6 +53,14 @@ static const desc_t DESC[S_COUNT] = {
     { "NR strong from",              "nrs",     26, 17, TAB_IMAGE },      /* ISO 100..25600, OFF (default 5000) */
     { "TAv: Auto-Hi minimum too",    "tavmin",  2,  0,  TAB_EXPOSURE },   /* OFF, ON (finding 21 R3) */
     { "Auto ISO in M",               "mauto",   2,  0,  TAB_EXPOSURE },   /* OFF, ON (R5) */
+};
+
+/* Rows in display order, grouped by what they do within each tab: Auto ISO limits, then Auto-Hi, then TAv. */
+static const uint8_t ORDER[S_COUNT] = {
+    S_AISOMAX, S_AISOMIN, S_AISOHOLD, S_MAUTO, S_AISOTV, S_TAV, S_TAVMIN,
+    S_SNAP,
+    S_FRAMES, S_ZEBRA,
+    S_CLARITY, S_NR, S_NRW, S_NRM, S_NRS,
 };
 
 static uint8_t g_val[S_COUNT];
@@ -557,6 +566,14 @@ void settings_poll(void) {
 
 int settings_count(void) {
     return S_COUNT;
+}
+
+int settings_at(int k) {
+    return ORDER[k];
+}
+
+int settings_is_toggle(int i) {
+    return DESC[i].count == 2;
 }
 
 int settings_tab_count(void) {

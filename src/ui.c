@@ -2,10 +2,10 @@
  *
  * CFW Menu (fullscreen, tabbed): the tab bar is the top row. On the tab bar
  * Left/Right switch tabs and Down/OK enter the rows; on a row Up/Down move,
- * Left/Right/OK change the value (applied at once), Up from the first row
- * returns to the tab bar. The settings tabs come from src/settings.c; INFO
- * (read-only, refreshed every second) and DEV (OK runs an action) from
- * src/info.c.
+ * Left/Right change the value (applied at once), OK toggles two-value
+ * settings, Up from the first row returns to the tab bar. The settings tabs
+ * come from src/settings.c (rows grouped by function); INFO (read-only,
+ * refreshed every second) and DEV (OK runs an action) from src/info.c.
  *
  * Recipes (filmstrip): live view on top previews the selected recipe's colour;
  * Left/Right browse, OK picks a My Settings slot (Left/Right MY1..MY3, OK
@@ -92,8 +92,8 @@ static int tab_rows(int tab, int *rows) {
         for (; n < info_rows(info_page(tab)) && n < MAX_ROWS; n++) rows[n] = n;
         return n;
     }
-    for (int i = 0; i < settings_count() && n < MAX_ROWS; i++)
-        if (settings_tab(i) == tab) rows[n++] = i;
+    for (int k = 0; k < settings_count() && n < MAX_ROWS; k++)
+        if (settings_tab(settings_at(k)) == tab) rows[n++] = settings_at(k);
     return n;
 }
 
@@ -105,7 +105,7 @@ static const char *row_value(int tab, int row) {
     return info_page(tab) < 0 ? settings_value(row) : info_value(info_page(tab), row);
 }
 
-/* 0 read-only, 1 value (Left/Right/OK change), 2 action (OK runs) */
+/* 0 read-only, 1 value (Left/Right change, OK toggles two-value settings), 2 action (OK runs) */
 static int row_kind(int tab, int row) {
     if (info_page(tab) < 0) return 1;
     return info_is_action(info_page(tab), row) ? 2 : 0;
@@ -179,6 +179,8 @@ static void render_settings(void) {
     }
 
     const char *hint = GLYPH_UP GLYPH_DOWN " select     " GLYPH_LEFT GLYPH_RIGHT " change     EFFECT close";
+    if (g_row >= 0 && info_page(g_tab) < 0 && settings_is_toggle(rows[g_row]))
+        hint = GLYPH_UP GLYPH_DOWN " select     " GLYPH_LEFT GLYPH_RIGHT " / OK change     EFFECT close";
     if (g_row < 0) hint = GLYPH_LEFT GLYPH_RIGHT " tab     " GLYPH_DOWN " rows     EFFECT close";
     else if (info_page(g_tab) >= 0)
         hint = row_kind(g_tab, rows[g_row]) == 2 ? GLYPH_UP GLYPH_DOWN " select     OK run     EFFECT close"
@@ -210,10 +212,13 @@ static void key_settings(uint32_t id) {
             if (row_kind(g_tab, rows[g_row]) == 1) settings_step(rows[g_row], -1);
             break;
         case KEY_RIGHT:
+            if (row_kind(g_tab, rows[g_row]) == 1) settings_step(rows[g_row], +1);
+            break;
         case KEY_OK:
             if (row_kind(g_tab, rows[g_row]) == 1) {
+                if (!settings_is_toggle(rows[g_row])) return;     /* OK only toggles ON/OFF-like rows */
                 settings_step(rows[g_row], +1);
-            } else if (id == KEY_OK && row_kind(g_tab, rows[g_row]) == 2 &&
+            } else if (row_kind(g_tab, rows[g_row]) == 2 &&
                        info_action(info_page(g_tab), rows[g_row]) == INFO_CLOSE) {
                 close_ui();
                 return;
