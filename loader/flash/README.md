@@ -250,6 +250,7 @@ The exact instructions for each step (what to put on the card, what the screens 
    - The skip key restores a stock boot without touching the card.
 8. **A crashing armed stage 1** (cause 1–4) → BAK → power off. A crash with card R inserted → full stock reflash.
 9. **Every boot with a card and without the skip key pays the mount + ≤ 32 KiB read**, even without a CFW (`ST_NOFILE`): ~190 ms more in section 1 (F2), offset by a faster DCFMount later; the boot finished 70 ms earlier than F0.
+   - **Lens bounce [H 2026-11-02]:** with the card read at hook(1) the lens extends, retracts and extends again at power-on (also with a card without `cfw/`); the skip key and the pre-flash Startup.ttl path do not bounce. No software retract exists in a shooting boot, so the early card session disturbs the lens start-up itself (timing or card state, finding 33). Test: stage 1 unmounts H: after its reads (T4, current debug build). Fallback: stub v2 deferring the card session to hook(3) (reflash).
 10. **`LoadFile` truncates silently at 32 KiB** [V].
     - Today's stage 1 is 32,424 B, but only because the hook veneers sit at `0xA001E07C`/`0xA001EEA0`. Code + data is 1,860 B + 180 B `.bss` [R].
     - `package_sd.py` and `gr2_boot.ld` assert the limits. Release and debug `gr2_cfw.bin` are byte-identical.
