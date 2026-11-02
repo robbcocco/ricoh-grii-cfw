@@ -203,7 +203,8 @@ def encode_bl(site, target):
 
 
 def sc_boot(ctx):
-    """Boot, hooks, veneers, menu labels via the stock resolver, shell record, key input hook."""
+    """Boot, hooks, veneers, power-off status (debug), menu labels via the stock resolver, shell record, key input
+    hook."""
     import machine
     check = ctx.check
     s = Session(ctx)
@@ -240,6 +241,20 @@ def sc_boot(ctx):
             check(after == before and m.stock_calls[n_stock:] == [('hold',)], 'hold fall-through broken')
         else:
             check(after[menu] == before[menu] + 1, f'hold value {value} not counted')
+    # Power-off job (FRM task): debug logs the session state, then the stock Shutdown.ttl call runs either way.
+    off_site, off_orig = 0xA00E9950, 0xA00EA1D4
+    stock_off = encode_bl(off_site, off_orig)
+    patched = (m.u16(off_site), m.u16(off_site + 2))
+    n_log = len(m.log_lines())
+    rc = m.run_range(0xA00E994F, off_site + 4, stack=machine.FRM_JOB_STACK, task='FRM')
+    new = m.log_lines()[n_log:]
+    check(m.stock_calls[-1] == ('run_ttl', '*:/Shutdown.ttl') and rc == 0xFFFFFFFF, 'stock Shutdown.ttl call lost')
+    if ctx.variant == 'debug':
+        check(patched == encode_bl(off_site, m.syms1['cfw_veneer_off']), f'power-off BL not retargeted: {patched}')
+        check(new[:1] == ['status: power-off'] and any(l.startswith('status: task heartbeat') for l in new),
+              f'power-off status not logged: {new[:3]}')
+    else:
+        check(patched == stock_off and not new, 'release build touched the power-off job')
     # Menu choices: labels resolve through the stock (bound-patched) string accessor.
     for sid, label in ((0x354, 'CFW Menu'), (0x35E, 'Recipes')):
         got = m.ustr(m.call_addr(machine.STRING_RESOLVER, sid))

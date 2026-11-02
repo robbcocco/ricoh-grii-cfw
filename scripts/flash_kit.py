@@ -154,7 +154,7 @@ Send me: `cfw_log.txt`, `H:/cfw/probe/`.
 after power-on) and shows the active My Settings slot's recipe look as soon as the camera has picked the slot,
 instead of ~2 s after power-on.
 
-Card root = `card/` (the debug `cfw/` folder and `Shutdown.ttl`; no `Startup.ttl`). Card R stays out.
+Card root = `card/` (the debug `cfw/` folder; no `Startup.ttl`). Card R stays out.
 
 1. Make sure a recipe is saved in a My Settings slot (Recipes → OK → MY1/MY2/MY3), e.g. Portra in MY2.
 2. Turn the dial to that slot, switch off. Switch on and watch the first live-view frames: the recipe's colours should
@@ -184,7 +184,7 @@ Loader `rg2_v003.frm` SHA-256 `{LOADER_SHA}`
 2. Menu update as in F2 (check "Execute?" with *New Version 3.00* before Yes).
 3. "Firmware update complete." → OK → the camera switches off. Switch it on **with card L still in** (no `cfw/`): it must
    boot normally. Watch the lens: **one** smooth extension?
-4. Card root = `card/` (debug `cfw/` + `Shutdown.ttl`, no `Startup.ttl`). Dial on a My Settings slot with a recipe. Power
+4. Card root = `card/` (debug `cfw/`, no `Startup.ttl`). Dial on a My Settings slot with a recipe. Power
    on a few times, once after a cold start (battery out 30 s). Watch the lens and the first live-view frames; open the
    CFW Menu (Effect).
 5. Skip key: **keep the shutter half-pressed until the LCD comes on** (the stub now reads it at ~0.3 s instead of
@@ -207,7 +207,7 @@ What changed (all on the card):
 - The card is no longer unmounted after the CFW is read (that F4 test did not help the lens and made the camera's
   own card mount ~0.2 s slower).
 
-Card root = `card/` (debug `cfw/` + `Shutdown.ttl`, no `Startup.ttl`). Card R stays out.
+Card root = `card/` (debug `cfw/`, no `Startup.ttl`). Card R stays out.
 
 1. Dial on a My Settings slot with a recipe. Switch on a few times, once after a cold start (battery out 30 s).
    Watch the first live-view frames and the lens.
@@ -219,6 +219,26 @@ has an `n = 0` entry (the IQ-ready call) followed by `recipes: early look`, and 
 **Crash or hang at power-on:** battery out, switch on with the shutter half-pressed until the LCD comes on (stock),
 send the log.
 Send me: `cfw_log.txt` and what you saw on the first frames.
+"""),
+    ("F7-poweroff-status", "F7 · Session status at power-off without Shutdown.ttl (no flash)", {"card": ["debug"]}, """\
+**Writes flash:** no.
+
+What changed (all on the card): the debug CFW logs its session state (`status:` lines) itself when the camera powers
+off, from a hook on the power-off job's own "run Shutdown.ttl" call. `Shutdown.ttl` is no longer shipped; a
+`Shutdown.ttl` of your own would still run after the status lines.
+
+Card root = `card/` (debug `cfw/`). **Delete `H:/Shutdown.ttl`** from the card (otherwise the status is logged twice).
+Card R stays out.
+
+1. Switch on with the dial on a recipe slot, use the camera briefly (CFW Menu, a shot), switch off with the power
+   button. Repeat once with the dial on P.
+2. Copy `H:/cfw/cfw_log.txt` to the Mac.
+
+**Pass:** every session in the log ends with `status: power-off` followed by the `status:` lines (task heartbeat,
+settings, key trace); the camera switches off as quickly as before; no `ERROR`; the next power-on is normal.
+**Camera does not switch off / hangs at power-off:** battery out, then boot with the shutter half-pressed until the
+LCD comes on (stock) and send the log.
+Send me: `cfw_log.txt`.
 """),
     ("U-uninstall", "U · Uninstall (back to stock 3.00)", {"card": ["stock"]}, f"""\
 **Writes flash:** yes, the stock firmware (any time after F2).
@@ -263,7 +283,7 @@ def main():
         "loader": {"rg2_v003.frm": loader},
         "probe": {"Startup.ttl": ttl(PROBE)},
         "rescue": {"backup.ttl": ttl(RESCUE)},
-        # the debug zip without its firmware: cfw/ and Shutdown.ttl (the loader is already flashed)
+        # the debug zip without its firmware: cfw/ (the loader is already flashed)
         "debug": {n: debug.read(n) for n in debug.namelist() if not n.endswith("/") and n != "rg2_v003.frm"},
     }
     index = ["# M10 flash steps", "", f"Built from gr2_cfw v{version}. Do them in order; each only after the previous one "

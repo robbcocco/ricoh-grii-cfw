@@ -11,6 +11,19 @@
     .arch armv5te
     .thumb
 
+    .section .veneer_off, "ax"
+    .global cfw_veneer_off
+    .type cfw_veneer_off, %function
+    .thumb_func
+cfw_veneer_off:                      @ replaces bl 0xA00EA1D4 ("*:/Shutdown.ttl") at 0xA00E9950 (power-off job)
+    ldr     r3, cfw_veneer_off_target
+    bx      r3
+    .align 2
+    .global cfw_veneer_off_target
+cfw_veneer_off_target:
+    .word   0
+    .size cfw_veneer_off, . - cfw_veneer_off
+
     .section .veneer_iq, "ax"
     .global cfw_veneer_iq
     .type cfw_veneer_iq, %function

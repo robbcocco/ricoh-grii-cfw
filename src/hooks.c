@@ -13,7 +13,12 @@
  *
  * The hooks run in the camera's UI task: they only count requests per menu;
  * the CFW task does the work. Any other value falls through to the stock
- * function. */
+ * function.
+ *
+ * Debug builds also retarget the power-off job's call that runs H:/Shutdown.ttl
+ * (finding 26 §4, JOBID_POWER_OFF 0xA00E98B8): the session state is logged
+ * there, in the FRM task, before the stock call runs a Shutdown.ttl if one
+ * exists. Nothing on the card is needed for it. */
 #include <stdint.h>
 #include "boot.h"
 #include "cfw.h"
@@ -28,6 +33,8 @@ uint32_t cfw_cpsr(void);           /* src/arm.S */
 #define ORIG_HOLD       0xA0396EA0u
 #define SITE_IQ         0xA01B584Au   /* section 5, FUN_a01b5828: once, right after IQ.bin is loaded */
 #define ORIG_IQ         0xA01C2A80u   /* void FUN_a01c2a80(void): creates "SceneIFMsgQ" (finding 32) */
+#define SITE_OFF        0xA00E9950u   /* JOBID_POWER_OFF: bl FUN_a00ea1d4("*:/Shutdown.ttl", the card's) */
+#define ORIG_OFF        0xA00EA1D4u   /* int (const char *path): 0 = script started, the job waits */
 
 static volatile uint32_t g_requests[CFW_MENU_COUNT];
 
@@ -78,6 +85,14 @@ static int patch_site(uint32_t site, uint32_t orig, uint32_t veneer) {
     return 0;
 }
 
+#if CFW_DEBUG
+static int cfw_off_hook(const char *path) {
+    DBG("status: power-off");
+    cfw_status_log();
+    return ((int (*)(const char *))(ORIG_OFF | 1))(path);
+}
+#endif
+
 int cfw_hooks_install(const cfw_boot_t *boot) {
     DBG_HEX("hooks: cpsr", cfw_cpsr());
     /* The veneers (stage 1) jump through these words: fill them before any BL points there. */
@@ -85,6 +100,10 @@ int cfw_hooks_install(const cfw_boot_t *boot) {
     *boot->hold_target = (uint32_t)cfw_hold_hook;
     int rc = patch_site(SITE_PRESS, ORIG_PRESS, boot->veneer_press);
     rc |= patch_site(SITE_HOLD, ORIG_HOLD, boot->veneer_hold);
+#if CFW_DEBUG
+    *boot->off_target = (uint32_t)cfw_off_hook;
+    (void)patch_site(SITE_OFF, ORIG_OFF, boot->veneer_off);   /* diagnostics only: never fails the install */
+#endif
     return rc;
 }
 

@@ -1,9 +1,0 @@
-; gr2_cfw shutdown hook (copy to H:/Shutdown.ttl). Runs on every normal power-off.
-; `cfw status`: debug builds log the session state (task heartbeat, settings,
-; last key messages) to H:/cfw/cfw_log.txt; release builds log nothing.
-; ASCII, CRLF, uppercase drive letters.
-
-sprintf "cfw status"
-sendln inputstr
-pause 1
-end

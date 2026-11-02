@@ -214,7 +214,8 @@ The exact instructions for each step (what to put on the card, what the screens 
   - Attempt 2 (2026-11-01) **passed [H]**: `main: started by the flashed loader (stage 2 read at, now) systime 0x11F 0x7AF`, CFW task at 2005 ms (Startup.ttl path ≈ 2000 ms, as expected for M10b), menus, recipes, looks and the shutdown status dump work, no `ERROR`; the skip-key boot afterwards read `LDR_STATE` 1. Data: the maintainer's hardware data.
 - **F4** (M10c) — **look passed, lens failed 2026-11-02 [H]**: the slot's look was in IQ RAM at hook(10) (~0.96 s), before the first live-view frame (~1.6 s); menus installed at hook(10); no `ERROR`. But the lens extends, retracts and extends again at power-on whenever the v1 stub reads the card (also with a card without `cfw/`; not with the skip key, not with the pre-flash Startup.ttl path; unmounting the card after the reads did not help). Data: the maintainer's hardware data; finding 33.
 - **F5** loader v2 — **passed 2026-11-02 [H]**: no lens bounce (with and without `cfw/`); the lens script byte is back to 0 by hook(10) and live view runs by hook(10) (~1.1 s), so the look written there came a moment after the first frames; CFW task at 2.4–3.3 s, slower than F4 because of the T4 unmount (hook 9 → 6: 531–667 ms vs 324 ms in F4) and the look write at hook(10) while live view ran (hook 10 → 11 up to 401 ms). Data: the maintainer's hardware data.
-- **F6** (no flash, `dist/flash/F6-iq-ready-look/`): IQ-ready hook, no unmount. Pass: look on the first frame, `hook:` entry n = 0 with LV frame 0 followed by `recipes: early look`, no `ERROR`.
+- **F6** IQ-ready hook, no unmount — **passed 2026-11-02 [H]**: recipe colours on the first frame. Log: the IQ-ready call at 772 ms with the LV frame still 0, followed by `recipes: early look`; hook 9 → 6 back to 338 ms (F5: 531–667 ms); CFW task at 2.32–2.35 s (F5: 2.44–3.28 s); no `ERROR`. Data: the maintainer's hardware data.
+- **F7** (no flash, `dist/flash/F7-poweroff-status/`): debug status logged by a power-off hook instead of `Shutdown.ttl` (no longer shipped). Pass: every session ends with `status: power-off` + the `status:` lines, power-off as quick as before.
 - **U** menu update with the stock `.frm`: `LDR_STATE` `FFFFFFFF` again.
 
 ### 6.3 Summary
@@ -229,7 +230,8 @@ The exact instructions for each step (what to put on the card, what the screens 
 | F3 | no | N + debug zip − CFW TTL + probe | CFW up, log line, `LDR_STATE` 6 | — (**passed 2026-11-01**, attempt 2) |
 | F4 | no | N | look on first frame | half-press (look **passed**; lens bounce → F5) |
 | F5 | loader v2 | L, then N + debug | one lens extension, look on first frame | — (**passed 2026-11-02**: no bounce; look a moment late → F6) |
-| F6 | no | N + debug | look on the very first frame | half-press until the LCD comes on |
+| F6 | no | N + debug | look on the very first frame | — (**passed 2026-11-02**) |
+| F7 | no | N + debug, no `Shutdown.ttl` | `status: power-off` lines at every power-off | half-press until the LCD comes on |
 | U | stock bytes | S | `LDR_STATE` FFFFFFFF | R + combo |
 
 ### 6.4 M11 P-steps (release firmware; after F3; not buildable yet)

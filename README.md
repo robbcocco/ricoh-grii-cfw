@@ -10,7 +10,7 @@ A Magic-Lantern-style extension for the Ricoh GR II with firmware 3.00. The came
 
 ## Install
 1. Charge the battery to **full**. Format a card **in the camera** (the firmware refuses card layouts outside the SD specification; FAT32 for 32 GB and smaller).
-2. Unzip `gr2_cfw-v<VERSION>-release.zip` (or `-debug.zip`) from the [releases](../../releases) into the card root: `rg2_v003.frm` and `cfw/` (both stages, fonts, recipes, licences; the debug zip adds `Shutdown.ttl`). On macOS, delete the `._*` files afterwards. The card must hold no other `rg2_v*.frm`.
+2. Unzip `gr2_cfw-v<VERSION>-release.zip` (or `-debug.zip`) from the [releases](../../releases) into the card root: `rg2_v003.frm` and `cfw/` (both stages, fonts, recipes, licences). On macOS, delete the `._*` files afterwards. The card must hold no other `rg2_v*.frm`.
 3. MENU → Set-up → *Confirm Firmware Version*. It shows **Execute?** with *New Version 3.00* (the camera accepts the same version). Choose **Yes**, wait for **Firmware update complete.**, press **OK** (the camera switches off), switch it on.
 4. In *Key Custom Options*, set **Effect Button Setting** and/or **Effect Button Hold Setting** to **CFW Menu** or **Recipes**. With the dial on MY1–MY3 that assignment belongs to the slot: save it with the stock *Save My Settings*, or it is dropped at power-off.
 
@@ -129,7 +129,7 @@ make help       # every target
 |---|---|
 | `src/`, `include/` | CFW sources; `include/gr2_hw.h` holds every firmware address the CFW uses |
 | `gr2_boot.ld`, `gr2_main.ld` | Stage-1 window and stage-2 link scripts |
-| `loader/` | `Startup.ttl` (development loader for stock cameras, not shipped) / `Shutdown.ttl`, `probe/` (window check), `flash/` (M10 flashed loader: stub, rescue script, test plan) |
+| `loader/` | `Startup.ttl` (development loader for stock cameras, not shipped), `probe/` (window check), `flash/` (M10 flashed loader: stub, rescue script, test plan) |
 | `recipes/`, `fonts/` | Shipped recipe files and overlay fonts, with their licences |
 | `scripts/` | `package_sd.py` (zips), `mkmain.py` (stage-2 relocations), `fetch_firmware.py` (`make fw`), `build_loader_frm.py` + `emu_loader.py` (`make loader`), `flash_kit.py` (`make flash-kit`: per-step card folders for the flash tests), `loader_timing.py`, `check_probe.py`, `make_fonts.py` |
 | `tests/emu/` | Unicorn emulator tests of both builds against the stock firmware |

@@ -16,23 +16,28 @@ static int streq(const char *a, const char *b) {
     return *a == *b;
 }
 
-/* `cfw status`: debug builds log the session state (Shutdown.ttl runs it at
- * power-off); release builds only return the heartbeat. */
+#if CFW_DEBUG
+/* Session state into the debug log: `cfw status` and the power-off hook (src/hooks.c). */
+void cfw_status_log(void) {
+    cfw_log_hex("status: systime now", GR2_FN_SYSTEM_GETTIME());
+    cfw_log_hex("status: task start systime", cfw_task_start_time());
+    cfw_log_hex("status: last beat systime", cfw_task_last_beat_time());
+    cfw_log_hex("status: task heartbeat (beats)", cfw_task_heartbeat());
+    cfw_log_hex("status: shell commands", (uint32_t)*GR2_SHELL_CTX_COUNT);
+    cfw_log_hex("status: prop EFX_BTN (0x1A6)", GR2_FN_PROP_GET(GR2_PROPID_EFX_BTN));
+    cfw_log_hex("status: prop EFX_BTN_CONT (0x1A7)", GR2_FN_PROP_GET(GR2_PROPID_EFX_BTN_CONT));
+    settings_log_status();
+    cfw_input_dump_trace();
+}
+#endif
+
+/* `cfw status`: debug builds log the session state; release builds only return the heartbeat. */
 static int cmd_cfw(int argc, char **argv) {
     if (argc >= 2 && streq(argv[1], "status")) {
-        uint32_t hb = cfw_task_heartbeat();
 #if CFW_DEBUG
-        cfw_log_hex("status: systime now", GR2_FN_SYSTEM_GETTIME());
-        cfw_log_hex("status: task start systime", cfw_task_start_time());
-        cfw_log_hex("status: last beat systime", cfw_task_last_beat_time());
-        cfw_log_hex("status: task heartbeat (beats)", hb);
-        cfw_log_hex("status: shell commands", (uint32_t)*GR2_SHELL_CTX_COUNT);
-        cfw_log_hex("status: prop EFX_BTN (0x1A6)", GR2_FN_PROP_GET(GR2_PROPID_EFX_BTN));
-        cfw_log_hex("status: prop EFX_BTN_CONT (0x1A7)", GR2_FN_PROP_GET(GR2_PROPID_EFX_BTN_CONT));
-        settings_log_status();
-        cfw_input_dump_trace();
+        cfw_status_log();
 #endif
-        return (int)hb;
+        return (int)cfw_task_heartbeat();
     }
     DBG("usage: cfw status");
     return -1;

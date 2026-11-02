@@ -5,7 +5,6 @@ Each zip is an SD-card root (H:):
     rg2_v003.frm         the flashed debug loader (dist/rg2_v003_loader.frm, SHA-256 checked): stock
                          3.00 + the 132-byte stub that starts the CFW from cfw/ (until M11 replaces it
                          with the release firmware that carries the CFW itself)
-    Shutdown.ttl         debug only (loader/Shutdown.ttl: `cfw status` at power-off)
     cfw/gr2_cfw.bin      (bin/<variant>/gr2_cfw.bin: stage 1, loaded by the flashed loader)
     cfw/gr2_main.bin     (bin/<variant>/gr2_main.bin: stage 2, loaded by stage 1)
     cfw/recipes/*        (recipes/: recipe files and their licence notice)
@@ -14,7 +13,7 @@ Each zip is an SD-card root (H:):
 No Startup.ttl: on a camera with the loader it would load stage 1 a second time over the
 running one (loader/flash/README.md §3). Also writes dist/SHA256SUMS.txt and dist/RELEASE_NOTES.md.
 
-Checks before packaging: TTL and recipe files are ASCII with CRLF only, recipe file names are
+Checks before packaging: recipe files are ASCII with CRLF only, recipe file names are
 8.3, stage 1 fits the 32 KiB loader window and links at 0xA0017000, stage 2 has a valid header
 and carries the current VERSION string, the .frm is the reviewed loader build.
 """
@@ -143,7 +142,6 @@ def write_zip(path: Path, members: dict) -> None:
 
 def main() -> None:
     version = (ROOT / "VERSION").read_text().strip().lstrip("v")
-    shutdown = check_text(ROOT / "loader" / "Shutdown.ttl")
     if not LOADER_FRM.is_file():
         fail("dist/rg2_v003_loader.frm missing: run make loader")
     frm = LOADER_FRM.read_bytes()
@@ -161,8 +159,6 @@ def main() -> None:
         zip_path = DIST / f"gr2_cfw-v{version}-{variant}.zip"
         members = {"rg2_v003.frm": frm, "cfw/gr2_cfw.bin": boot, "cfw/gr2_main.bin": main_bin, **fonts, **recipes,
                    "cfw/LICENSE.txt": (ROOT / "LICENSE").read_bytes()}
-        if variant == "debug":
-            members["Shutdown.ttl"] = shutdown
         write_zip(zip_path, members)
         sums.append((hashlib.sha256(zip_path.read_bytes()).hexdigest(), zip_path.name))
         print(f"packaged {zip_path.relative_to(ROOT)} (stage 2 {len(main_bin)} B, {len(recipes)} recipe files)")

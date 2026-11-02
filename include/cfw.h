@@ -14,6 +14,7 @@ uint32_t cfw_task_last_beat_time(void);/* System_GetTime() at the latest beat */
 
 /* Shell commands (src/shell.c) */
 int cfw_shell_register(void);          /* 0 on success */
+void cfw_status_log(void);             /* debug: session state into the log (`cfw status`, power-off) */
 
 /* Menu choices (src/menu.c). Each Effect choice opens one CFW menu:
  * prop 0x1A6 value CFW_EFX_VALUE + menu, prop 0x1A7 value CFW_HOLD_VALUE + menu. */

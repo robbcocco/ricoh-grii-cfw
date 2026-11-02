@@ -26,7 +26,7 @@ typedef struct {
 } cfw_main_hdr_t;
 
 /* Passed to stage 2. The veneers jump through *press_target / *hold_target /
- * *iq_target, which stage 2 fills before it retargets the stock BLs. */
+ * *iq_target / *off_target, which stage 2 fills before it retargets the stock BLs. */
 typedef struct cfw_boot {
     uint32_t base;                     /* load address of stage 2 */
     uint32_t veneer_press, veneer_hold;
@@ -35,6 +35,8 @@ typedef struct cfw_boot {
     uint32_t t_preload;                /* loader: System_GetTime at the first hook, when stage 2 was read */
     uint32_t veneer_iq;                /* loader: IQ-ready callback (BL 0xA01B584A in section 5) */
     volatile uint32_t *iq_target;
+    uint32_t veneer_off;               /* debug: power-off job's Shutdown.ttl call (BL 0xA00E9950) */
+    volatile uint32_t *off_target;
 } cfw_boot_t;
 
 /* Flashed debug loader, ABI v1 (loader/flash/README.md §3): stage 1 carries
