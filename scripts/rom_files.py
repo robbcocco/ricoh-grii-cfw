@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The CFW's files on the A: drive of the release firmware (M11, the project plan §6).
+"""The CFW's files on the A: drive of the release firmware (M11, loader/flash/README.md §5).
 
 `rom_files(root)` -> {A: path: bytes}, in directory order (stage 1 first, so the
 stub's lookup scans the fewest directory sectors):
@@ -8,9 +8,10 @@ stub's lookup scans the fewest directory sectors):
                                and CRC-32 (+16) must match, scripts/stage1_crc.py)
     A:/cfw/gr2_main.bin        bin/<variant>/gr2_main.bin (stage 2)
     A:/cfw/fonts/<name>.fnt    every fonts/*.fnt (GFNT)
-    A:/cfw/recipes/<8.3>.txt   recipes/*.txt except the test recipes lvtest.txt and t_*.txt
-The variant is `rom` (CFW_ROM=1); scripts/build_cfw_frm.py writes these files into RES
-and scripts/emu_release.py / tests/emu read them back.
+No recipe files: the film recipes ship on the card (cfw/recipes/ in the official zip,
+scripts/package_sd.py). The CFW still lists A:/cfw/recipes/ first (src/recipes.c), and an
+absent A: recipe folder is normal. The variant is `rom` (CFW_ROM=1); scripts/build_cfw_frm.py
+writes these files into RES and scripts/emu_release.py / tests/emu read them back.
 
 A: rules (finding 29 §2): full path <= 31 characters, case-sensitive, unique, no empty
 file (size 0 ends the directory), upper-case drive letter.
@@ -24,22 +25,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
-from package_sd import LDR_MAGIC, MAIN_MAGIC, RECIPE_NAME, WINDOW_BASE, WINDOW_SIZE, check_text  # noqa: E402
+from package_sd import LDR_MAGIC, MAIN_MAGIC, WINDOW_BASE, WINDOW_SIZE  # noqa: E402
 from stage1_crc import check as stage1_check  # noqa: E402
 
 STAGE1 = "A:/cfw/gr2_cfw.bin"
 STAGE2 = "A:/cfw/gr2_main.bin"
 FONT_DIR = "A:/cfw/fonts/"
-RECIPE_DIR = "A:/cfw/recipes/"
 NAME_MAX = 31
 
 
 class RomError(Exception):
     pass
-
-
-def _test_recipe(name: str) -> bool:
-    return name == "lvtest.txt" or name.startswith("t_")
 
 
 def rom_files(root: Path = ROOT, variant: str = "rom") -> dict[str, bytes]:
@@ -67,15 +63,6 @@ def rom_files(root: Path = ROOT, variant: str = "rom") -> dict[str, bytes]:
         if data[:4] != b"GFNT" or len(data) < 12 or int.from_bytes(data[8:12], "big") != len(data):
             raise RomError(f"fonts/{path.name} is not a GFNT file")
         files[FONT_DIR + path.name] = data
-    for path in sorted((root / "recipes").glob("*.txt")):
-        if _test_recipe(path.name):
-            continue
-        if not RECIPE_NAME.match(path.name):
-            raise RomError(f"recipes/{path.name}: not an 8.3 lower-case name")
-        data = check_text(path)
-        if b"\r\nname=" not in data or b"\r\nbase=" not in data:
-            raise RomError(f"recipes/{path.name}: a recipe needs name= and base=")
-        files[RECIPE_DIR + path.name] = data
     for name, data in files.items():
         if len(name) > NAME_MAX or not name.isascii() or not name.startswith("A:/cfw/") or "\\" in name:
             raise RomError(f"{name}: A: names are ASCII full paths of at most {NAME_MAX} characters")

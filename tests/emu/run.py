@@ -35,6 +35,9 @@ TONE_SECONDARY = [NONE, 1, 2, NONE, 1, 2]      # src/look.c
 LOOK_MATRIX, LOOK_TONE, LOOK_POST, LOOK_HUE = 1, 2, 4, 8
 LOOK_BASES = {'standard': 0, 'vivid': 1, 'setting1': 3, 'setting2': 4}   # colour mode (prop 0x2D)
 K5 = {0: 0, 1: 1, 3: 2, 4: 3}                  # colour mode -> IQ mode (look_mode)
+# Every slot property a recipe can set (src/recipes.c recipe_props, finding 19): EFFECT, IMAGE_SETTINGS, the
+# image-setting arrays of all colour modes, NR, EV comp, WB mode, WB comp per WB mode, Kelvin, DR comp.
+STOCK_PROPS = frozenset([0x2B, 0x2C, *range(0x2E, 0xEE), 0xEF, *range(0xFD, 0x110), 0x130])
 AE_OFF = [0xBE, 0xC4, 0xC2, 0x2C8, 0xCA, 0xCC]
 AE_STOCK = [0x55, 0x30, 0x30, 0x50, 0x00, 0xFFD0]
 SHOT_BYTES = 54 + 640 * 480 * 3
@@ -66,21 +69,45 @@ def load_inputs():
 
 # ---- recipes as the CFW should see them ----------------------------------------------------------
 
+def recipe_info(file, data):
+    """What the CFW should make of recipe file `file` with bytes `data`."""
+    kv = dict(re.findall(r'^\s*(\w+)\s*=\s*(.*?)\s*$', data.decode('ascii').split('\x00')[0], re.M))
+    flags = 0
+    if kv.get('base') in LOOK_BASES:
+        flags |= LOOK_MATRIX if 'matrix' in kv else 0
+        flags |= LOOK_POST if 'post_matrix' in kv else 0
+        flags |= LOOK_TONE if any(k == 'tone' or k.startswith('tone_') for k in kv) else 0
+        flags |= LOOK_HUE if any(re.fullmatch(r'hue\d+', k) for k in kv) else 0
+    mat = [int(x) for x in kv['matrix'].split(',')] if 'matrix' in kv else None
+    return dict(file=file, sfn=file.upper(), name=kv.get('name', ''), base=kv.get('base'),
+                mode=LOOK_BASES.get(kv.get('base')), flags=flags, matrix=mat)
+
+
+def by_name(recipes):
+    """src/recipes.c sort_list: case-insensitive by name, stable."""
+    return sorted(recipes, key=lambda r: r['name'].lower())
+
+
 def shipped_recipes():
-    out = []
-    for p in sorted((CFW / 'recipes').glob('*.txt')):
-        kv = dict(re.findall(r'^\s*(\w+)\s*=\s*(.*?)\s*$', p.read_text('ascii').split('\x00')[0], re.M))
-        flags = 0
-        if kv.get('base') in LOOK_BASES:
-            flags |= LOOK_MATRIX if 'matrix' in kv else 0
-            flags |= LOOK_POST if 'post_matrix' in kv else 0
-            flags |= LOOK_TONE if any(k == 'tone' or k.startswith('tone_') for k in kv) else 0
-            flags |= LOOK_HUE if any(re.fullmatch(r'hue\d+', k) for k in kv) else 0
-        mat = [int(x) for x in kv['matrix'].split(',')] if 'matrix' in kv else None
-        out.append(dict(file=p.name, sfn=p.name.upper(), name=kv.get('name', ''), base=kv.get('base'),
-                        mode=LOOK_BASES.get(kv.get('base')), flags=flags, matrix=mat))
-    # src/recipes.c sort_list: case-insensitive by name, stable
-    return sorted(out, key=lambda r: r['name'].lower())
+    return by_name(recipe_info(p.name, p.read_bytes()) for p in sorted((CFW / 'recipes').glob('*.txt')))
+
+
+def test_recipe(name, body):
+    """A recipe file built here (the repository ships only the film recipes): Setting2, neutral steps."""
+    return (f'# gr2_cfw test recipe\r\nname={name}\r\nbase=setting2\r\nsaturation=0\r\ncontrast=0\r\nsharpness=0\r\n'
+            f'vignetting=off\r\n{body}').encode('ascii')
+
+
+# Look-stage test recipes (the former hand-written recipes/lvtest.txt, t_*.txt): every look key the parser takes.
+HUE9 = '38,75,15,38,75,15,38,75,15'
+TEST_RECIPES = {
+    'lvtest.txt': test_recipe('~Test R-B swap', 'matrix=0,0,128,0,128,0,128,0,0\r\n'),
+    't_curve.txt': test_recipe('~Test curve red', 'tone_r=' + ','.join(['48'] * 33) + '\r\n'),
+    't_tone.txt': test_recipe('~Test curve all', 'tone=' + ','.join(str(min(255, 8 * i)) for i in range(33)) + '\r\n'),
+    't_hueq1.txt': test_recipe('~Test hue Q1', ''.join(f'hue{k}={HUE9}\r\n' for k in range(4, 13))),
+    't_hueq4.txt': test_recipe('~Test hue Q4', ''.join(f'hue{k}={HUE9}\r\n' for k in range(1, 10))),
+    't_post.txt': test_recipe('~Test post sat x2', 'post_matrix=218,-75,-15,-38,181,-15,-38,-75,241\r\n'),
+}
 
 
 # ---- checks -----------------------------------------------------------------------------------------
@@ -106,12 +133,13 @@ class Session:
     """One emulated camera: boot + the CFW task's start sequence (src/task.c)."""
 
     def __init__(self, ctx, files=None, props=None, slots=None, loader=False, on_hook=None, drop=(), cfw_files=True,
-                 card=True):
-        """cfw_files: the card carries cfw/recipes and cfw/fonts (the SD zip); card=False: no card at all."""
+                 card=True, a_extra=None):
+        """cfw_files: the card carries cfw/recipes and cfw/fonts (the SD zip); card=False: no card at all;
+        a_extra: files added to the rom variant's A: drive."""
         import machine
         self.ctx = ctx
         self.m = m = machine.Machine(ctx.inputs, ctx.variant, str(CFW), files=files, props=props, slots=slots,
-                                     card=card)
+                                     card=card, a_extra=a_extra)
         ctx.machines.append(m)
         for p in sorted((CFW / 'recipes').glob('*.txt')) if cfw_files else ():
             m.put_file('H:/cfw/recipes/' + p.name, p.read_bytes())
@@ -183,9 +211,13 @@ class Session:
         return a == b
 
     def recipe_names(self):
+        """The Recipes screen's list (src/ui.c), Stock included."""
         m = self.m
-        n = m.call('recipes_count')
-        return [m.cstr(m.u32(m.syms['g_names'] + 4 * i)) for i in range(n)]
+        names, n = m.u32(m.syms['g_recipes']), m.u32(m.syms['g_recipe_n'])
+        return [m.cstr(m.u32(names + 4 * i)) for i in range(n)]
+
+    def recipe_sel(self):
+        return self.m.u32(self.m.syms['g_recipe_sel'])
 
 
 def finish(ctx, s):
@@ -402,7 +434,9 @@ def sc_snap(ctx):
 
 
 def sc_recipes(ctx):
-    """Recipes: preview repoints Setting2 lists, close restores, apply to MY2, dial, reboot."""
+    """Recipes: preview repoints Setting2 lists, close restores, Stock last, apply to MY2, dial, reboot; Stock on MY2
+    (dial on it): previewed as stock over the slot's look, every recipe property and the name back to the factory
+    values in the slot file and live, recipe forgotten, no look (also after a reboot)."""
     import machine
     check = ctx.check
     rec = ctx.recipes
@@ -417,9 +451,12 @@ def sc_recipes(ctx):
         check(s.look_shown({3: rec[i]['flags']}), f'preview of {rec[i]["name"]} not in Setting2')
         check(m.u32(machine.A_LV_CACHE_EV) != ev, 'live-view change cache not flipped')
     s.keys(KEY_RIGHT)
-    check(s.look_shown({3: rec[-1]['flags']}), 'Right past the last recipe moved')
+    check(s.recipe_sel() == len(rec) and s.recipe_names()[-1] == 'Stock' and s.look_shown({}),
+          'Right past the last recipe: not Stock, or Stock previewed with a look')
+    s.keys(KEY_RIGHT)
+    check(s.recipe_sel() == len(rec), 'Right past Stock moved')
     pi = next(i for i, r in enumerate(rec) if r['file'] == 'portra.txt')
-    s.keys(*[KEY_LEFT] * (len(rec) - 1 - pi))
+    s.keys(*[KEY_LEFT] * (len(rec) - pi))
     check(s.look_shown({3: rec[pi]['flags']}), 'Left did not return to Portra')
     # CFW matrix record 11 = recipe matrix x stock record 0 (src/look.c write_records)
     sect = m.u32(machine.IQ_BASE + 0x24 + 4 * 8)
@@ -477,6 +514,40 @@ def sc_recipes(ctx):
     check(s3.look_shown({3: rec[pi]['flags']}), 'recipe file gone: cached MY2 look not shown')
     check(s3.m.d_files() == d, 'D: rewritten although nothing changed')
     finish(ctx, s3)
+    # Stock on MY2 with the dial on it. The slot file holds non-factory values in every recipe property.
+    dflt = m.prop_defaults()
+    check(dflt[0x2E + 1] == 7 and dflt[0x2E + 4] == 5 and dflt[0x46 + 7] == 0x7FFFFFFF and dflt[0xFE] == 1 and
+          dflt[0x10F] == 5000 and dflt[0xEF] == 4 and dflt[0x2B] == dflt[0x2C] == 0,
+          'firmware defaults table differs from finding 19 section 1.3')
+    name_ids = range(0x1A9, 0x1BA)
+    marked = [v + 1 if i in STOCK_PROPS or i in name_ids or i in (0xEE, 0xF0) else v
+              for i, v in enumerate(m.slots['B:/P_MY01.bin'])]
+    s4 = Session(ctx, files=d, slots={'B:/P_MY01.bin': marked}, props={0x2D: 4, 6: 2})
+    m4 = s4.m
+    check(s4.look_shown({3: rec[pi]['flags']}), 'MY2 look not shown before Stock')
+    s4.request(MENU_RECIPES)
+    s4.keys(*[KEY_RIGHT] * len(rec))
+    check(s4.recipe_sel() == len(rec) and s4.look_shown({}), 'Stock previewed with the MY2 look')
+    s4.keys(KEY_OK, KEY_RIGHT, KEY_OK)
+    slot = m4.slots['B:/P_MY01.bin']
+    bad = [hex(i) for i in STOCK_PROPS if slot[i] != dflt[i]]
+    check(not bad, f'Stock: slot properties not at the factory value: {bad}')
+    check(all(slot[i] == dflt[i] == 0 for i in name_ids), 'Stock: slot name not the factory (empty) one')
+    check(all(slot[i] == marked[i] for i in range(899) if i not in STOCK_PROPS and i not in name_ids),
+          'Stock changed slot properties a recipe cannot set')
+    bad = [hex(i) for i in STOCK_PROPS if m4.props.get(i) != dflt[i]]
+    check(not bad, f'Stock with the dial on MY2: live properties not at the factory value: {bad}')
+    check(m4.prop_sa_written.get(0x1A9) == bytes(0x44) and m4.ustr(m4.props[0x1BB]) == '' and m4.props[0x1C4] == 0,
+          'Stock: live name, MY2 name cache or box link')
+    cfg = m4.cfg_text()
+    check(all(f'rc2.{w}=00000000' in cfg or f'rc2.{w}=' not in cfg for w in range(3)), f'MY2 recipe kept: {cfg!r}')
+    check(s4.look_shown({}), 'Stock previewed with a look after the apply')
+    s4.keys(KEY_EFFECT)
+    check(s4.look_shown({}), 'Stock on MY2: look still shown')
+    finish(ctx, s4)
+    s5 = Session(ctx, files=m4.d_files(), slots=m4.slots, props={0x2D: 4, 6: 2})
+    check(s5.look_shown({}), 'Stock on MY2: look back after a reboot (config or look cache on D:)')
+    finish(ctx, s5)
 
 
 def sc_palette(ctx):
@@ -616,12 +687,26 @@ def expected_shot(m):
 
 
 def sc_recipe_files(ctx):
-    """Every shipped recipe parses; the CFW lists them sorted by name."""
+    """Every shipped recipe and the look-stage test recipes (built here: matrix, tone, tone_r, hue sectors, post
+    matrix) parse; the list is sorted by name, then Stock, also after card recipes named "zzz" and "Stock"; every
+    entry previews its look stages in Setting2, the built-in Stock none."""
     check = ctx.check
-    s = Session(ctx)
+    extra = {**TEST_RECIPES,
+             'zzz.txt': test_recipe('zzz', 'matrix=128,0,0,0,128,0,0,0,128\r\n'),
+             'stock.txt': test_recipe('Stock', 'matrix=120,4,4,4,120,4,4,4,120\r\n')}
+    s = Session(ctx, files={'H:/cfw/recipes/' + k: v for k, v in extra.items()}, props={0x2D: 4})
+    want = by_name(ctx.recipes + [recipe_info(k, v) for k, v in extra.items()])
     names = s.recipe_names()
-    check(names == [r['name'] for r in ctx.recipes], f'recipe list {names}')
+    check(names == [r['name'] for r in want] + ['Stock'], f'recipe list {names}')
+    check(s.m.call('recipes_count') == len(want), f'recipes_count {s.m.call("recipes_count")} != {len(want)}')
     check(not [l for l in s.m.log_lines() if 'invalid line' in l or 'cannot read' in l], 'recipe parse errors')
+    s.request(MENU_RECIPES)
+    for i, r in enumerate(want + [None]):
+        if i:
+            s.keys(KEY_RIGHT)
+        flags = r['flags'] if r else 0
+        check(s.look_shown({3: flags} if flags else {}), f'preview of {names[i]!r} (entry {i}): look stages')
+    s.keys(KEY_EFFECT)
     finish(ctx, s)
 
 
@@ -1066,21 +1151,21 @@ def sc_safeboot(ctx):
 
 def sc_rom(ctx):
     """Release firmware (rom build, M11): stage 1's length/CRC fields; stage 1 from A: through the release-stub model,
-    stage 2, fonts and built-in recipes from A:; no card access in the boot hooks nor in the CFW task before step 13.
-    First boot with an empty D: (first start, or stock formatted it after a battery pull) and a card config:
+    stage 2 and fonts from A: (no recipe files there); no card access in the boot hooks nor in the CFW task before
+    step 13. First boot with an empty D: (first start, or stock formatted it after a battery pull) and a card config:
     settings_early is skipped (the camera's Clarity at the IQ-ready call, no early look); the late phase imports the
-    card config, applies it, writes D: and the card copy, lists the A: recipes plus the card's (a card file with a
-    built-in's 8.3 name replaces it), shows MY2's look and saves the look cache; the log holds only ERROR lines (a
-    broken card recipe). Next boot from that D: without a card: the config and MY2's look at the IQ-ready call, the
-    A: recipes only, no log. A stage 1 with one flipped bit, or truncated, disarms at its first hook: no stage 2, no
-    task, no file access; its ERROR line stays in stage 1's RAM log buffer."""
+    card config, applies it, writes D: and the card copy, lists the card's recipes then Stock (the empty A: recipe
+    folder quietly), shows MY2's look and saves the look cache; the log holds only ERROR lines (a broken card
+    recipe). Next boot from that D: without a card: the config and MY2's look at the IQ-ready call, only Stock
+    listed, no log. With recipe files added to A:, a card file with an A: file's 8.3 name replaces it. A stage 1
+    with one flipped bit, or truncated, disarms at its first hook: no stage 2, no task, no file access; its ERROR
+    line stays in stage 1's RAM log buffer."""
     import machine
     import stage1_crc
     check = ctx.check
     s1 = (CFW / 'bin' / 'rom' / 'gr2_cfw.bin').read_bytes()
     check(stage1_crc.check(s1) is None, f'bin/rom/gr2_cfw.bin: {stage1_crc.check(s1)}')
-    builtin = [r for r in ctx.recipes if r['file'] != 'lvtest.txt' and not r['file'].startswith('t_')]
-    portra = next(r for r in builtin if r['file'] == 'portra.txt')
+    portra = next(r for r in ctx.recipes if r['file'] == 'portra.txt')
     src = (CFW / 'recipes' / 'portra.txt').read_bytes()
     card_portra = src.replace(b'\r\nname=Portra 400\r\n', b'\r\nname=Portra Card\r\n')
     mine = (CFW / 'recipes' / 'gold.txt').read_bytes().replace(b'\r\nname=Gold 200\r\n', b'\r\nname=Mine\r\n')
@@ -1091,7 +1176,7 @@ def sc_rom(ctx):
     aef = (machine.A_AEF, 0x2D8)                                # AE_F, loaded by CapInit(5) (finding 35)
     iq_site = 0xA01B584A                                        # IQ-ready BL in CapInit(5) (finding 32)
 
-    def boot(files, card=True):
+    def boot(files, card=True, a_extra=None):
         seen = {}
 
         def on_hook(mm, n):
@@ -1117,7 +1202,7 @@ def sc_rom(ctx):
                 seen['fonts'] = mm.u32(mm.syms['g_task_fonts'])
                 seen['io'] = list(mm.io)
         s = Session(ctx, files=files, props={0x2D: 4, 6: 2, 0xCE: 5}, loader=True, on_hook=on_hook, cfw_files=False,
-                    card=card)
+                    card=card, a_extra=a_extra)
         hooks_io = seen['io']
         check(hooks_io[0] == ('LoadFile', machine.ROM_STAGE1, 'stub') and
               [e for e in hooks_io if e[2] == 'boot'][:2] == [('LoadFile', 'A:/cfw/gr2_main.bin', 'boot')] * 2,
@@ -1130,7 +1215,9 @@ def sc_rom(ctx):
         check(seen['fonts'] == 1 and len(a_fonts) == 5 and fonts == a_fonts, f'fonts not read from A:: {fonts}')
         return s, seen
 
-    # First boot: D: empty, card with config, a replacement for a built-in recipe, an own recipe and a broken one.
+    # First boot: D: empty, card with config, two own recipes (one for MY2) and a broken one; no A: recipes.
+    from rom_files import rom_files
+    check(not [k for k in rom_files(CFW) if k.startswith('A:/cfw/recipes/')], 'recipe files on A: (scripts/rom_files.py)')
     s, seen = boot(card)
     m = s.m
     check(seen['clarity_at_iq'] == 5 and not seen['look_at_iq'],
@@ -1138,14 +1225,13 @@ def sc_rom(ctx):
     check(m.props[0xCE] == 9 and 'clarity=00000009' in m.cfg_text() and 'rc2.0=504F5254' in m.cfg_text() and
           m.file('H:/cfw/config.txt').decode() == m.cfg_text(),
           f'card config not imported and saved in the late phase: {m.cfg_text()!r}')
-    want = sorted([r['name'] for r in builtin if r['file'] != 'portra.txt'] + ['Portra Card', 'Mine'], key=str.lower)
-    check(s.recipe_names() == want, f'recipes: {s.recipe_names()} != {want}')
-    check(('LoadFile', 'A:/cfw/recipes/portra.txt', 'CFW') in m.io and
-          ('File_Open', 'H:/cfw/recipes/PORTRA.TXT', 'CFW') in m.io, 'A: recipe or its card replacement not read')
+    check(s.recipe_names() == ['Mine', 'Portra Card', 'Stock'], f'recipes: {s.recipe_names()}')
+    check(('FindFirst', 'A:/cfw/recipes/', 'CFW') in m.io and ('File_Open', 'H:/cfw/recipes/PORTRA.TXT', 'CFW') in m.io,
+          'A: recipe folder not listed or card recipe not read')
     check(s.look_shown({3: portra['flags']}), 'MY2 look not shown after the late phase')
     check(m.store('D:/CFW/LOOK_A.DAT', 'D:/CFW/LOOK_B.DAT') is not None, 'look cache not saved to D:')
     log = m.log_lines()
-    check(log and all(l.startswith('ERROR') for l in log) and any('BAD.TXT' in l for l in log), f'log: {log}')
+    check(log and all(l.startswith('ERROR') and 'BAD.TXT' in l for l in log), f'log: {log}')
     m.files.pop('H:/CFW/CFW_LOG.TXT')                           # the expected ERROR line
     finish(ctx, s)
 
@@ -1153,10 +1239,20 @@ def sc_rom(ctx):
     s2, seen2 = boot(m.d_files(), card=False)
     m2 = s2.m
     check(seen2['clarity_at_iq'] == 9 and seen2['look_at_iq'], 'D: config or MY2 look not applied at the IQ-ready call')
-    check(s2.recipe_names() == sorted([r['name'] for r in builtin], key=str.lower), f'recipes: {s2.recipe_names()}')
+    check(s2.recipe_names() == ['Stock'], f'recipes: {s2.recipe_names()}')
     check(s2.look_shown({3: portra['flags']}) and m2.props[0xCE] == 9, 'MY2 look or Clarity lost after the late phase')
     check(not [e for e in m2.io if e[1].upper() == 'H:/CFW/CFW_LOG.TXT'], 'log written without an error')
     finish(ctx, s2)
+
+    # A: with recipe files (none ship there; the scan stays): the card's portra.txt replaces the A: one.
+    a_extra = {'A:/cfw/recipes/portra.txt': src, 'A:/cfw/recipes/gold.txt': (CFW / 'recipes' / 'gold.txt').read_bytes()}
+    s3, _ = boot({**m2.d_files(), 'H:/cfw/recipes/portra.txt': card_portra}, a_extra=a_extra)
+    m3 = s3.m
+    check(s3.recipe_names() == ['Gold 200', 'Portra Card', 'Stock'], f'recipes: {s3.recipe_names()}')
+    check(('LoadFile', 'A:/cfw/recipes/portra.txt', 'CFW') in m3.io and
+          ('File_Open', 'H:/cfw/recipes/PORTRA.TXT', 'CFW') in m3.io, 'A: recipe or its card replacement not read')
+    check(not m3.log_lines(), f'log: {m3.log_lines()}')
+    finish(ctx, s3)
 
     # Stage 1 corrupt (one bit in its zero padding) or truncated (window tail stays 0xFF): disarmed at the first hook.
     flipped = bytearray(s1)

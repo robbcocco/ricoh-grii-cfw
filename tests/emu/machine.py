@@ -4,7 +4,8 @@ The CFW runs unmodified: stage 1 is loaded into the window like `fload`,
 `_start` loads stage 2 from the H: drive model, and the scenarios then call
 stage-2 functions directly. The `rom` variant (release firmware, M11) boots
 through a model of the release stub instead: stage 1 from the read-only A:
-drive (`scripts/rom_files.py`), stage 2, fonts and built-in recipes from A:. Firmware entry points the CFW calls are Python
+drive (`scripts/rom_files.py`; `a_extra` adds test files such as A: recipes),
+stage 2 and fonts from A:. Firmware entry points the CFW calls are Python
 stubs (see `_install_stubs`); firmware code in `REAL_CODE` runs as is. Any
 other instruction fetch outside the CFW raises `EmuError` with its address.
 
@@ -62,6 +63,7 @@ A_ISP_MUTEX = 0xA0155BBC + 8
 A_LV_CACHE_CURVE, A_LV_CACHE_EV = 0xA06C8B9A, 0xA0155D20
 A_LV_DISP_ADDR, A_LV_DISP_MODE = 0xA0155BE8, 0xA0155B44
 A_POOL_BUMP = 0xA00C2BA4
+A_PROP_SETUP = 0xA0122A7C              # property setup table {default, msg} (finding 25 section 3.2)
 A_SHELL_CTX = 0xA05FC308
 A_GSTATE = 0xA04070AC                 # +0 OSD front index, +3 output (1 = LCD)
 A_PAL_PENDING = 0xA04070C8
@@ -189,7 +191,7 @@ def yuv_rgb(y, u, v):
 
 
 class Machine:
-    def __init__(self, inputs, variant, cfw_dir, files=None, props=None, slots=None, card=True):
+    def __init__(self, inputs, variant, cfw_dir, files=None, props=None, slots=None, card=True, a_extra=None):
         self.stack_limit, self.stack_task = STACK_TOP - CFW_TASK_STACK, 'CFW'
         self.inputs, self.variant, self.cfw_dir = inputs, variant, cfw_dir
         self.uc = Uc(UC_ARCH_ARM, UC_MODE_ARM | UC_MODE_BIG_ENDIAN)
@@ -214,6 +216,7 @@ class Machine:
             sys.path.insert(0, str(pathlib.Path(cfw_dir) / 'scripts'))
             from rom_files import rom_files
             self.a_files = rom_files(pathlib.Path(cfw_dir))
+        self.a_files.update(a_extra or {})   # test files appended to the A: directory
         for k, v in (files or {}).items():
             self.put_file(k, v)
         self.handles, self.next_fd = {}, 0x100
@@ -730,6 +733,10 @@ class Machine:
         self.ret(self.my_paths[k])
 
     # My Settings slot files: B:/P_MY0k.bin as 899 u32 values
+    def prop_defaults(self):
+        """The firmware's property setup table (A_PROP_SETUP, {default, msg} per ID): factory values."""
+        return list(struct.unpack_from('>' + 'I4x' * 899, self.inputs.firmware, A_PROP_SETUP - FW_BASE))
+
     def _pdb_clone(self):
         db = self.obj_alloc(0x40 + 899 * 4)
         self.w32(db + 0xC, db + 0x40)
@@ -738,7 +745,7 @@ class Machine:
 
     def _pdb_load(self):
         db, path = self.r(0), self.cstr(self.r(1))
-        vals = self.slots.get(path, [0] * 899)
+        vals = self.slots.get(path) or self.prop_defaults()   # a missing slot file loads the defaults
         self.wr(self.u32(db + 0xC), struct.pack('>899I', *vals))
         self.ret(db)
 

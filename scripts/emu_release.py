@@ -21,8 +21,8 @@
       a flipped payload bit is refused; Destroy APP 0xA00402B0; install 0xA0040286(6),
       (8) -> the NAND holds the new RES and APP.
    b. Boot reads with the installed APP: stock LoadFile of every A: file (stock + CFW),
-      FindFirst/FindNext of A:/cfw/fonts/ and A:/cfw/recipes/ (full paths, no ./..),
-      fopen/fread of a recipe.
+      FindFirst/FindNext of A:/cfw/fonts/ (full paths, no ./..) and of A:/cfw/recipes/ (no
+      recipe files on A:: no entry), fopen/fread of a font.
    c. The release stub as flashed, at the real hook site (like scripts/emu_loader.py), with
       the stock LoadFile reading the installed NAND: armed (shooting order; stage 1's own
       +8 hook entry is called), playback order, stage 1 disarming, skip key, file absent
@@ -436,17 +436,17 @@ def check_reads(nand, files, stock_res, label, cfw=True):
         got = st.find(prefix)
         if got != want:
             raise Fail(f"{label}: FindFirst/Next({prefix}) = {got}, expected {want}")
-    recipe = next(n for n in files if n.startswith("A:/cfw/recipes/"))
-    fh, chunks = st.call(FOPEN, st.arg(recipe), 0), []
+    font = next(n for n in files if n.startswith("A:/cfw/fonts/"))
+    fh, chunks = st.call(FOPEN, st.arg(font), 0), []
     while fh:
         n = st.call(FREAD, fh, BUF, 1000)
         if n <= 0:
             break
         chunks.append(bytes(st.uc.mem_read(BUF, n)))
-    if b"".join(chunks) != files[recipe]:
-        raise Fail(f"{label}: fopen/fread({recipe}) chunks {[len(c) for c in chunks]} do not match")
+    if b"".join(chunks) != files[font]:
+        raise Fail(f"{label}: fopen/fread({font}) chunks {[len(c) for c in chunks]} do not match")
     print(f"[OK] {label}: stock LoadFile of all {ok} stock + {len(files)} CFW A: files byte-identical; "
-          f"FindFirst/Next lists A:/cfw/fonts/ and A:/cfw/recipes/ as full paths; fopen/fread({recipe}) "
+          f"FindFirst/Next lists A:/cfw/fonts/ as full paths, A:/cfw/recipes/ as empty; fopen/fread({font}) "
           f"in {len(chunks)} chunks")
     return st
 

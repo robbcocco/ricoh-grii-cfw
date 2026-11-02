@@ -1,18 +1,22 @@
 /* Film recipes (findings 19, 20). CFW task only.
  *
  * A recipe is an ASCII text file in H:/cfw/recipes with `key=value` lines
- * (# comments, CRLF). The rom build (release firmware) lists the built-in
- * recipes in A:/cfw/recipes plus the card's: a card file with the same 8.3 name
- * replaces the built-in one. README "Recipes" documents the keys. Applying a recipe
- * writes it into a My Settings slot file (MY1..MY3): the slot keeps its other
- * settings, the recipe's properties and the slot name change. The recipe's
- * look (colour matrix, hue sectors, tone curves, post matrix; include/look.h)
- * is not part of a slot: the config remembers which recipe file each slot
- * holds, and src/look.c shows that look in IQ RAM while the slot is selected
- * and the recipe's base mode is active (or the previewed recipe while the
- * Recipes overlay is open).
+ * (# comments, CRLF). The rom build (release firmware) lists the recipes in
+ * A:/cfw/recipes (none shipped there; an absent folder is normal) plus the card's:
+ * a card file with the same 8.3 name replaces an A: one. README "Recipes" documents
+ * the keys. Applying a recipe writes it into a My Settings slot file (MY1..MY3): the
+ * slot keeps its other settings, the recipe's properties and the slot name change.
+ * The recipe's look (colour matrix, hue sectors, tone curves, post matrix;
+ * include/look.h) is not part of a slot: the config remembers which recipe file
+ * each slot holds, and src/look.c shows that look in IQ RAM while the slot is
+ * selected and the recipe's base mode is active (or the previewed recipe while
+ * the Recipes overlay is open).
  *
- * The three slot looks are also cached on D:/CFW (src/store.c, the project plan): the
+ * The list always ends with "Stock", not a file: applying it puts every property
+ * a recipe can set back to its factory value in the slot (and the slot name),
+ * and forgets the slot's recipe, so the slot renders with the stock IQ data.
+ *
+ * The three slot looks are also cached on D:/CFW (src/store.c, finding 34): the
  * loader's first hook reads them from NAND, so the look is ready before the
  * first frame without reading recipe files, and a slot keeps its look when its
  * recipe file is no longer on the card. */
@@ -123,7 +127,7 @@ typedef struct {
 
 typedef struct {
     char sfn[13];          /* 8.3 name, upper case: the recipe's identity (config rcK.*, card overrides) */
-    char path[PATH_LEN];   /* where it is read from: H:/cfw/recipes/<sfn> or (rom) A:/cfw/recipes/<name> */
+    char path[PATH_LEN];   /* where it is read from: H:/cfw/recipes/<sfn> or (rom) A:/cfw/recipes/<name>; "" Stock */
     char name[NAME_LEN];
     const base_t *base;
     int8_t con;
@@ -138,11 +142,11 @@ typedef struct {
     look_t look;
 } early_t;
 
-static const char *g_names[RECIPES_MAX];
-static int g_n;
+static const char *g_names[RECIPES_MAX + 1];
+static int g_n;                        /* list entries: the recipe files, then Stock */
 /* Large buffers live in one GlobalHeap block (the CFW window is small). */
 typedef struct {
-    entry_t list[RECIPES_MAX];
+    entry_t list[RECIPES_MAX + 1];
     char buf[4096];        /* one recipe file */
     gr2_find_t find;
     recipe_t r;
@@ -153,6 +157,9 @@ static work_t *W;
 #define g_buf  (W->buf)
 #define g_find (W->find)
 #define g_r    (W->r)
+
+/* Stock: the last list entry, the only one without a file. */
+static int is_stock(int i) { return g_list[i].path[0] == 0; }
 
 /* ---- small string helpers ------------------------------------------------------ */
 
@@ -455,11 +462,12 @@ static const look_t *slot_look(int k, int *mode) {
     return 0;
 }
 
-/* What to show: the previewed recipe (overlay open, in the current colour
- * mode if the CFW can change it), else the recipe of the active MY slot while
- * its base mode is active, else stock. */
+/* What to show: stock while Stock is previewed, the previewed recipe (overlay
+ * open, in the current colour mode if the CFW can change it), else the recipe
+ * of the active MY slot while its base mode is active, else stock. */
 static int wanted(uint32_t cm, int *k5) {
     *k5 = look_mode(cm);
+    if (g_preview >= 0 && is_stock(g_preview)) return -1;
     if (g_preview >= 0 && g_list[g_preview].look.flags && *k5 >= 0) return PREVIEW + g_preview;
     int k = (int)GR2_FN_PROP_GET_RAW(GR2_PROPID_MYSETTING) - 1, mode;
     if (k >= 0 && k < N_SLOTS) {
@@ -500,7 +508,7 @@ static void save_slot(int k, const char *sfn) {
             v = (v << 8) | ch;
         }
         slot_key(key, k, w);
-        cfg_set(key, v);
+        if (v || cfg_has(key)) cfg_set(key, v);   /* a missing key reads as 0 */
     }
 }
 
@@ -632,22 +640,55 @@ static int recipe_props(const recipe_t *r, pv_t *pv) {
     return n;
 }
 
+/* Stock: every property recipe_props can write, all per slot (finding 19 §1.4), as inclusive ID
+ * ranges: EFFECT and IMAGE_SETTINGS; saturation .. glossiness of every colour mode; NR; exposure
+ * compensation, WB mode, WB compensation of every WB mode and Kelvin; DR compensation. */
+static const uint16_t STOCK_IDS[][2] = {
+    { P_EFFECT, P_IMAGE_SETTINGS }, { P_SAT, P_GLOSS + 23 }, { P_NR, P_NR }, { P_EXPCOMP, P_KELVIN },
+    { P_DRC, P_DRC },
+};
+
+static void put_value(uint32_t *v, uint32_t id, uint32_t value) {
+    if (v) v[id] = value;
+    else GR2_FN_PROP_SET(id, value);
+}
+
+/* The n recipe values, or (pv == 0) the STOCK_IDS properties at their factory values, into the
+ * slot DB values v, or (v == 0) live through the stock setter. */
+static void put_values(uint32_t *v, const pv_t *pv, int n) {
+    if (pv) {
+        for (int p = 0; p < n; p++) put_value(v, pv[p].id, pv[p].value);
+        return;
+    }
+    for (int r = 0; r < (int)(sizeof(STOCK_IDS) / sizeof(STOCK_IDS[0])); r++)
+        for (uint32_t id = STOCK_IDS[r][0]; id <= STOCK_IDS[r][1]; id++) put_value(v, id, GR2_PROP_DEFAULT(id));
+}
+
 int recipes_apply(int i, int k) {
     pv_t pv[24];
     uint16_t name16[GR2_MY_NAME_BYTES / 2];
     if (i < 0 || i >= g_n || k < 0 || k >= N_SLOTS) return RECIPE_E_SLOT;
     if (*(volatile uint32_t *)(GR2_FN_UI_STATE() + 0x274)) return RECIPE_E_BUSY;
-    if (load(g_list[i].path, g_list[i].sfn, &g_r)) return RECIPE_E_FILE;
-    int n = recipe_props(&g_r, pv);
-    for (int c = 0; c < GR2_MY_NAME_BYTES / 2; c++) name16[c] = 0;
-    for (int c = 0; g_r.name[c] && c < 32; c++) name16[c] = (uint8_t)g_r.name[c];
+    int stock = is_stock(i), n = 0;
+    if (stock) {                       /* the factory slot name */
+        for (int c = 0; c < GR2_MY_NAME_BYTES / 4; c++) {
+            uint32_t w = GR2_PROP_DEFAULT(GR2_PROPID_MY_NAME + c);
+            name16[2 * c] = (uint16_t)(w >> 16);
+            name16[2 * c + 1] = (uint16_t)w;
+        }
+    } else {
+        if (load(g_list[i].path, g_list[i].sfn, &g_r)) return RECIPE_E_FILE;
+        n = recipe_props(&g_r, pv);
+        for (int c = 0; c < GR2_MY_NAME_BYTES / 2; c++) name16[c] = 0;
+        for (int c = 0; g_r.name[c] && c < 32; c++) name16[c] = (uint8_t)g_r.name[c];
+    }
 
     /* Slot file: clone the live DB object, load the slot, change the recipe values. */
     const char *path = GR2_FN_PROP_PATH(1, k);
     void *db = GR2_FN_PDB_CLONE(GR2_LIVE_PDB);
     GR2_FN_PDB_LOAD(db, path, 1);
     uint32_t *v = GR2_PDB_VALUES(db);
-    for (int p = 0; p < n; p++) v[pv[p].id] = pv[p].value;
+    put_values(v, stock ? 0 : pv, n);
     for (int c = 0; c < GR2_MY_NAME_BYTES / 4; c++)
         v[GR2_PROPID_MY_NAME + c] = ((uint32_t)name16[2 * c] << 16) | name16[2 * c + 1];
     GR2_FN_PDB_SAVE(db, path);
@@ -659,16 +700,21 @@ int recipes_apply(int i, int k) {
     GR2_FN_PROP_LOCK();
     GR2_FN_PROP_SET(GR2_PROPID_MY_LINK + k, 0);
     if (GR2_FN_PROP_GET_RAW(GR2_PROPID_MYSETTING) == (uint32_t)(k + 1)) {
-        for (int p = 0; p < n; p++) GR2_FN_PROP_SET(pv[p].id, pv[p].value);
+        put_values(0, stock ? 0 : pv, n);
         GR2_FN_PROP_SA_WRITE(GR2_PROPID_MY_NAME, GR2_MY_NAME_BYTES, name16);
     }
     GR2_FN_PROP_UNLOCK();
 
     /* The slot's look comes from this recipe file from now on (re-read: it may
-     * have changed on the card since the scan); the next poll shows it. */
-    g_list[i].look = g_r.look;
-    save_slot(k, g_list[i].sfn);
-    g_slot_recipe[k] = (int8_t)i;
+     * have changed on the card since the scan), Stock: none; the next poll shows it. */
+    if (stock) {
+        save_slot(k, "");
+        g_slot_recipe[k] = -1;
+    } else {
+        g_list[i].look = g_r.look;
+        save_slot(k, g_list[i].sfn);
+        g_slot_recipe[k] = (int8_t)i;
+    }
     g_shown = -2;
     cfg_save();
     cache_update();
@@ -691,7 +737,7 @@ static int find_sfn(const char *sfn) {
 
 /* One listing into g_list. Card: FindFirst appends the wildcard and returns 8.3 names plus "." and "..". rom, A:: dir
  * is a raw prefix, names are full paths (sfn holds garbage). A file with the 8.3 name of a listed one replaces it
- * (the card's own copy of a built-in recipe), unless it cannot be read. */
+ * (the card's own copy of an A: recipe), unless it cannot be read. A missing folder lists nothing, quietly. */
 static int scan(const char *dir, int rom) {
     void *h = GR2_FN_FIND_FIRST(dir, &g_find);
     if (!h) return 0;
@@ -745,6 +791,10 @@ void recipes_init(void) {
 #endif
         ERR("recipes: more than 24 files, ignoring the rest");
     sort_list();
+    entry_t *stock = &g_list[g_n++];  /* Stock: always last, whatever the names sort to */
+    memset(stock, 0, sizeof(*stock));
+    copy_str(stock->name, "Stock", NAME_LEN);
+    stock->base = &BASES[0];
     for (int i = 0; i < g_n; i++) g_names[i] = g_list[i].name;
     cfw_ui_set_recipes(g_names, g_n);
     for (int k = 0; k < N_SLOTS; k++) load_slot(k);
@@ -755,5 +805,5 @@ void recipes_init(void) {
 }
 
 int recipes_count(void) {
-    return g_n;
+    return g_n > 0 ? g_n - 1 : 0;      /* recipe files; Stock is not one */
 }

@@ -22,11 +22,13 @@ with stock values, IQ.bin at a pool address with absolute section pointers (`*0x
 640x480 grey-ramp live-view frame, stock OSD double buffer (front: top and bottom bars using every palette
 index), palette with two
 hardware banks. Firmware entry points the CFW calls are Python stubs (`FN`): properties, H: and D: files
-(D: subdirectories via `File_Mkdir`) and directory listing, My Settings slot files, Memory_Alloc (bump), tasks,
-time, mutexes, palette/layer, Msg_Post, ADC, temperatures. A: is the RES drive of the release firmware with the
-files of `scripts/rom_files.py` (rom variant): read-only, case-sensitive full paths; `File_Open` mode 0 and
-`File_Read`, `LoadFile` (min(size, max) bytes or -1), `FindFirst`/`FindNext` as a raw prefix match returning full
-paths (sfn = the first 12 bytes, attr 0x01, no `.`/`..`), as the stock code does in emulation (finding 29 §3). Every
+(D: subdirectories via `File_Mkdir`) and directory listing, My Settings slot files (a missing one loads the
+firmware's property defaults, setup table `0xA0122A7C`), Memory_Alloc (bump), tasks, time, mutexes,
+palette/layer, Msg_Post, ADC, temperatures. A: is the RES drive of the release firmware with the files of
+`scripts/rom_files.py` (rom variant; no recipes) plus a scenario's `a_extra` files: read-only, case-sensitive
+full paths; `File_Open` mode 0 and `File_Read`, `LoadFile` (min(size, max) bytes or -1), `FindFirst`/`FindNext`
+as a raw prefix match returning full paths (sfn = the first 12 bytes, attr 0x01, no `.`/`..`; no match: no
+handle), as the stock code does in emulation (finding 29 §3). Every
 file-system call is logged as (API, path, task) in `Machine.io`; `card=False` models a camera without a card (every
 H: open and listing fails). Firmware code in `REAL_CODE` runs for real (the
 string resolver, the patched Effect, IQ-ready and power-off BL sites); executing anything else outside the CFW
@@ -42,8 +44,14 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   Auto-Hi shutter and Clarity props restored; INFO values and the 1 s cell refresh.
 - `snap`: 1m -> 0.7 m, 1.5m -> 1.2 m (tables, literals, code halfwords, labels), back to STOCK.
 - `recipes`: previewing each recipe repoints only Setting2's IQ lists (matrix, hue, tone, YCbCr), matrix
-  record value, close restores IQ RAM, apply to MY2 (slot file, name cache, config `rc2.*`), dial shows the
-  slot look, reboot with that config restores it.
+  record value, Stock after the last recipe (no look, Right stops there), close restores IQ RAM, apply to MY2
+  (slot file, name cache, config `rc2.*`), dial shows the slot look, reboot with that config restores it, also
+  from the look cache without the file. Stock on MY2 with the dial on it and every recipe property of the slot
+  file off its factory value: previewing Stock shows no look although MY2 has one; applying it puts every
+  property a recipe can set (EFFECT, IMAGE_SETTINGS, the image-setting arrays of all colour modes, NR, EV comp,
+  WB mode, WB comp, Kelvin, DR) and the name back to the firmware defaults in the file and live, changes no other
+  slot property, clears the name cache, box link and `rc2.*`, shows no look, and none after a reboot. The
+  defaults table is spot-checked against finding 19 §1.3.
 - `palette`: entries 224-251 only, both banks equal while open, stock after close, no shown overlay pixel
   switching between a stock and an overlay colour at a bank flip (the green flash, on opening and closing), a
   scroll reprograms at most 12 entries; ISP mutex balanced.
@@ -52,7 +60,9 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   `CFWcon` task; IQ dump (0x2FAA0 bytes), recipe reload, screenshot BMP (921654 bytes, pixel-exact against
   LV + OSD).
 - `pattern`: DEV test pattern row OFF → RUNNING (menu closed, 1.5 s pending) → ON → OFF.
-- `recipe-files`: every file in `recipes/` parses; list sorted by name.
+- `recipe-files`: every file in `recipes/` and the look-stage test recipes built in `run.py` (matrix, `tone`,
+  `tone_r`, hue sectors, post matrix) parse; list sorted by name, then Stock, also after card recipes named
+  "zzz" and "Stock" (and the `~Test` ones); each entry previews its look stages in Setting2, the last none.
 - `view`: Frame lines XPan from the VIEW tab stamped into the shown full-plane buffer (mask/line rows exact),
   restamped after a stock flip to the other buffer; zebras (Y >= 252 on the LV ramp) stripe only the hot
   cells, cold cells restored from the stock canvas + frame; OFF clears and requests a stock redraw; nothing
@@ -84,13 +94,14 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   the window, ABI magic, then the hook after every section load; the stub itself runs for real in
   `scripts/emu_release.py`) with the shooting order and the CapInit(5) world of `loader`. Every boot: stage 1 from A:
   by the stub, stage 2 by two `LoadFile` calls of stage 1, fonts from `A:/cfw/fonts` by the early CFW task, and no
-  H: access at all before JobSystem step 13 (hooks and the early task). First boot, D: empty, card with a config
-  (Clarity 9, MY2 = Portra), a card `portra.txt` with another name, an own recipe and a broken one: Clarity stays 5
-  and no look at the IQ-ready call (`settings_early` skipped); after the late phase Clarity 9, config on D: and the
-  card copy, the recipe list = the A: recipes (no `lvtest`/`t_*`) with the card's Portra replacing the built-in one
-  plus the own recipe, MY2's look shown, look cache on D:, and the log holds only ERROR lines (the broken recipe).
-  Second boot with that D: and no card: Clarity 9 and MY2's look at the IQ-ready call, A: recipes only, no log
-  write. Stage 1 with one flipped bit (in its zero padding) or truncated to 0x7000 bytes: only the first hook runs,
+  H: access at all before JobSystem step 13 (hooks and the early task). First boot, D: empty, no A: recipes, card
+  with a config (Clarity 9, MY2 = Portra), a card `portra.txt` with another name, an own recipe and a broken one:
+  Clarity stays 5 and no look at the IQ-ready call (`settings_early` skipped); after the late phase Clarity 9,
+  config on D: and the card copy, `A:/cfw/recipes/` listed, the recipe list = the card's two plus Stock, MY2's
+  look shown, look cache on D:, and the log holds only ERROR lines about the broken recipe. Second boot with that
+  D: and no card: Clarity 9 and MY2's look at the IQ-ready call (look cache), only Stock listed, no log write.
+  Third boot with two recipe files added to A: and the card's `portra.txt`: the card file replaces the A: one
+  (both read). Stage 1 with one flipped bit (in its zero padding) or truncated to 0x7000 bytes: only the first hook runs,
   `ldr_state` 6, no allocation, no task, no file access besides the stub's, the ERROR line in stage 1's RAM log
   buffer.
 - Task stacks: every call runs on the stack of the task it belongs to (CFW 0x3000, Script 0x4000, boot task

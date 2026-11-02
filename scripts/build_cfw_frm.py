@@ -2,9 +2,10 @@
 """Build dist/rg2_v003_cfw.frm: the M11 release firmware (`make rom`).
 
 stock rg2_v003.frm + loader/flash/rom_stub.S in APP + the CFW files (scripts/rom_files.py,
-bin/rom/) appended to the A: drive in RES (finding 29 §8, loader/flash/README.md §8).
-Builds and checks only; flashing is a user step (README.md §6.4, P-steps) after
-`make check`. The output contains Ricoh's firmware: never publish it.
+bin/rom/) appended to the A: drive in RES (finding 29 §8, loader/flash/README.md §5).
+Builds and checks only; flashing is a user step (the camera's menu update, README.md). The
+output contains Ricoh's firmware; it is published only as rg2_v003.frm in the official zip
+(scripts/package_sd.py checks its SHA-256 against the manifest).
 
 Steps:
   1. Stock SHA-256 of the input (default fw/rg2_v003.frm from `make fw`); container =
@@ -232,7 +233,7 @@ def main(argv=None):
     hs, hn = update_header(stock_res), update_header(nr)
     ha_s, ha_n = update_header(stock_app), update_header(na)
     rep = [
-        "rg2_v003_cfw.frm - M11 release firmware (NOT FLASHED; loader/flash/README.md §8 and §6.4 first)",
+        "rg2_v003_cfw.frm - M11 release firmware (loader/flash/README.md §5; the official zip's rg2_v003.frm)",
         "built by scripts/build_cfw_frm.py from loader/flash/rom_stub.S, bin/"
         f"{a.variant}/ and scripts/rom_files.py; checked by scripts/emu_release.py",
         "",
@@ -279,7 +280,7 @@ def main(argv=None):
     manifest.write_text("\n".join(rep) + "\n")
     print(f"[OK] wrote {a.out} ({len(out):,} B, sha256 {sha256(out)})")
     print(f"[OK] wrote {manifest}")
-    print("Not flashed. Follow loader/flash/README.md §8.")
+    print("Not flashed. Follow loader/flash/README.md §5.")
     return 0
 
 

@@ -12,7 +12,7 @@
  *   0xFF tail); referenced by the APP only through the RAM-map getter.
  * CFW window 0xA0017000-0xA001EFFF (32 KiB): erased-flash 0xFF in the live
  *   dump of a running APP (DUMP_IPL_256K) -> unused in that session. Confirm
- *   with loader/probe before loading code (see the project plan M0).
+ *   with loader/probe before loading code.
  * RTOS: code 0xA0020400..0xA05F9454, zero-init to ~0xA0797DFF, C heap
  *   0xA0798000-0xA0900000, free-memory pool 0xA0900000-0xBFE00000. */
 #define GR2_CFW_WINDOW_BASE   0xA0017000u
@@ -75,6 +75,9 @@ _Static_assert(sizeof(gr2_find_t) == 0x230, "gr2_find_t layout");
 #define GR2_FN_PDB_SAVE      ((void (*)(void *, const char *))0xA0037AE7)     /* XOR + checksum, create/truncate */
 #define GR2_FN_PDB_FREE      ((void (*)(void *))0xA0037479)
 #define GR2_PDB_VALUES(db)   (*(uint32_t **)((uint8_t *)(db) + 0x0C))         /* u32 per property ID */
+/* Property setup table {u32 default, u32 change msg} per ID (finding 25 §3.2, the DB's +4): the
+ * factory values (missing slot file, factory reset, Prop_Reset). */
+#define GR2_PROP_DEFAULT(id) (((const uint32_t *)0xA0122A7Cu)[2 * (id)])
 #define GR2_FN_PROP_SA_WRITE ((void (*)(uint32_t, uint32_t, const void *))0xA00E100F) /* multi-word prop write */
 #define GR2_FN_UI_STATE      ((uint8_t *(*)(void))0xA00E5F21)                 /* +0x274 != 0: stock MY edit active */
 #define GR2_PROPID_MY_NAME   0x1A9   /* live slot name: 0x44 bytes UTF-16BE in props 0x1A9..0x1B9 */
