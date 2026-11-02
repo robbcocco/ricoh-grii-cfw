@@ -28,7 +28,7 @@ A Magic-Lantern-style extension for the Ricoh GR II with firmware 3.00. The came
 ## Menus
 Both menus are fullscreen and use the fonts in `H:/cfw/fonts` (Inter and Barlow Condensed; without them the CFW logs an error and falls back to the large ROM font).
 
-**CFW Menu.** On the tab row Left/Right switch tabs and Down/OK enter the rows; Up/Down move, Left/Right/OK change the value (applied at once), Up from the first row returns to the tabs. Changes are saved to the camera's internal memory (`D:/CFW`, kept across firmware updates, cleared by *Reset Settings*) when the menu closes; a `cfw/config.txt` from an older version is imported once. INFO is read-only (refreshed every second); on DEV, OK runs the selected action.
+**CFW Menu.** On the tab row Left/Right switch tabs and Down/OK enter the rows; Up/Down move, Left/Right/OK change the value (applied at once), Up from the first row returns to the tabs. Changes are saved when the menu closes, to the camera's internal memory (`D:/CFW`, kept across firmware updates) and, as a backup, to `cfw/config.txt` on the card. The camera itself clears its internal `D:` drive after a battery pull or a crash (and *Reset Settings* clears it too); the CFW then restores the settings from the card copy. INFO is read-only (refreshed every second); on DEV, OK runs the selected action.
 
 | Tab | Row | Values | What it does | Survives power-off without the card |
 |---|---|---|---|---|

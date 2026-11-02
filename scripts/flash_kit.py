@@ -269,6 +269,24 @@ Card root = `card/` (debug `cfw/`). Card R stays out.
 send the log.
 Send me: `cfw_log.txt`, the `dir D:/CFW` output and what you saw in 2–5.
 """),
+    ("F8b-config-card-backup", "F8b · Settings back after a battery pull (card copy) (no flash)", {"card": ["debug"]}, """\
+**Writes flash:** no. F8 showed that the camera formats its internal D: drive on the first start after a battery pull
+or crash (stock behaviour, finding 34 §11). The CFW now also keeps a copy of its settings in `cfw/config.txt` on the
+card and takes it when D: is empty.
+
+Card root = `card/` (debug `cfw/`). Card R stays out.
+
+1. Power on. Save a recipe into MY1 and change one CFW Menu setting, close the menu. Normal power-off, power on: both
+   kept.
+2. Change the setting again, close the menu, pull the battery. Power on with the dial on MY1: the recipe colours from
+   the first frame and the new setting are back.
+3. Optional, console, right after step 2's start: `dir D:/` (expect only fresh `log` files and `CFW`).
+4. Normal power-off, power on once more; copy `H:/cfw/cfw_log.txt` to the Mac.
+
+**Pass:** 1–2 as described; no `ERROR`; after the pull the log shows `config: imported H:/cfw/config.txt` and then
+`config: saved to D:`; after a normal power-off `config: D: (generation, entries)`.
+Send me: `cfw_log.txt` and the `dir D:/` output.
+"""),
     ("U-uninstall", "U · Uninstall (back to stock 3.00)", {"card": ["stock"]}, f"""\
 **Writes flash:** yes, the stock firmware (any time after F2).
 

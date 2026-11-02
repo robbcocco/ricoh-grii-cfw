@@ -1,9 +1,11 @@
 /* CFW configuration: one "key=XXXXXXXX" line per entry (hex values), kept on the
- * internal D: drive in two generations (src/store.c, finding 34). If D: holds
- * no valid copy (first start, Reset Settings, a wiped D:), the M10 card file
- * H:/cfw/config.txt is imported once when the card is mounted, and the next
- * cfg_save writes it to D:. Owned by the CFW task; the loader's first hook only
- * loads. File_Open flags (File.c, 0xA002C70F): 0x00 = "r". */
+ * internal D: drive in two generations (src/store.c, finding 34), with a backup
+ * copy in H:/cfw/config.txt whenever the card is there. Stock formats D: on the
+ * first boot after a battery pull or crash (finding 34 §11); when D: holds no
+ * valid copy (that, Reset Settings, a first start) the card copy is imported and
+ * the next cfg_save writes it back to D:. Owned by the CFW task; the loader's
+ * first hook only loads. File_Open flags (File.c, 0xA002C70F): 0x00 = "r",
+ * 0x01 = "w" (create/truncate). */
 #include <stdint.h>
 #include "config.h"
 #include "cfw_log.h"
@@ -15,6 +17,7 @@
 #define CFG_MAX      48   /* settings + recorded camera values + recipe matrices (6 per MY slot) */
 #define CFG_KEY_LEN  16
 #define FILE_READ    0x00
+#define FILE_WRITE   0x01
 
 typedef struct { char key[CFG_KEY_LEN]; uint32_t value; } entry_t;
 
@@ -139,7 +142,14 @@ void cfg_save(void) {
         *p++ = '\r';
         *p++ = '\n';
     }
-    if (store_save(&g_file, g_io, (uint32_t)(p - g_io)) != 0) {
+    uint32_t n = (uint32_t)(p - g_io);
+    /* Backup for a wiped D:; best effort: no card (release) is not an error. */
+    int fd = GR2_FN_FILE_OPEN(CARD_PATH, FILE_WRITE);
+    if (fd) {
+        GR2_FN_FILE_WRITE(fd, g_io, n);
+        GR2_FN_FILE_CLOSE(fd);
+    }
+    if (store_save(&g_file, g_io, n) != 0) {
         ERR("config: cannot write D:/CFW");
         return;
     }

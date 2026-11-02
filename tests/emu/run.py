@@ -358,7 +358,7 @@ def sc_menu(ctx):
     check(not s.is_open() and m.layer[3] == machine.OSD_BITMAPS[0], 'stock OSD buffer not back after close')
     cfg = m.cfg_text()
     check('aisomin=00000000' in cfg and 'clarity.s=00000007' in cfg, f'config not saved to D:: {cfg!r}')
-    check(m.file('H:/cfw/config.txt') is None, 'config written to the card')
+    check((m.file('H:/cfw/config.txt') or b'').decode() == cfg, 'card backup copy differs from D:')
     finish(ctx, s)
 
 
@@ -930,14 +930,16 @@ def ctx_sym1(ctx, name):
 
 
 def sc_store(ctx):
-    """Config on D: (src/store.c): import of the M10 card file, the two generations alternate, a torn newest
-    file falls back to the older one and is the next to be rewritten, an empty D: gives defaults."""
+    """Config on D: (src/store.c) with a card backup: a D: without config (first start, or formatted by stock after a
+    battery pull, finding 34 section 11) takes the card copy, the two generations alternate, a torn newest file falls
+    back to the older one and is the next to be rewritten, D: wins over a stale card copy, nothing gives defaults."""
     check = ctx.check
     S_MAUTO = 14
     card = b'mauto=00000001\r\n'
     s = Session(ctx, files={'H:/cfw/config.txt': card})
     m = s.m
-    check('mauto=00000001' in m.cfg_text() and m.file('H:/cfw/config.txt') == card, 'card config not imported')
+    check('mauto=00000001' in m.cfg_text() and m.file('H:/cfw/config.txt').decode() == m.cfg_text(),
+          'card config not imported, or the backup copy differs')
     check(m.store('D:/CFW/CFG_A.DAT', 'D:/CFW/CFG_B.DAT') is not None and m.file('D:/CFW/CFG_B.DAT') is None,
           'first save not in CFG_A')
     m.call('settings_step', S_MAUTO, 1)                         # ON -> OFF
@@ -956,6 +958,11 @@ def sc_store(ctx):
     m2.call('settings_save')
     check(m2.file('D:/CFW/CFG_A.DAT') == a and 'mauto=00000000' in m2.cfg_text(), 'save after a torn CFG_B')
     finish(ctx, s2)
+    # D: valid, card copy stale (edited or old): D: wins.
+    d2 = m2.d_files()
+    s4 = Session(ctx, files={**d2, 'H:/cfw/config.txt': b'mauto=00000001\r\n'})
+    check(s4.setting(S_MAUTO) == 'OFF', 'stale card copy preferred over D:')
+    finish(ctx, s4)
     # Wiped D: (Reset Settings) and no card file: built-in defaults.
     s3 = Session(ctx)
     check(s3.setting(S_MAUTO) == 'OFF', 'empty D: and no card config: M auto not at its default')
