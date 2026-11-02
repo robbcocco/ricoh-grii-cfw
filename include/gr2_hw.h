@@ -145,6 +145,14 @@ _Static_assert(sizeof(gr2_find_t) == 0x230, "gr2_find_t layout");
 #define GR2_BOOT_STEP_DONE(s) (*(volatile uint32_t *)(GR2_FN_UI_STATE() + 0x54 + 4 * (s)))
 #define GR2_MODE_PROPS_FINAL (*(volatile uint32_t *)0xA012A0ECu)
 #define GR2_LENS_MOTION_ID   (*(volatile uint8_t *)(0xA06EFD9C + 3))   /* lens script: 0x2B extend, 0x2E retract, 0 idle */
+/* RTC user status register OPSR (finding 30 §1.3, R2a [HW]): bits 0-1 stock, bits 2-3 free and kept across power-off and
+ * battery pulls. Section-0 wrappers, usable from the first loader hook; both are no-ops (get = 0) while the RTC is
+ * invalid. The clean-power-off flag is OPSR bit 0 as stage 0 saved it: 1 if the last session ended through
+ * JOBID_POWER_OFF (prop 0x258 holds a copy). */
+#define GR2_FN_OPSR_GETB     ((int (*)(uint32_t))0xA003480D)              /* (bit 0..3) -> 0/1 */
+#define GR2_FN_OPSR_SETB     ((void (*)(uint32_t, uint32_t))0xA0034531)   /* (bit 0..3, 0/1), read-modify-write */
+#define GR2_LAST_OFF_CLEAN   (*(volatile uint32_t *)0xA00C22DCu)
+#define GR2_PROPID_UI_MODE   0x001u                                         /* 2/3: powered on with PLAY (finding 22) */
 
 /* ---- Developer console (finding 21 §3.2/§5; call sites in the telnetd task 0xA00504D4) ---- */
 #define GR2_FN_SOCKET        ((int (*)(int, int, int))0xA0022A87)                 /* (2, 1, 0) -> fd, <0 error */

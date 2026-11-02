@@ -9,7 +9,8 @@
  *     menu also for the recipe scan;
  *   - "late" (loader hooks over, step 13 done): settings_init (the settings
  *     were applied at boot already: it records labels and saves the config),
- *     the recipe scan and the 200 ms settings / recipe-look polls.
+ *     the recipe scan and the 200 ms settings / recipe-look polls;
+ *   - 20 s after the task started: the safe-boot healthy mark (include/safeboot.h).
  * On the Startup.ttl path all phases are open at once (cfw_main starts it). */
 #include "cfw.h"
 #include "cfw_log.h"
@@ -18,6 +19,7 @@
 #include "osd.h"
 #include "overlay.h"
 #include "recipes.h"
+#include "safeboot.h"
 #include "settings.h"
 
 #define CFW_TASK_PRIORITY 0x96   /* same as telnetd / Script */
@@ -33,6 +35,7 @@ static volatile uint32_t g_last_beat_time;
 static uint32_t g_seen[CFW_MENU_COUNT];
 static int g_task_started, g_task_fonts, g_task_late;
 static uint32_t g_polls, g_setting_polls;
+static int g_task_healthy;
 
 void cfw_task_poll(void) {
     if (!g_task_started) {
@@ -70,6 +73,11 @@ void cfw_task_poll(void) {
         recipes_poll();
     }
     if (++g_polls == POLLS_PER_BEAT) {
+        if (!g_task_healthy && GR2_FN_SYSTEM_GETTIME() - g_start_time >= SB_HEALTHY_MS) {
+            g_task_healthy = 1;
+            if (sb_get() == SB_ONE_FAIL) sb_set(SB_ARMED);   /* never undo "boot stock once" */
+            DBG("safeboot: healthy");
+        }
         g_polls = 0;
         g_last_beat_time = GR2_FN_SYSTEM_GETTIME();
         g_heartbeat++;

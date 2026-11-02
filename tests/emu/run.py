@@ -518,14 +518,14 @@ def sc_dev(ctx):
     m.props[0x260] = 0                                         # Wi-Fi off
     s.request(MENU_SETTINGS)
     s.keys(KEY_LEFT, KEY_DOWN)
-    check(s.info(1, 0) == 'OFF' and s.info(1, 6) == '-', f'before start: {s.info(1, 0)!r}')
+    check(s.info(1, 0) == 'OFF' and s.info(1, 7) == '-', f'before start: {s.info(1, 0)!r}')
     s.keys(KEY_OK)
     check(not m.msgs and m.props[0x1E8] == 0, f'Wi-Fi touched: msgs {m.msgs}')
     check([t['name'] for t in m.tasks] == ['CFW', 'CFWcon'], f'tasks: {[t["name"] for t in m.tasks]}')
     check(s.info(1, 0) == f'ON  {DOT}  Wi-Fi off (camera menu)', f'console row, Wi-Fi off: {s.info(1, 0)!r}')
     m.props[0x260] = 1                                         # turned on in the camera menu
     m.w32(m.syms['g_listen'], 3)                               # CFWcon has its listening socket
-    check(s.info(1, 0) == f'ON  {DOT}  telnet 192.168.0.1' and s.info(1, 6) == 'GR_A1B2C3', 'Wi-Fi rows')
+    check(s.info(1, 0) == f'ON  {DOT}  telnet 192.168.0.1' and s.info(1, 7) == 'GR_A1B2C3', 'Wi-Fi rows')
     m.call('cfw_ui_tick')
     s.render('menu_dev')
     s.keys(KEY_OK)                                             # OFF: socket closed, printf back on the UART
@@ -916,7 +916,8 @@ def sc_loader(ctx):
         check(any('started by the flashed loader' in l for l in log), 'loader start not logged')
         check(sum('menu: CFW Menu / Recipes added' in l for l in log) == 1, 'menus installed twice or never')
         check(any(l.startswith('hook: (n, systime) 0x0000000A') for l in log), 'hook timeline not logged')
-        check(log[0].startswith('=== gr2_cfw'), f'held lines out of order: {log[:2]}')
+        check(log[0] == 'safeboot: state (before, after) 0x00000000 0x00000001' and log[1].startswith('=== gr2_cfw'),
+              f'held lines out of order (stage 1, then stage 2): {log[:2]}')
     finish(ctx, s)
 
     def bare(main=True):
@@ -1004,6 +1005,58 @@ def sc_store(ctx):
     if ctx.variant == 'debug':
         check('config: none' in s3.m.log_lines(), 'empty D: not reported')
     finish(ctx, s3)
+
+
+def sc_safeboot(ctx):
+    """M12 safe boot (include/safeboot.h): OPSR bits 2-3 hold the state. A boot moves ARMED -> ONE_FAIL -> DISARMED
+    and still runs the CFW; DISARMED boots stock (stage 2 never loaded) until a PLAY power-on re-arms it; a session
+    ended by the power-off job, or the healthy mark 20 s after the task start, counts as healthy; "Boot stock once"
+    gives one stock boot without undoing it; an invalid RTC runs the CFW (fail-open)."""
+    import machine
+    check = ctx.check
+    s1 = (CFW / 'bin' / ctx.variant / 'gr2_cfw.bin').read_bytes()
+
+    def boot(state, clean=0, ui_mode=1, rtc=True):
+        mm = machine.Machine(ctx.inputs, ctx.variant, str(CFW), props={1: ui_mode})
+        ctx.machines.append(mm)
+        mm.put_file('H:/cfw/gr2_main.bin', mm.inputs_main())
+        mm.wr(machine.WINDOW, s1)
+        lo = 0x50 | state << 2
+        mm.opsr, mm.rtc_valid = (~lo & 0xFF) << 8 | lo, rtc
+        mm.w32(machine.A_LAST_OFF_CLEAN, clean)
+        ran = mm.loader_hooks(machine.LOADER_SHOOTING)
+        cfw = ran == machine.LOADER_SHOOTING[3:] and bool(mm.allocs)
+        stock = ran == [3] and mm.u32(machine.LDR_STATE) == 6 and not mm.allocs and not mm.tasks
+        check(cfw != stock, f'neither a CFW nor a stock boot: hooks {ran}, allocs {len(mm.allocs)}')
+        return mm, cfw
+
+    ARMED, ONE_FAIL, DISARMED, STOCK_ONCE = range(4)
+    for want_cfw, want_after, kw, what in (
+            (True, ONE_FAIL, dict(state=ARMED), 'armed'),
+            (True, DISARMED, dict(state=ONE_FAIL), 'second unhealthy boot'),
+            (True, ONE_FAIL, dict(state=ONE_FAIL, clean=1), 'last session ended by the power-off job'),
+            (False, DISARMED, dict(state=DISARMED), 'disarmed'),
+            (False, ARMED, dict(state=DISARMED, ui_mode=2), 'disarmed + PLAY power-on'),
+            (False, ARMED, dict(state=STOCK_ONCE), 'boot stock once'),
+            (True, DISARMED, dict(state=DISARMED, rtc=False), 'RTC invalid')):
+        mm, cfw = boot(**kw)
+        check(cfw == want_cfw and mm.safeboot_state() == want_after,
+              f'{what}: CFW ran {cfw}, state after {mm.safeboot_state()} (want {want_cfw}, {want_after})')
+    # Healthy mark 20 s after the task start; "Boot stock once" survives it.
+    mm, _ = boot(ARMED)
+    mm.boot_step_done(10)
+    mm.time_ms = 15000
+    for _ in range(50):
+        mm.call('cfw_task_poll')
+    check(mm.safeboot_state() == ONE_FAIL, 'healthy mark before 20 s')
+    mm.time_ms = 25000
+    for _ in range(50):
+        mm.call('cfw_task_poll')
+    check(mm.safeboot_state() == ARMED, 'no healthy mark after 20 s')
+    mm.call('info_action', 1, 6)                               # DEV "Boot stock once"
+    check(mm.safeboot_state() == STOCK_ONCE and mm.cstr(mm.call('info_value', 1, 6)) == 'next power-on: stock',
+          'Boot stock once not set')
+
 
 
 def sc_rom(ctx):
@@ -1118,7 +1171,7 @@ def sc_rom(ctx):
 SCENARIOS = [('boot', sc_boot), ('menu', sc_menu), ('snap', sc_snap), ('recipes', sc_recipes),
              ('palette', sc_palette), ('dev', sc_dev), ('recipe-files', sc_recipe_files), ('view', sc_view),
              ('ae-hooks', sc_ae_hooks), ('console', sc_console), ('loader', sc_loader), ('pattern', sc_pattern),
-             ('store', sc_store)]
+             ('store', sc_store), ('safeboot', sc_safeboot)]
 ROM_SCENARIOS = [('rom', sc_rom)]          # the rom variant boots only through the release stub
 
 

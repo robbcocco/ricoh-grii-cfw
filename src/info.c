@@ -16,6 +16,7 @@
 #include "console.h"
 #include "overlay.h"
 #include "recipes.h"
+#include "safeboot.h"
 
 #define FILE_READ   0x00
 #define FILE_WRITE  0x01
@@ -136,11 +137,12 @@ static const char *info_text(int row) {
 
 /* ---- DEV ---------------------------------------------------------------------- */
 
-enum { D_TELNET, D_SHOT, D_RECIPES, D_IQDUMP, D_OVLSTATE, D_OVLTEST, D_SSID, D_PASS, D_MEMORY, D_COUNT };
-#define D_LAST_ACTION D_OVLTEST
+enum { D_TELNET, D_SHOT, D_RECIPES, D_IQDUMP, D_OVLSTATE, D_OVLTEST, D_STOCK, D_SSID, D_PASS, D_MEMORY, D_COUNT };
+#define D_LAST_ACTION D_STOCK
 static const char *const DEV_LABEL[D_COUNT] = {
     "Telnet console", "Screenshot to card", "Reload recipes", "Save IQ RAM",
-    "Overlay state to log", "Overlay test pattern", "Wi-Fi network", "Wi-Fi password", "Free memory pool",
+    "Overlay state to log", "Overlay test pattern", "Boot stock once", "Wi-Fi network", "Wi-Fi password",
+    "Free memory pool",
 };
 
 /* Wi-Fi state as the system controller sees it (finding 21 §3.1): SYSTEM_MODE,
@@ -179,6 +181,8 @@ static const char *dev_text(int row) {
     case D_OVLTEST:
         if (g_pending_at && g_pending == D_OVLTEST) return "RUNNING";
         return g_dev_msg[row][0] ? g_dev_msg[row] : g_pattern_on ? "ON" : "OFF";
+    case D_STOCK:                         /* safe boot (include/safeboot.h) */
+        return sb_get() == SB_STOCK_ONCE ? "next power-on: stock" : "OK: next power-on stock";
     case D_SSID:
     case D_PASS: {
         if (st == 0) return "-";
@@ -363,6 +367,10 @@ int info_action(int page, int row) {
     }
     case D_IQDUMP:
         iq_dump();
+        return 0;
+    case D_STOCK:
+        sb_set(SB_STOCK_ONCE);
+        DBG("safeboot: next power-on stock");
         return 0;
     default:
         return 0;

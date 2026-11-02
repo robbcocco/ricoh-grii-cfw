@@ -16,7 +16,8 @@ A Magic-Lantern-style extension for the Ricoh GR II with firmware 3.00. The came
 
 - **Updating** the CFW only needs the new `cfw/` folder; reflash only when the zip's `rg2_v003.frm` changes.
 - **Never** put a `Startup.ttl` from older CFW versions on the card: it would load the CFW a second time over the running one.
-- **Stock boot:** hold the shutter half-pressed while switching on, or remove the card. If the camera hangs, take the battery out and do that.
+- **Stock boot:** hold the shutter half-pressed while switching on (until the screen comes on), or remove the card. If the camera hangs, take the battery out and do that.
+- **Safe boot:** a start counts as failed unless the CFW runs for 20 s or the camera is switched off normally. After two failed starts in a row the CFW stays off and the camera boots stock until you switch on once with **PLAY**; the next normal start runs the CFW again. DEV → *Boot stock once* gives one stock start.
 - **Uninstall:** flash Ricoh's official `rg2_v003.frm` the same way.
 - **Rescue** (if the camera no longer boots at all): a camera-formatted card with Ricoh's `rg2_v003.frm` and `loader/flash/rescue/backup.ttl` as `backup.ttl`; dial on MOVIE, shutter fully pressed, POWER; release, turn the dial off MOVIE, wait until the camera restarts by itself (`loader/flash/README.md` §6).
 
@@ -50,6 +51,7 @@ Both menus are fullscreen and use the fonts in `H:/cfw/fonts` (Inter and Barlow 
 | DEV | Screenshot to card | OK | Closes the menu; ~1.5 s later saves live view + on-screen display as `H:/cfw/shotNNNN.bmp` (640×480) | — |
 | DEV | Reload recipes, Save IQ RAM | OK | Rescan `H:/cfw/recipes`; write the image-processing tables to `H:/cfw/iq_ram.bin` | — |
 | DEV | Overlay state to log, Overlay test pattern | OK / OFF · RUNNING · ON | Overlay-layer diagnostics: ~1.5 s after the menu closes, log the display-plane state / draw a test pattern into the grid-guide buffer (OK again removes it) | — |
+| DEV | Boot stock once | OK | The next power-on is a stock boot (the one after it runs the CFW again) | — |
 | DEV | Wi-Fi network / password, Free memory pool | read-only | Wi-Fi credentials (while on), free pool memory and the stage-2 load address | — |
 
 STOCK hands a property back to the camera and restores the value it had before the CFW changed it (unless it was changed in the camera menu meanwhile). Active settings are re-applied after a mode-dial or My Settings change. Outside MY modes the camera saves properties at power-off, so a stock boot keeps the last value.

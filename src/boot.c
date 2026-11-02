@@ -26,6 +26,7 @@
 #include "boot.h"
 #include "cfw_log.h"
 #include "gr2_hw.h"
+#include "safeboot.h"
 
 extern char __image_end__[];   /* end of the hold veneer (gr2_boot.ld) */
 extern uint32_t __bss_start__[], __bss_end__[];
@@ -259,6 +260,26 @@ static void ldr_task(uint32_t arg) {
     for (;;) GR2_FN_DELAY(60000);      /* task bodies never return */
 }
 
+/* M12 safe boot (include/safeboot.h): 1 = run the CFW this boot. The state moves on before anything of
+ * stage 2 runs, so a crash or hang in it counts. */
+static int safeboot(void) {
+    uint32_t s = sb_get(), was = s;
+    if (s == SB_ONE_FAIL && GR2_LAST_OFF_CLEAN == 1) s = SB_ARMED;   /* that session ended by the power-off job */
+    int run = 0;
+    if (s == SB_STOCK_ONCE) {
+        s = SB_ARMED;
+    } else if (s == SB_DISARMED) {
+        uint32_t ui = GR2_FN_PROP_GET_RAW(GR2_PROPID_UI_MODE);
+        if (ui == 2 || ui == 3) s = SB_ARMED;                          /* PLAY power-on: CFW again next boot */
+    } else {
+        s = s == SB_ARMED ? SB_ONE_FAIL : SB_DISARMED;
+        run = 1;
+    }
+    if (s != was) sb_set(s);
+    DBG_HEX2("safeboot: state (before, after)", was, s);
+    return run;
+}
+
 /* After every section load n, in the boot task (loader/flash/README.md §3). Nothing may
  * be written to H: here: the boot task remounts the card after section 9 (finding 32).
  * Log lines are held until cfw_ldr_start. */
@@ -272,6 +293,10 @@ void cfw_ldr_hook(uint32_t n, volatile uint32_t *state) {
             /* Truncated or corrupt: nothing else of this image runs (no stage 2, no CFWldr task), so the
              * line stays in stage 1's hold buffer in RAM. */
             ERR("boot (loader): stage 1 length/CRC mismatch, CFW disarmed");
+            *state = CFW_LDR_DISARMED;
+            return;
+        }
+        if (!safeboot()) {             /* disarmed or "boot stock once": a stock boot, nothing else runs */
             *state = CFW_LDR_DISARMED;
             return;
         }

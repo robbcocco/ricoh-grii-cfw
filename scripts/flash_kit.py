@@ -318,6 +318,29 @@ Card root = `card/` (debug `cfw/`; your `cfw/config.txt` and D: settings stay). 
 send the log.
 Send me: `cfw_log.txt` and what you saw in 2–7.
 """),
+    ("F10-safe-boot", "F10 · Safe boot: two failed starts disarm the CFW, PLAY re-arms it (no flash)", {"card": ["debug"]},
+     """\
+**Writes flash:** no. **Writes:** two spare bits of the camera's clock chip (finding 30; your R2a probe).
+
+What changed (all on the card; the project plan): a start counts as failed unless the CFW runs 20 s or the camera is switched
+off normally. After two failed starts in a row the CFW stays off (stock camera) until you switch on once with PLAY.
+DEV → "Boot stock once" gives one stock start. The skip key (shutter half-pressed) works as before.
+
+Card root = `card/` (debug `cfw/`). Card R stays out. Battery pulls also clear the camera's D: drive (stock); the CFW
+takes its settings back from `cfw/config.txt` as in F8b.
+
+1. Power on, use the camera for more than 20 s, power off normally. Power on: the CFW is there (CFW Menu, frame lines).
+2. Power on and pull the battery after ~5 s. Power on again and pull the battery after ~5 s.
+3. Power on: **stock camera** (no CFW Menu on Effect, no frame lines). Power off normally, power on: still stock.
+4. Power on with **PLAY**: stock playback. Power off. Power on normally: the CFW is back.
+5. DEV → "Boot stock once" (OK). Power off, power on: stock. Power off, power on: the CFW is back.
+6. Copy `H:/cfw/cfw_log.txt` to the Mac.
+
+**Pass:** 1–5 as described; the log's first line of every CFW start is `safeboot: state (before, after)` (0 → 1 after a
+normal start, 1 → 2 for the start after the first pull); no `ERROR`.
+**Stuck without the CFW:** step 4 (PLAY power-on); or from the console `rtc opsr setb 2 0` and `rtc opsr setb 3 0`.
+Send me: `cfw_log.txt` and what you saw in 1–5.
+"""),
     ("U-uninstall", "U · Uninstall (back to stock 3.00)", {"card": ["stock"]}, f"""\
 **Writes flash:** yes, the stock firmware (any time after F2).
 

@@ -72,6 +72,7 @@ A_CONSOLE_HOOK_SLOT = 0xA05FCCD0 + 0x44   # console printf hook (finding 21 sect
 A_TSK_OBJ_TABLE = 0xA05FB884
 LDR_STATE, LDR_MAGIC = 0xA00AFD70, 0x47524C31     # flashed debug loader status word, stage-1 ABI magic
 A_MODE_PROPS_FINAL = 0xA012A0EC       # set by the block after JobSystem step 2 (finding 32)
+A_LAST_OFF_CLEAN = 0xA00C22DC        # OPSR bit 0 as stage 0 saved it: 1 = last session ended by JOBID_POWER_OFF
 LOADER_SHOOTING = [1, 4, 2, 3, 5, 10, 11, 8, 9, 6, 12, 13]   # section-load order, shooting boot
 LOADER_DECIDE_SECTION = 3            # the stub's card session waits for the lens start (finding 33)
 ROM_STAGE1 = 'A:/cfw/gr2_cfw.bin'     # the release stub's LoadFile (loader/flash/rom_stub.S)
@@ -100,7 +101,7 @@ FN = dict(
     pal_bank=0xA00F5F92, hdmi_pal_bank=0xA010982A, set_layer=0xA00D717E, msg_post=0xA00361E0,
     adc_read=0xA003A8DA, power_temp=0xA00CF606, uart_print=0xA0039CBC, layer_on=0xA00D7148,
     stock_press=0xA039607C, stock_hold=0xA0396EA0, stock_msg_handler=0xA039725E, stock_iq_ready=0xA01C2A80,
-    stock_run_ttl=0xA00EA1D4,
+    stock_run_ttl=0xA00EA1D4, opsr_getb=0xA003480C, opsr_setb=0xA0034530,
     shell_execute=0xA002A274, shell_result=0xA002A718, console_hook=0xA0039CB6,
     ref_tsk=0xA006A2A0, ref_mpl=0xA0067B00,                     # ARM-state kernel calls
     recv=0xA0022A36, send=0xA0022A5E, sock_close=0xA0022B90,
@@ -228,6 +229,7 @@ class Machine:
         self.allocs = []
         self.obj = OBJ_LO
         self.time_ms = 10000
+        self.opsr, self.rtc_valid = 0xAF50, True    # RTC user status register (finding 30 section 1.3)
         self.tasks = []
         self.mutex = {}               # address -> [locks, unlocks, depth]
         self.msgs = []
@@ -922,6 +924,24 @@ class Machine:
     def _stock_run_ttl(self):
         self.stock_calls.append(('run_ttl', self.cstr(self.r(0))))
         self.ret(-1)                    # no Shutdown.ttl on the card
+
+    def _opsr_getb(self):
+        bit = self.r(0)
+        if bit > 3:
+            raise EmuError(f'OPSR bit {bit}: the stock wrapper asserts bit <= 3')
+        self.ret((self.opsr >> bit) & 1 if self.rtc_valid else 0)
+
+    def _opsr_setb(self):
+        bit, val = self.r(0), self.r(1)
+        if bit > 3 or val > 1:
+            raise EmuError(f'OPSR setb({bit}, {val})')
+        if self.rtc_valid:
+            lo = (self.opsr & ~(1 << bit) | val << bit) & 0xFF
+            self.opsr = (~lo & 0xFF) << 8 | lo                # high byte = complement of the low byte
+        self.ret(0)
+
+    def safeboot_state(self):
+        return (self.opsr >> 2) & 3
 
     # ---- boot ----------------------------------------------------------------------------------
     def boot(self, loader=False, on_hook=None):
