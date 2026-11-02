@@ -78,7 +78,6 @@ SYSMODE_SHOOTING = 6
 FN = dict(
     memory_alloc=0xA0024D6E, file_open=0xA002C70E, file_read=0xA002CA98, file_write=0xA002CC4A,
     file_close=0xA002C904, find_first=0xA002EF58, find_next=0xA002F354, find_close=0xA002FA3C,
-    file_unmount=0xA002DF2E,
     prop_get=0xA00E0E2E, prop_get_raw=0xA00E0E80, prop_set=0xA00E0C94, prop_lock=0xA00E127A,
     prop_unlock=0xA00E1286, prop_sa_read=0xA00E0FFE, prop_sa_write=0xA00E100E, prop_path=0xA00DDB68,
     pdb_clone=0xA0037E14, pdb_load=0xA0037A42, pdb_save=0xA0037AE6, pdb_free=0xA0037478,
@@ -87,7 +86,7 @@ FN = dict(
     pal_get=0xA0393990, pal_set=0xA03939EE, osd_state=0xA00F5FE2, hdmi_state=0xA0109862,
     pal_bank=0xA00F5F92, hdmi_pal_bank=0xA010982A, set_layer=0xA00D717E, msg_post=0xA00361E0,
     adc_read=0xA003A8DA, power_temp=0xA00CF606, uart_print=0xA0039CBC, layer_on=0xA00D7148,
-    stock_press=0xA039607C, stock_hold=0xA0396EA0, stock_msg_handler=0xA039725E,
+    stock_press=0xA039607C, stock_hold=0xA0396EA0, stock_msg_handler=0xA039725E, stock_iq_ready=0xA01C2A80,
     shell_execute=0xA002A274, shell_result=0xA002A718, console_hook=0xA0039CB6,
     ref_tsk=0xA006A2A0, ref_mpl=0xA0067B00,                     # ARM-state kernel calls
     recv=0xA0022A36, send=0xA0022A5E, sock_close=0xA0022B90,
@@ -99,6 +98,7 @@ REAL_CODE = [
     (0xA03A4AD0, 0xA03A4F5E),         # string accessors (resolver, bound checks patched by the CFW)
     (0xA03A1F92, 0xA03A1F96),         # Effect press BL site (patched to the press veneer)
     (0xA03A5790, 0xA03A5794),         # Effect hold BL site (patched to the hold veneer)
+    (0xA01B584A, 0xA01B584E),         # IQ-ready BL site in CapInit(5) (patched to the IQ veneer, loader only)
     (SENTINEL, SENTINEL + 2),
 ]
 
@@ -216,7 +216,6 @@ class Machine:
         self.rtos_tasks = {}          # id -> {'stat', 'pri'} for ref_tsk
         self.sock_in, self.sock_out = [], bytearray()   # recv chunks queued for the console session; sent bytes
         self.closed_fds = []                            # sockets closed by the CFW
-        self.unmounts = []                              # File_UnmountMedia paths
         pal = list(inputs.palette)
         self.pal_stock = list(pal)
         self.pal_shadow = list(pal)   # what the palette getter returns
@@ -527,14 +526,6 @@ class Machine:
         del self.handles[self.r(0)]
         self.ret(0)
 
-    def _file_unmount(self):
-        # An open file makes the stock unmount fail (finding 28 section 4): treat it as a bug.
-        path = self.cstr(self.r(0))
-        if self.handles or self.finds:
-            raise EmuError(f'File_UnmountMedia({path!r}) with files or directories open')
-        self.unmounts.append(path)
-        self.ret(0)
-
     def _dir_entries(self, d):
         pre = d.upper().rstrip('/') + '/'
         out = {}
@@ -817,6 +808,10 @@ class Machine:
 
     def _stock_msg_handler(self):
         self.stock_calls.append(('msg', self.u32(self.r(0)), self.u32(self.r(0) + 4)))
+        self.ret(0)
+
+    def _stock_iq_ready(self):
+        self.stock_calls.append(('iq_ready',))
         self.ret(0)
 
     # ---- boot ----------------------------------------------------------------------------------

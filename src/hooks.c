@@ -26,6 +26,8 @@ uint32_t cfw_cpsr(void);           /* src/arm.S */
 #define ORIG_PRESS      0xA039607Cu
 #define SITE_HOLD       0xA03A5790u
 #define ORIG_HOLD       0xA0396EA0u
+#define SITE_IQ         0xA01B584Au   /* section 5, FUN_a01b5828: once, right after IQ.bin is loaded */
+#define ORIG_IQ         0xA01C2A80u   /* void FUN_a01c2a80(void): creates "SceneIFMsgQ" (finding 32) */
 
 static volatile uint32_t g_requests[CFW_MENU_COUNT];
 
@@ -84,4 +86,16 @@ int cfw_hooks_install(const cfw_boot_t *boot) {
     int rc = patch_site(SITE_PRESS, ORIG_PRESS, boot->veneer_press);
     rc |= patch_site(SITE_HOLD, ORIG_HOLD, boot->veneer_hold);
     return rc;
+}
+
+/* Loader only, at hook(5) (section 5 loaded, not yet run): CapInit(5) then calls fn
+ * right after IQ.bin is in RAM and before notify(5) lets live view start; fn must
+ * call cfw_iq_ready_orig() itself. */
+int cfw_hooks_install_iq(const cfw_boot_t *boot, void (*fn)(void)) {
+    *boot->iq_target = (uint32_t)fn;
+    return patch_site(SITE_IQ, ORIG_IQ, boot->veneer_iq);
+}
+
+void cfw_iq_ready_orig(void) {
+    ((void (*)(void))(ORIG_IQ | 1))();
 }

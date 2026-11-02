@@ -113,12 +113,13 @@ The 132 bytes left no room for a `DriveMounted` pre-check or a range check of th
   - It must return.
   - It may write `*ldr_state = 6` to stop further calls.
   - On the first call it zeroes stage 1's `.bss` (as `_start` does) and holds its log lines in RAM.
-- **Policy (M10b, hardware-verified F3; M10c built 2026-11-01, F4 pending):**
-  - **First hook (section 3 with stub v2, section 1 with v1):** window check, then read `H:/cfw/gr2_main.bin` into the heap and relocate it, call stage 2's `cfw_hook` (second header entry), then `File_UnmountMedia("H:")` so the boot task's mount after section 9 is a fresh one as in a stock boot. Stage 1 then calls `cfw_hook(n, boot)` after every later section load.
+- **Policy (M10b, hardware-verified F3; M10c F4/F5 2026-11-02, IQ-ready hook built, F6 pending):**
+  - **First hook (section 3 with stub v2, section 1 with v1):** window check, then read `H:/cfw/gr2_main.bin` into the heap and relocate it and call stage 2's `cfw_hook` (second header entry). The card stays mounted: the T4 build unmounted it, which did not help the lens and made the boot task's own mount after section 9 ~0.2 s slower (F4 T4/F5 logs). Stage 1 then calls `cfw_hook(n, boot)` after every later section load.
   - **Nothing is written to H: before step 13.** The boot task remounts the card right after hook(9) (finding 32), and a USB-charge boot loads only section 1. Both stages hold their log lines in a 2 KiB RAM buffer (`cfw_log_hold`) and write them once from the `CFWldr` task. Every file opened in a hook is closed before it returns.
   - **Stage 2, first hook:** read `config.txt` and the recipe files remembered for MY1–MY3 (≤ 3 files, no folder scan) into RAM.
   - **Stage 2, hook(10) (patch-on-load):** menus (records, language/attribute/font tables, string bounds), Effect press/hold BLs and the APP message-handler slot are installed into section 10 before it first runs. No stock code rewrites any of them later, and no later section load covers them (finding 32).
-  - **Stage 2, every hook (early look):** once `*0xA012A0EC == 1` (set after JobSystem step 2 has written the mode props and loaded the active MY slot) and the ISP holds IQ.bin, the active slot's look is written into IQ RAM (shooting boot: the first hook after the flag, ~0.8 s). If live view already runs, `look.c`'s cache flip shows it on the next frame. A debug build logs a per-hook timeline (time, props flag, steps 2/5, shown LV frame) to measure this on hardware; if hook(10) proves late, the next step is the IQ-ready callback (BL `0xA01B584A` at hook(5), finding 32).
+  - **Stage 2, hook(5) (IQ-ready hook):** retarget the BL at `0xA01B584A` (section 5, `FUN_a01b5828`, stock `bl 0xA01C2A80`) to the stage-1 veneer `0xA001DA80` (same low 12 bits, one halfword). CapInit(5) calls it once right after IQ.bin is loaded and before `notify(5)` lets live view start; the hook applies the active slot's look, then calls the stock function (finding 32 §3.2).
+  - **Stage 2, every hook (fallback):** the same look once `*0xA012A0EC == 1` (set after JobSystem step 2 has written the mode props and loaded the active MY slot) and the ISP holds IQ.bin, if the IQ-ready call missed it. F5 [H]: applied at hook(10) only, live view was already running (first frame before ~1.1 s), the colours came a moment late and the write held the boot task 0.1–0.4 s (hook 10 → 11). A debug build logs a per-hook timeline (n = 0: the IQ-ready call; time, props flag, steps 2/5, lens script, shown LV frame).
   - **hook(13):** `Task_Create` the `CFWldr` task (stack 0x4000) and set `*ldr_state = 6`. Section 13 is last in both boot orders.
   - **`CFWldr`:** waits until JobSystem_Boot has finished step 13 (`Ctrl()+0x54+4·13`, 100 ms polls, 60 s timeout), writes the held log lines, then calls `cfw_main`: shell command, anything the hooks did not install, the CFW task. The task then sleeps forever.
   - A failure at the first hook disarms nothing early. `CFWldr` logs `stage 2 not loaded at the first hook` once the card belongs to the camera, and does not start the CFW.
@@ -145,7 +146,7 @@ The 132 bytes left no room for a `DriveMounted` pre-check or a range check of th
 | H current `bin/release/gr2_cfw.bin` (ABI v1) | 5 | 1 / 1 | all 12, in order | from n = 3, at its real +8 entry | file |
 
 The stage-1 side of the ABI runs for real in `make emu` (scenario `loader`, `tests/emu/run.py`):
-- full boot: preload, stage 2's first hook and the H: unmount at the first hook (section 3), `CFWldr` + disarm at hook(13), `cfw_main` after the step-13 flag, Effect BL retargeted;
+- full boot: preload and stage 2's first hook at section 3, the IQ-ready BL patched at hook(5) and the look shown by the patched stock BL itself (IQ hidden until then), `CFWldr` + disarm at hook(13), `cfw_main` after the step-13 flag, Effect BL retargeted;
 - USB boot (section 1 only): no CFW code runs;
 - `gr2_main.bin` missing: no card write at the first hook, the error is logged by `CFWldr`;
 - `Startup.ttl` while armed: refused;
@@ -212,7 +213,8 @@ The exact instructions for each step (what to put on the card, what the screens 
   - Attempt 1 (2026-11-01) **failed**: the loader started the CFW, but boots crashed or came up with garbled labels; the skip key gave a clean stock boot. Cause (finding 31): the `CFWldr` task had a 0x1000 stack, and `cfw_main`'s file I/O needs up to ~9.3 KB in the stock file API, so it overflowed into the heap. Fixed in stage 1 (stack 0x4000, like the Script task); the loader `.frm` is unchanged. The emulator now checks the stock file API's stack need against each task's stack. Data: the maintainer's hardware data.
   - Attempt 2 (2026-11-01) **passed [H]**: `main: started by the flashed loader (stage 2 read at, now) systime 0x11F 0x7AF`, CFW task at 2005 ms (Startup.ttl path ≈ 2000 ms, as expected for M10b), menus, recipes, looks and the shutdown status dump work, no `ERROR`; the skip-key boot afterwards read `LDR_STATE` 1. Data: the maintainer's hardware data.
 - **F4** (M10c) — **look passed, lens failed 2026-11-02 [H]**: the slot's look was in IQ RAM at hook(10) (~0.96 s), before the first live-view frame (~1.6 s); menus installed at hook(10); no `ERROR`. But the lens extends, retracts and extends again at power-on whenever the v1 stub reads the card (also with a card without `cfw/`; not with the skip key, not with the pre-flash Startup.ttl path; unmounting the card after the reads did not help). Data: the maintainer's hardware data; finding 33.
-- **F5** reflash with stub v2 (card read at section 3, after the lens start), `dist/flash/F5-loader-v2/`: no lens bounce with and without `cfw/`, look and menus as F4, skip key held until the LCD comes on.
+- **F5** loader v2 — **passed 2026-11-02 [H]**: no lens bounce (with and without `cfw/`); the lens script byte is back to 0 by hook(10) and live view runs by hook(10) (~1.1 s), so the look written there came a moment after the first frames; CFW task at 2.4–3.3 s, slower than F4 because of the T4 unmount (hook 9 → 6: 531–667 ms vs 324 ms in F4) and the look write at hook(10) while live view ran (hook 10 → 11 up to 401 ms). Data: the maintainer's hardware data.
+- **F6** (no flash, `dist/flash/F6-iq-ready-look/`): IQ-ready hook, no unmount. Pass: look on the first frame, `hook:` entry n = 0 with LV frame 0 followed by `recipes: early look`, no `ERROR`.
 - **U** menu update with the stock `.frm`: `LDR_STATE` `FFFFFFFF` again.
 
 ### 6.3 Summary
@@ -226,7 +228,8 @@ The exact instructions for each step (what to put on the card, what the screens 
 | F2b | no | N + probe | 1 / normal / USB OK | — (**passed 2026-11-01**) |
 | F3 | no | N + debug zip − CFW TTL + probe | CFW up, log line, `LDR_STATE` 6 | — (**passed 2026-11-01**, attempt 2) |
 | F4 | no | N | look on first frame | half-press (look **passed**; lens bounce → F5) |
-| F5 | loader v2 | L, then N + debug | one lens extension, look on first frame | half-press, then U; R + combo |
+| F5 | loader v2 | L, then N + debug | one lens extension, look on first frame | — (**passed 2026-11-02**: no bounce; look a moment late → F6) |
+| F6 | no | N + debug | look on the very first frame | half-press until the LCD comes on |
 | U | stock bytes | S | `LDR_STATE` FFFFFFFF | R + combo |
 
 ### 6.4 M11 P-steps (release firmware; after F3; not buildable yet)

@@ -6,9 +6,10 @@
  *
  * Layout:
  *   0xA0017000  .text + .data (loaded by fload)
- *   then        .bss (NOLOAD, zeroed by src/entry.S); must end below 0xA001E07C
- *   0xA001E07C  press veneer  } fixed: low 12 bits match the stock BL targets
- *   0xA001EEA0  hold veneer   } they replace (0x...07C, 0x...EA0), see src/veneers.S
+ *   then        .bss (NOLOAD, zeroed by src/entry.S); must end below 0xA001DA80
+ *   0xA001DA80  IQ-ready veneer } fixed: low 12 bits match the stock BL targets
+ *   0xA001E07C  press veneer    } they replace (0x...A80, 0x...07C, 0x...EA0),
+ *   0xA001EEA0  hold veneer     } see src/veneers.S
  * The bin file runs to the end of the hold veneer (zeros in between).
  * __image_end__ = end of the hold veneer: the window canary (src/boot.c)
  * checks that the rest of the window is still 0xFF.
@@ -48,7 +49,9 @@ SECTIONS
         __bss_end__ = .;
     } > RAM
 
-    ASSERT(__bss_end__ <= 0xA001E07C, "code/data/bss overlap the hook veneers")
+    ASSERT(__bss_end__ <= 0xA001DA80, "code/data/bss overlap the hook veneers")
+
+    .veneer_iq    0xA001DA80 : { KEEP(*(.veneer_iq)) } > RAM
 
     .veneer_press 0xA001E07C : { KEEP(*(.veneer_press)) } > RAM
     .veneer_hold  0xA001EEA0 : { KEEP(*(.veneer_hold)) } > RAM

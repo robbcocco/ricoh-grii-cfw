@@ -8,8 +8,9 @@
  *   after every section load in the root init task, from the section where the
  *   stub decided (stub v2: section 3, after JobSystem step 4 has started the
  *   lens; v1: section 1). The first hook reads stage 2 while nothing can race the
- *   card (DCFMount lives in section 8), writes nothing to the card, then unmounts
- *   it. hook(13) starts the "CFWldr" task and disarms the loader; that task waits
+ *   card (DCFMount lives in section 8) and writes nothing to the card; the card
+ *   stays mounted, so the boot task's remount after section 9 is a short one.
+ *   hook(13) starts the "CFWldr" task and disarms the loader; that task waits
  *   until JobSystem boot step 13 (which queues Startup.ttl to the Script task) has
  *   finished, then calls cfw_main exactly like the Startup.ttl path. Step 13 does
  *   not wait for the script (finding 26), so a Startup.ttl on the card may still be
@@ -26,7 +27,8 @@ extern char __image_end__[];   /* end of the hold veneer (gr2_boot.ld) */
 extern uint32_t __bss_start__[], __bss_end__[];
 void cfw_veneer_press(void);   /* src/veneers.S */
 void cfw_veneer_hold(void);
-extern volatile uint32_t cfw_veneer_press_target, cfw_veneer_hold_target;
+void cfw_veneer_iq(void);
+extern volatile uint32_t cfw_veneer_press_target, cfw_veneer_hold_target, cfw_veneer_iq_target;
 
 #define FILE_READ   0
 #define RELOC_CHUNK 64
@@ -119,6 +121,8 @@ static void make_boot(uint32_t base, uint32_t loader, uint32_t t_preload) {
     g_boot.hold_target = &cfw_veneer_hold_target;
     g_boot.loader = loader;
     g_boot.t_preload = t_preload;
+    g_boot.veneer_iq = (uint32_t)cfw_veneer_iq;
+    g_boot.iq_target = &cfw_veneer_iq_target;
 }
 
 int cfw_boot(void) {
@@ -176,13 +180,8 @@ void cfw_ldr_hook(uint32_t n, volatile uint32_t *state) {
         uint32_t base = 0, t = GR2_FN_SYSTEM_GETTIME();
         g_ldr_err = preload(&base, &g_main_entry, &g_main_hook);
         if (!g_ldr_err) make_boot(base, 1, t);
-        if (g_main_hook && !g_ldr_err) ((cfw_hook_fn)g_main_hook)(n, &g_boot);
-        /* Card reads are done: unmount and power the card down, so the boot task's mount
-         * after section 9 is a fresh one as in a stock boot (finding 33). */
-        GR2_FN_FILE_UNMOUNT("H:");
-    } else if (g_main_hook && !g_ldr_err) {
-        ((cfw_hook_fn)g_main_hook)(n, &g_boot);
     }
+    if (g_main_hook && !g_ldr_err) ((cfw_hook_fn)g_main_hook)(n, &g_boot);
     if (n == LDR_START_SECTION) {
         if (!GR2_FN_TASK_CREATE(ldr_task, 0, LDR_TASK_PRIO, LDR_TASK_STACK, "CFWldr")) g_ldr_err = 1;
         *state = CFW_LDR_DISARMED;

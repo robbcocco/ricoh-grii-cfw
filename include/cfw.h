@@ -27,6 +27,8 @@ int cfw_menu_install(void);            /* 0 on success */
 /* Effect button hooks (src/hooks.c) */
 struct cfw_boot;
 int cfw_hooks_install(const struct cfw_boot *boot);  /* 0 on success */
+int cfw_hooks_install_iq(const struct cfw_boot *boot, void (*fn)(void));   /* loader, hook(5); 0 on success */
+void cfw_iq_ready_orig(void);          /* the stock call the IQ-ready hook replaced */
 uint32_t cfw_hook_requests(int menu);  /* requests for CFW_MENU_* seen so far */
 
 /* Overlay (src/ui.c), CFW task only */

@@ -25,14 +25,16 @@ typedef struct {
     uint32_t reserved[2];
 } cfw_main_hdr_t;
 
-/* Passed to stage 2. The veneers jump through *press_target / *hold_target,
- * which stage 2 fills before it retargets the stock BLs. */
+/* Passed to stage 2. The veneers jump through *press_target / *hold_target /
+ * *iq_target, which stage 2 fills before it retargets the stock BLs. */
 typedef struct cfw_boot {
     uint32_t base;                     /* load address of stage 2 */
     uint32_t veneer_press, veneer_hold;
     volatile uint32_t *press_target, *hold_target;
     uint32_t loader;                   /* 0: `ex` from Startup.ttl, 1: flashed debug loader (M10b) */
     uint32_t t_preload;                /* loader: System_GetTime at the first hook, when stage 2 was read */
+    uint32_t veneer_iq;                /* loader: IQ-ready callback (BL 0xA01B584A in section 5) */
+    volatile uint32_t *iq_target;
 } cfw_boot_t;
 
 /* Flashed debug loader, ABI v1 (loader/flash/README.md §3): stage 1 carries

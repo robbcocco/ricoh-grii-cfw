@@ -4,12 +4,25 @@
  * store, no mixed old/new instruction is ever observable. The BL has already
  * set LR to the stock return address; the veneer tail-jumps to the C hook in
  * stage 2 (address stored in the target word by stage 2 before it patches the
- * BL), which returns straight to the stock caller. r3 is caller-saved at both
+ * BL), which returns straight to the stock caller. r3 is caller-saved at all
  * sites. */
 
     .syntax unified
     .arch armv5te
     .thumb
+
+    .section .veneer_iq, "ax"
+    .global cfw_veneer_iq
+    .type cfw_veneer_iq, %function
+    .thumb_func
+cfw_veneer_iq:                       @ replaces bl 0xA01C2A80 at 0xA01B584A (IQ.bin loaded, before LV)
+    ldr     r3, cfw_veneer_iq_target
+    bx      r3
+    .align 2
+    .global cfw_veneer_iq_target
+cfw_veneer_iq_target:
+    .word   0
+    .size cfw_veneer_iq, . - cfw_veneer_iq
 
     .section .veneer_press, "ax"
     .global cfw_veneer_press

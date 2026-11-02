@@ -817,6 +817,7 @@ def sc_loader(ctx):
     portra = next(r for r in rec if r['file'] == 'portra.txt')
     cfg = b'rc2.0=504F5254\r\nrc2.1=52412E54\r\nrc2.2=58540000\r\n'
     site, seen = 0xA03A1F92, {}                                 # Effect press BL (finding 16 section 4)
+    iq_site = 0xA01B584A                                        # IQ-ready BL in CapInit(5) (finding 32)
 
     def shown(mm, flags):
         view = object.__new__(Session)
@@ -827,11 +828,17 @@ def sc_loader(ctx):
         seen.setdefault('card', mm.file('H:/cfw/cfw_log.txt') is not None)
         seen['card'] |= mm.file('H:/cfw/cfw_log.txt') is not None
         if n == machine.LOADER_DECIDE_SECTION:                  # the first hook: JobSystem step 2 ran later
-            seen['unmounts_at_first'] = list(mm.unmounts)
             seen['look_before_props'] = not shown(mm, {})
             mm.w32(machine.A_MODE_PROPS_FINAL, 1)
+            seen['iq_ctx'] = mm.u32(machine.A_IQ_CTX_PTR)       # IQ.bin is loaded only inside CapInit(5)
+            mm.w32(machine.A_IQ_CTX_PTR, 0)
         if n == 5:
-            seen['look_after_props'] = shown(mm, {3: portra['flags']})
+            seen['look_before_iq'] = not shown(mm, {})
+            seen['iq_bl'] = (mm.u16(iq_site), mm.u16(iq_site + 2))
+            mm.w32(machine.A_IQ_CTX_PTR, seen['iq_ctx'])
+            mm.run_range(iq_site | 1, iq_site + 4, stack=machine.ROOT_TASK_STACK, task='boot')   # CapInit(5)
+            seen['look_at_iq'] = shown(mm, {3: portra['flags']})
+            seen['iq_stock'] = mm.stock_calls.count(('iq_ready',))
             seen['bl_before_10'] = mm.u16(site)
         if n == 10:
             seen['bl_at_10'] = mm.u16(site)
@@ -842,12 +849,12 @@ def sc_loader(ctx):
     check(s.rc == 0 and len(ldr) == 1 and ldr[0]['entry'] & ~1 == m.syms1['ldr_task'] & ~1, 'CFWldr task')
     check(m.u32(machine.LDR_STATE) == 6, 'loader not disarmed after section 13')
     check(not seen['card'], 'H: written during the section-load hooks')
-    check(seen['unmounts_at_first'] == ['H:'] and m.unmounts == ['H:'],
-          f'H: not unmounted once after the first hook\'s reads: {seen["unmounts_at_first"]} {m.unmounts}')
+    check(seen['iq_bl'] == encode_bl(iq_site, m.syms1['cfw_veneer_iq']), f'IQ-ready BL not patched at hook(5): {seen["iq_bl"]}')
+    check(m.u32(m.syms1['cfw_veneer_iq_target']) & ~1 == m.syms['iq_ready'] & ~1, 'IQ veneer target')
     check(seen['bl_before_10'] != cfw_bl and seen['bl_at_10'] == cfw_bl and m.u16(site) == cfw_bl,
           f'press BL not patched at hook(10): {seen.get("bl_before_10", 0):#x} {seen.get("bl_at_10", 0):#x}')
-    check(not seen['look_before_props'] and seen['look_after_props'],
-          'MY2 look not applied right after the mode props became final (or before)')
+    check(not seen['look_before_props'] and not seen['look_before_iq'] and seen['look_at_iq'] and seen['iq_stock'] == 1,
+          'MY2 look not applied at the IQ-ready call (before live view), or the stock call not made once')
     check(s.look_shown({3: portra['flags']}), 'MY2 look lost after the task start')
     if ctx.variant == 'debug':
         log = m.log_lines()
@@ -869,7 +876,7 @@ def sc_loader(ctx):
     mu = bare()
     before = mu.u32(machine.LDR_STATE)
     check(mu.loader_hooks([1]) == [] and mu.u32(machine.LDR_STATE) == before, 'USB boot: state')
-    check(not mu.tasks and not mu.allocs and not mu.unmounts, 'USB boot: CFW code ran')
+    check(not mu.tasks and not mu.allocs, 'USB boot: CFW code ran')
     # stage 2 missing: muted at the first hook, logged by the task
     mm = bare(main=False)
     mm.loader_hooks(machine.LOADER_SHOOTING)

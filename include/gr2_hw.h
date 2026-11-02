@@ -136,9 +136,6 @@ _Static_assert(sizeof(gr2_find_t) == 0x230, "gr2_find_t layout");
  * after step 2 that writes the mode props (5, 6) and loads the active My Settings slot. */
 #define GR2_BOOT_STEP_DONE(s) (*(volatile uint32_t *)(GR2_FN_UI_STATE() + 0x54 + 4 * (s)))
 #define GR2_MODE_PROPS_FINAL (*(volatile uint32_t *)0xA012A0ECu)
-/* File_UnmountMedia("H:") unmounts the card and powers it down (20 ms); the next File_MountMedia
- * is then a fresh mount, as in a stock boot (finding 33 §5.2). */
-#define GR2_FN_FILE_UNMOUNT  ((int (*)(const char *))0xA002DF2F)
 #define GR2_LENS_MOTION_ID   (*(volatile uint8_t *)(0xA06EFD9C + 3))   /* lens script: 0x2B extend, 0x2E retract, 0 idle */
 
 /* ---- Developer console (finding 21 §3.2/§5; call sites in the telnetd task 0xA00504D4) ---- */

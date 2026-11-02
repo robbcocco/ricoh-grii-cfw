@@ -1,10 +1,12 @@
 /* Stage 2 entries (stage 1, src/boot.c):
  *   cfw_hook(n)  flashed loader only: after every APP section load n, in the boot task, before
  *                section n has run (M10c, finding 32). First hook (stub v2: section 3): read the config and the MY
- *                slots' recipes; hook(10): install the menus, Effect hooks and input capture
- *                into section 10 before it first runs; every hook: the slot's look as soon as
- *                the mode properties are final and IQ RAM is loaded. Log lines are held in RAM
- *                (the card is remounted after section 9) and written by cfw_main.
+ *                slots' recipes; hook(5): hook the IQ-ready call in section 5, which shows the
+ *                slot's look right after IQ.bin is loaded and before live view starts; hook(10):
+ *                install the menus, Effect hooks and input capture into section 10 before it
+ *                first runs; every hook: the slot's look if the IQ-ready call missed it. Log
+ *                lines are held in RAM (the card is remounted after section 9) and written by
+ *                cfw_main.
  *   cfw_main     once per power cycle: after JobSystem step 13 (loader) or from Startup.ttl:
  *                register the `cfw` shell command, install whatever the hooks did not, start
  *                the resident CFW task. */
@@ -17,6 +19,7 @@
 #include "recipes.h"
 
 #define PATCH_SECTION 10               /* menu records, string tables, Effect BLs, input slot */
+#define IQ_SECTION    5                /* IQ-ready BL (finding 32 section 3.2) */
 
 static int g_installed = 1;            /* 1: not tried yet; else the result of install() */
 static int g_early;                    /* the loader's hooks ran */
@@ -31,7 +34,7 @@ static int install(const cfw_boot_t *boot) {
 }
 
 #if CFW_DEBUG
-/* Boot timeline per hook, logged by cfw_main: when the look could land (finding 32). */
+/* Boot timeline per hook (n = 0: the IQ-ready call), logged by cfw_main (findings 32, 33). */
 #define TRACE_MAX 16
 static struct { uint8_t n, props, step2, step5, lens; uint32_t t, lv; } g_trace[TRACE_MAX];
 static int g_ntrace;
@@ -58,6 +61,15 @@ static void trace_log(void) {
 }
 #endif
 
+/* CapInit(5), boot task: IQ.bin is in RAM, live view has not started (notify(5) follows). */
+static void iq_ready(void) {
+#if CFW_DEBUG
+    trace(0);
+#endif
+    if (!g_look_done) g_look_done = recipes_early_look();
+    cfw_iq_ready_orig();
+}
+
 void cfw_hook(uint32_t n, const cfw_boot_t *boot) {
     if (!g_early) {
         g_early = 1;
@@ -71,6 +83,7 @@ void cfw_hook(uint32_t n, const cfw_boot_t *boot) {
 #if CFW_DEBUG
     trace(n);
 #endif
+    if (n == IQ_SECTION && !g_look_done) (void)cfw_hooks_install_iq(boot, iq_ready);
     if (n == PATCH_SECTION && g_installed == 1) {
         g_installed = install(boot);
         DBG_HEX("main: installed at hook(10), rc", (uint32_t)g_installed);

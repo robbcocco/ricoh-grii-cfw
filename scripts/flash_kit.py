@@ -197,6 +197,29 @@ timeline starts at `0x00000003`; `main: installed at hook(10), rc 0x00000000`.
 card R + combo.
 Send me: `cfw_log.txt`, whether the lens still bounces (with and without `cfw/`), and how the skip key behaved.
 """),
+    ("F6-iq-ready-look", "F6 · Recipe look before live view, faster boot (no flash)", {"card": ["debug"]}, """\
+**Writes flash:** no (loader v2 from F5 stays).
+
+What changed (all on the card):
+- The look is written by a hook on the camera's own "IQ data loaded" call (section 5), right before live view
+  starts, instead of at section 10 when live view already runs (F5: colours came a moment after the first frames,
+  and writing them while live view ran held up the boot by 0.1–0.4 s).
+- The card is no longer unmounted after the CFW is read (that F4 test did not help the lens and made the camera's
+  own card mount ~0.2 s slower).
+
+Card root = `card/` (debug `cfw/` + `Shutdown.ttl`, no `Startup.ttl`). Card R stays out.
+
+1. Dial on a My Settings slot with a recipe. Switch on a few times, once after a cold start (battery out 30 s).
+   Watch the first live-view frames and the lens.
+2. Once with the dial on P (no recipe): stock colours, normal start.
+3. Use the camera for a minute (CFW Menu, Recipes, a shot), power off, copy `H:/cfw/cfw_log.txt` to the Mac.
+
+**Pass:** recipe colours on the very first frame; one smooth lens extension; no `ERROR`; in the log the `hook:` timeline
+has an `n = 0` entry (the IQ-ready call) followed by `recipes: early look`, and the LV frame there is still 0.
+**Crash or hang at power-on:** battery out, switch on with the shutter half-pressed until the LCD comes on (stock),
+send the log.
+Send me: `cfw_log.txt` and what you saw on the first frames.
+"""),
     ("U-uninstall", "U · Uninstall (back to stock 3.00)", {"card": ["stock"]}, f"""\
 **Writes flash:** yes, the stock firmware (any time after F2).
 
