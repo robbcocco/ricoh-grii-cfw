@@ -287,6 +287,37 @@ Card root = `card/` (debug `cfw/`). Card R stays out.
 `config: saved to D:`; after a normal power-off `config: D: (generation, entries)`.
 Send me: `cfw_log.txt` and the `dir D:/` output.
 """),
+    ("F9-early-settings", "F9 · CFW settings before the first frame, CFW from ~1.2 s (no flash)", {"card": ["debug"]}, """\
+**Writes flash:** no.
+
+What changed (all on the card; finding 35):
+- The CFW settings (TAv cap, Auto ISO slowest/max/at max, Auto-Hi slowest shutter, Clarity, NR, Snap, TAv min, Auto
+  ISO in M) are applied during the boot, at the same moment as the recipe look (before live view), instead of at
+  ~2.3 s.
+- The CFW task starts while the camera finishes booting: frame lines/zebras, the Effect button and INFO work from
+  about 1.2 s; the CFW Menu opens once the fonts are read (after the camera's own card mount, ~1.9 s), Recipes once the
+  recipe list is read (~2.3 s). A press before that opens the menu as soon as it can.
+
+Card root = `card/` (debug `cfw/`; your `cfw/config.txt` and D: settings stay). Card R stays out.
+
+1. CFW Menu: set several settings away from STOCK, e.g. Auto ISO slowest 1/125, Auto ISO max 6400, Auto ISO in M ON,
+   Snap 0.7m + 1.2m, Clarity 9, frame lines on. Close the menu, normal power-off.
+2. Power on in P: frame lines with the first live-view frames; take a shot right away (dim room): shutter not slower
+   than 1/125, ISO not above 6400.
+3. Power on with the dial on M, ISO AUTO: the first shot right away uses an auto ISO (not 100).
+4. Focus mode Snap at "1m": the distance shown is 0.7 m from the start.
+5. Press Effect (CFW Menu) right after power-on: it opens as soon as possible (≈2 s or earlier), not lost.
+6. A My Settings slot with Clarity 5: set CFW Clarity back to STOCK on that slot: the camera shows 5.
+7. Once with PLAY held at power-on (playback start), then switch to shooting: settings in force, images shown.
+8. Copy `H:/cfw/cfw_log.txt` to the Mac.
+
+**Pass:** 2–7 as described; no `ERROR`; the log has `settings: applied at boot` before the `hook:` timeline's
+`0x0000000A` entry, `task: loop live` around 1.2 s, `task: late phase` after `init done`; hook(12)/(13) times within
+~30 ms of F8b.
+**Crash or hang at power-on:** battery out, switch on with the shutter half-pressed until the LCD comes on (stock),
+send the log.
+Send me: `cfw_log.txt` and what you saw in 2–7.
+"""),
     ("U-uninstall", "U · Uninstall (back to stock 3.00)", {"card": ["stock"]}, f"""\
 **Writes flash:** yes, the stock firmware (any time after F2).
 

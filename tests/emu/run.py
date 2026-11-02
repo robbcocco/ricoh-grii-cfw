@@ -118,8 +118,8 @@ class Session:
         self.rc = m.boot(loader=loader, on_hook=on_hook)
         task = [t for t in m.tasks if t['name'] == 'CFW']
         ctx.check(len(task) == 1 and task[0]['entry'] & ~1 == m.syms['cfw_task'] & ~1, 'CFW task not created')
-        for f in ('settings_init', 'recipes_init', 'recipes_poll', 'osd_fonts_load'):
-            m.call(f)
+        m.boot_step_done(10)
+        m.call('cfw_task_poll')            # the CFW task's first iteration with every boot phase open
 
     def keys(self, *ks):
         for k in ks:
@@ -824,11 +824,12 @@ def sc_console(ctx):
 
 
 def sc_loader(ctx):
-    """Flashed loader (stub v2): stage 1 header, hook(n) from section 3 on (preload + unmount at the first
-    hook, CFWldr task + disarm at 13), M10c patch-on-load at hook(10) and the MY slot's look as soon as the
-    mode props are final, nothing written to H: before step 13, no double install by cfw_main; USB boot
-    (section 1 only) runs no CFW code at all; missing stage 2 is logged only once the task runs; Startup.ttl
-    refuses while the loader is active; no step 13 -> timeout, CFW not started."""
+    """Flashed loader (stub v2): stage 1 header, hook(n) from section 3 on (preload at the first hook, CFWldr task +
+    disarm at 13), M10c patch-on-load at hook(10), the CFW settings and the MY slot's look at the IQ-ready call (after
+    CapInit(5) loaded AE_F, never before), the CFW task from hook(10) in phases (APP, card, late), nothing written to H:
+    before step 13, no double install or task by cfw_main; USB boot (section 1 only) runs no CFW code at all; missing
+    stage 2 is logged only once the task runs; Startup.ttl refuses while the loader is active; no step 13 -> timeout,
+    CFW not started."""
     import machine
     check = ctx.check
     s1 = (CFW / 'bin' / ctx.variant / 'gr2_cfw.bin').read_bytes()
@@ -838,7 +839,8 @@ def sc_loader(ctx):
     # full loader boot, Portra remembered for MY2 (Setting2) and the dial on MY2
     rec = ctx.recipes
     portra = next(r for r in rec if r['file'] == 'portra.txt')
-    cfg = b'rc2.0=504F5254\r\nrc2.1=52412E54\r\nrc2.2=58540000\r\n'
+    cfg = b'rc2.0=504F5254\r\nrc2.1=52412E54\r\nrc2.2=58540000\r\nclarity=00000009\r\n'
+    aef = (machine.A_AEF, 0x2D8)                                # AE_F, loaded by CapInit(5) (finding 35)
     site, seen = 0xA03A1F92, {}                                 # Effect press BL (finding 16 section 4)
     iq_site = 0xA01B584A                                        # IQ-ready BL in CapInit(5) (finding 32)
 
@@ -846,6 +848,10 @@ def sc_loader(ctx):
         view = object.__new__(Session)
         view.m = mm
         return view.look_shown(flags)
+
+    def task(mm):
+        mm.call('cfw_task_poll')
+        return tuple(mm.u32(mm.syms[k]) for k in ('g_task_started', 'g_task_fonts', 'g_task_late'))
 
     def on_hook(mm, n):
         seen.setdefault('card', mm.file('H:/cfw/cfw_log.txt') is not None)
@@ -855,17 +861,30 @@ def sc_loader(ctx):
             mm.w32(machine.A_MODE_PROPS_FINAL, 1)
             seen['iq_ctx'] = mm.u32(machine.A_IQ_CTX_PTR)       # IQ.bin is loaded only inside CapInit(5)
             mm.w32(machine.A_IQ_CTX_PTR, 0)
+            seen['aef'] = mm.rd(*aef)
+            mm.wr(aef[0], bytes(aef[1]))
         if n == 5:
             seen['look_before_iq'] = not shown(mm, {})
+            seen['clarity_before_iq'] = mm.props[0xCE]
             seen['iq_bl'] = (mm.u16(iq_site), mm.u16(iq_site + 2))
             mm.w32(machine.A_IQ_CTX_PTR, seen['iq_ctx'])
+            mm.wr(aef[0], seen['aef'])
             mm.run_range(iq_site | 1, iq_site + 4, stack=machine.ROOT_TASK_STACK, task='boot')   # CapInit(5)
             seen['look_at_iq'] = shown(mm, {3: portra['flags']})
+            seen['clarity_at_iq'] = mm.props[0xCE]
             seen['iq_stock'] = mm.stock_calls.count(('iq_ready',))
             seen['bl_before_10'] = mm.u16(site)
         if n == 10:
             seen['bl_at_10'] = mm.u16(site)
-    s = Session(ctx, files={'H:/cfw/config.txt': cfg}, props={0x2D: 4, 6: 2}, loader=True, on_hook=on_hook)
+            seen['tasks_at_10'] = sum(t['name'] == 'CFW' for t in mm.tasks)
+            seen['task_before_app'] = task(mm)                  # JobSystem step 10 not done yet
+            mm.boot_step_done(10)
+            seen['task_app'] = task(mm)                         # loop live; the card is being remounted later
+        if n == 6:                                              # first hook after hook(9): remount over
+            seen['task_card'] = task(mm)
+        if n == 13:
+            seen['task_13'] = task(mm)                          # cfw_main has not run: still not late
+    s = Session(ctx, files={'H:/cfw/config.txt': cfg}, props={0x2D: 4, 6: 2, 0xCE: 5}, loader=True, on_hook=on_hook)
     m = s.m
     cfw_bl = encode_bl(site, m.syms1['cfw_veneer_press'])[0]
     ldr = [t for t in m.tasks if t['name'] == 'CFWldr']
@@ -879,6 +898,13 @@ def sc_loader(ctx):
     check(not seen['look_before_props'] and not seen['look_before_iq'] and seen['look_at_iq'] and seen['iq_stock'] == 1,
           'MY2 look not applied at the IQ-ready call (before live view), or the stock call not made once')
     check(s.look_shown({3: portra['flags']}), 'MY2 look lost after the task start')
+    check(seen['clarity_before_iq'] == 5 and seen['clarity_at_iq'] == 9, 'Clarity not applied at the IQ-ready call')
+    check(seen['tasks_at_10'] == 1 and sum(t['name'] == 'CFW' for t in m.tasks) == 1,
+          'CFW task not created once at hook(10)')
+    check(seen['task_before_app'] == (0, 0, 0) and seen['task_app'] == (1, 0, 0) and seen['task_card'] == (1, 1, 0)
+          and seen['task_13'] == (1, 1, 0) and task(m) == (1, 1, 1),
+          f'task phases: {[seen[k] for k in ("task_before_app", "task_app", "task_card", "task_13")]}')
+    check('clarity.s=00000005' in m.cfg_text(), f'MY2 Clarity not recorded as the stock value: {m.cfg_text()!r}')
     if ctx.variant == 'debug':
         log = m.log_lines()
         check(any('started by the flashed loader' in l for l in log), 'loader start not logged')
@@ -920,7 +946,10 @@ def sc_loader(ctx):
     mt.loader_hooks(machine.LOADER_SHOOTING)
     rc = mt.run_ldr_task()
     check(rc == 0xFFFFFFFF and any('not done after 60 s' in l for l in mt.log_lines()), 'no timeout')
-    check(not [t for t in mt.tasks if t['name'] == 'CFW'], 'CFW started without step 13')
+    mt.boot_step_done(10)
+    mt.call('cfw_task_poll')
+    check([t['name'] for t in mt.tasks].count('CFW') == 1 and mt.u32(mt.syms['g_task_late']) == 0,
+          'CFW task not started at hook(10), or its late phase (settings, saves) ran without step 13')
     mt.files.pop('H:/CFW/CFW_LOG.TXT')
 
 

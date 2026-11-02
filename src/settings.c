@@ -1,4 +1,5 @@
-/* M5 settings engine. CFW task only (settings_log_status also from the shell).
+/* M5 settings engine. Boot task (settings_early, flashed loader: the IQ-ready call before live view) or the
+ * CFW task (everything else), never both at once: the task calls in only after the loader's hooks are over.
  *
  * Property settings (Clarity, Auto-ISO slowest shutter, High-ISO NR) write
  * stock-legal values through the stock setter, exactly like the camera menu.
@@ -373,6 +374,8 @@ static void snap_labels(int on) {
     t[STRID_SNAP_15M - 1] = (uint32_t)SNAP_LABEL15;
 }
 
+static int g_labels_ok;    /* the menus are installed: their language tables may carry our labels */
+
 static void snap_update(void) {
     int want = g_val[S_SNAP];
     if (g_snap_err || want == g_snap_on) return;
@@ -394,7 +397,7 @@ static void snap_update(void) {
     }
     for (int i = 0; i < N_SNAP; i++) mp_write(&SNAP[i], mp_value(&SNAP[i]));
     g_snap_on = 1;
-    snap_labels(1);
+    if (g_labels_ok) snap_labels(1);
     DBG_HEX2("snap: LData now (1m, 1.5m)", SNAP_L1, SNAP_L15);
 }
 
@@ -487,8 +490,8 @@ static void apply_props(void) {
     nr_update();
 }
 
-void settings_init(void) {
-    cfg_load();
+/* Values and recorded stock values from the loaded config. */
+static void load_values(void) {
     for (int i = 0; i < S_COUNT; i++) {
         uint32_t v = cfg_get(DESC[i].key, DESC[i].def);
         g_val[i] = (uint8_t)(v < DESC[i].count ? v : DESC[i].def);
@@ -498,6 +501,9 @@ void settings_init(void) {
         OVRS[i]->has_stock = (uint8_t)cfg_has(OVRS[i]->stock_key);
         OVRS[i]->stock = cfg_get(OVRS[i]->stock_key, 0);
     }
+}
+
+static void apply_all(void) {
     g_ctx = context();
     apply_props();
     tav_update();
@@ -506,6 +512,32 @@ void settings_init(void) {
     hooks_update();
     overlay_set_frame(g_val[S_FRAMES]);
     overlay_set_zebra(g_val[S_ZEBRA]);
+}
+
+static int g_early;
+
+/* Flashed loader, boot task, at the IQ-ready call (finding 35): the config is loaded, the mode/MY props are final
+ * and AE_F/AF_F/Lens_F are in RAM; live view, the first AE run and the AE snapshot come later. No file writes here:
+ * the recorded stock values are saved by settings_init in the task. */
+void settings_early(void) {
+    load_values();
+    apply_all();
+    g_early = 1;
+    DBG("settings: applied at boot");
+}
+
+void settings_labels(void) {
+    g_labels_ok = 1;
+    if (g_snap_on) snap_labels(1);
+}
+
+void settings_init(void) {
+    if (!g_early) {
+        cfg_load();
+        load_values();
+        apply_all();
+    }
+    settings_labels();
     cfg_save();
 }
 

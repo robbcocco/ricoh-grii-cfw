@@ -911,6 +911,9 @@ class Machine:
                 break
             self.call_addr(hook, n, LDR_STATE, stack=ROOT_TASK_STACK, task='boot')
             ran.append(n)
+            base = self.u32(self.syms1['g_boot'])
+            if self.syms is None and base:   # stage 2 is loaded: on_hook may call into it
+                self.syms = Symbols(f'{self.cfw_dir}/bin/{self.variant}/gr2_main.elf', base)
             if on_hook:
                 on_hook(self, n)
         return ran

@@ -11,6 +11,11 @@ int cfw_task_start(void);              /* task id (TCB pointer, 0xA09xxxxx) from
 uint32_t cfw_task_heartbeat(void);     /* seconds alive (one beat per ~1 s) */
 uint32_t cfw_task_start_time(void);    /* System_GetTime() when the task started */
 uint32_t cfw_task_last_beat_time(void);/* System_GetTime() at the latest beat */
+void cfw_task_poll(void);              /* one 20 ms iteration of the task loop (the task body; tests) */
+/* Boot phases the task waits for (src/main.c); all 1 on the Startup.ttl path. */
+int cfw_phase_card(void);              /* H: readable: the boot task's remount after section 9 is over */
+int cfw_phase_late(void);              /* loader hooks over and JobSystem step 13 done: settings, looks and
+                                          file writes belong to the task */
 
 /* Shell commands (src/shell.c) */
 int cfw_shell_register(void);          /* 0 on success */

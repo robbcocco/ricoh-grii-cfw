@@ -19,13 +19,14 @@ uncached alias `0x20000000` (same bytes). Image at `0xA0020200`, AE_F at `0xA070
 with stock values, IQ.bin at a pool address with absolute section pointers (`*0xA015A430` = ctx, bank 0),
 640x480 grey-ramp live-view frame, stock OSD double buffer (front: top and bottom bars using every palette
 index), palette with two
-hardware banks. Firmware entry points the CFW calls are Python stubs (`FN`): properties, H: files and
-directory listing, My Settings slot files, Memory_Alloc (bump), tasks, time, mutexes, palette/layer,
-Msg_Post, ADC, temperatures. Firmware code in `REAL_CODE` runs for real (the string resolver, the two
-patched Effect BL sites); executing anything else outside the CFW raises with the address.
+hardware banks. Firmware entry points the CFW calls are Python stubs (`FN`): properties, H: and D: files
+(D: subdirectories via `File_Mkdir`) and directory listing, My Settings slot files, Memory_Alloc (bump), tasks,
+time, mutexes, palette/layer, Msg_Post, ADC, temperatures. Firmware code in `REAL_CODE` runs for real (the
+string resolver, the patched Effect, IQ-ready and power-off BL sites); executing anything else outside the CFW
+raises with the address.
 
 **Scenarios** (`run.py`), each on a fresh boot (`_start` from the window, stage 2 from `H:/cfw/gr2_main.bin`,
-then the task's `settings_init`, `recipes_init`, `recipes_poll`, `osd_fonts_load`):
+then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fonts):
 
 - `boot`: rc 0; both stock BLs retargeted to the veneers, veneer targets = hooks; Effect press/hold through
   the patched sites (CFW values counted, others reach the stock function); "CFW Menu"/"Recipes" via the stock
@@ -59,13 +60,18 @@ then the task's `settings_init`, `recipes_init`, `recipes_poll`, `osd_fonts_load
   session through `session()` with scripted `recv` (option bytes skipped, DEL, empty lines, `exit`).
   Socket setup/accept are not modelled.
 - `loader`: stage-1 loader ABI v1 header (`b`, "GRL1", hook entry); a full boot through `cfw_ldr_hook(n,
-  &ldr_state)` over the shooting section order with Portra remembered for MY2 and the dial on MY2: the Effect
-  BL is stock at hook(5) and patched at hook(10) (M10c); the MY2 look is not shown before the mode-props flag
-  `0xA012A0EC` and is shown at the next hook after it; nothing is written to H: before step 13; `cfw_main`
-  does not install twice; the debug log starts with the held banner and has the hook timeline. USB boot
-  (section 1 only) starts and writes nothing; missing `gr2_main.bin` stays off the card until the task logs
-  it; `ex` refused while the loader is active; no step-13 flag gives the 60 s timeout. The stub itself is
-  checked by `scripts/emu_loader.py`.
+  &ldr_state)` over the shooting section order with Portra remembered for MY2, Clarity 9 configured and the dial
+  on MY2 (slot Clarity 5): AE_F is zero until CapInit(5); the IQ-ready BL is patched at hook(5) and the patched
+  stock BL applies the settings (Clarity 9) and the MY2 look, not before; the Effect BL is patched at hook(10);
+  the CFW task is created once at hook(10) and polled between hooks: nothing before JobSystem step 10, fonts
+  only after the hook after hook(9), the late phase (settings_init, saves) only after `cfw_main`, which then
+  records MY2's Clarity 5 as the stock value; nothing is written to H: before step 13; `cfw_main` installs and
+  starts nothing twice; the debug log starts with the held banner and has the hook timeline. USB boot (section
+  1 only) starts and writes nothing; missing `gr2_main.bin` stays off the card until the task logs it; `ex`
+  refused while the loader is active; no step-13 flag gives the 60 s timeout and the task never reaches its
+  late phase. The stub itself is checked by `scripts/emu_loader.py`.
+- `store`: config on D: in two generations with the card copy (finding 34): import, alternation, a torn newest
+  file, D: over a stale card copy, defaults with nothing.
 - Task stacks: every call runs on the stack of the task it belongs to (CFW 0x3000, Script 0x4000, boot task
   0x4000, `CFWldr` as created); the stock file API stubs fail when the remaining stack is below the stock
   worst case (finding 31).

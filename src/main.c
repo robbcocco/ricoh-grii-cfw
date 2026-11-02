@@ -1,15 +1,15 @@
 /* Stage 2 entries (stage 1, src/boot.c):
  *   cfw_hook(n)  flashed loader only: after every APP section load n, in the boot task, before
- *                section n has run (M10c, finding 32). First hook (stub v2: section 3): read the config and the MY
- *                slots' recipes; hook(5): hook the IQ-ready call in section 5, which shows the
- *                slot's look right after IQ.bin is loaded and before live view starts; hook(10):
- *                install the menus, Effect hooks and input capture into section 10 before it
- *                first runs; every hook: the slot's look if the IQ-ready call missed it. Log
- *                lines are held in RAM (the card is remounted after section 9) and written by
- *                cfw_main.
+ *                section n has run (M10c, findings 32, 35). First hook (stub v2: section 3): read the
+ *                config and the MY slots' looks; hook(5): hook the IQ-ready call in section 5, where
+ *                the CFW settings and the slot's look are applied after IQ.bin, AE_F, AF_F are loaded
+ *                and before live view starts; hook(10): install the menus, Effect hooks and input
+ *                capture into section 10 before it first runs, then start the CFW task; every hook:
+ *                settings and look if the IQ-ready call missed them. Log lines are held in RAM (the
+ *                card is remounted after section 9) and written by cfw_main.
  *   cfw_main     once per power cycle: after JobSystem step 13 (loader) or from Startup.ttl:
- *                register the `cfw` shell command, install whatever the hooks did not, start
- *                the resident CFW task. */
+ *                register the `cfw` shell command, install whatever the hooks did not, start the
+ *                resident CFW task unless the hooks did. */
 #include "boot.h"
 #include "cfw.h"
 #include "cfw_log.h"
@@ -17,13 +17,28 @@
 #include "gr2_hw.h"
 #include "info.h"
 #include "recipes.h"
+#include "settings.h"
 
 #define PATCH_SECTION 10               /* menu records, string tables, Effect BLs, input slot */
-#define IQ_SECTION    5                /* IQ-ready BL (finding 32 section 3.2) */
+#define IQ_SECTION    5                /* IQ-ready BL; CapInit(5) loads IQ.bin, AF_F, AE_F (findings 32, 35) */
+#define MOUNT_SECTION 9                /* the boot task remounts H: right after this hook (finding 31) */
 
 static int g_installed = 1;            /* 1: not tried yet; else the result of install() */
 static int g_early;                    /* the loader's hooks ran */
-static int g_look_done;
+static int g_look_done, g_set_done;
+static int g_iq_seen, g_seen5, g_seen9;
+static volatile int g_card_ready, g_main_done;
+static int g_task;                     /* CFW task id once created */
+
+int cfw_phase_card(void) {
+    return !g_early || g_card_ready;
+}
+
+/* cfw_main (CFWldr, after JobSystem step 13) has written the held log and the timeline: from then on the task owns
+ * settings, looks and file writes, and nothing runs CFW code in parallel any more. */
+int cfw_phase_late(void) {
+    return !g_early || g_main_done;
+}
 
 static int install(const cfw_boot_t *boot) {
     /* Menus first: they replace the language tables that the task's settings
@@ -61,11 +76,21 @@ static void trace_log(void) {
 }
 #endif
 
-/* CapInit(5), boot task: IQ.bin is in RAM, live view has not started (notify(5) follows). */
+/* The settings need the config (first hook), final mode/MY props and the tables CapInit(5) loads: the IQ-ready
+ * call, or any hook after hook(5) if that call was missed. */
+static void settings_try(uint32_t n) {
+    if (g_set_done || GR2_MODE_PROPS_FINAL != 1 || !(g_iq_seen || (g_seen5 && n != IQ_SECTION))) return;
+    g_set_done = 1;
+    settings_early();
+}
+
+/* CapInit(5), boot task: IQ.bin, AF_F and AE_F are in RAM, live view has not started (notify(5) follows). */
 static void iq_ready(void) {
 #if CFW_DEBUG
     trace(0);
 #endif
+    g_iq_seen = 1;
+    settings_try(0);
     if (!g_look_done) g_look_done = recipes_early_look();
     cfw_iq_ready_orig();
 }
@@ -83,10 +108,21 @@ void cfw_hook(uint32_t n, const cfw_boot_t *boot) {
 #if CFW_DEBUG
     trace(n);
 #endif
-    if (n == IQ_SECTION && !g_look_done) (void)cfw_hooks_install_iq(boot, iq_ready);
+    if (g_seen9) g_card_ready = 1;     /* the first hook after hook(9): the remount is over */
+    if (n == MOUNT_SECTION) g_seen9 = 1;
+    if (n == IQ_SECTION) {
+        g_seen5 = 1;
+        if (!g_look_done || !g_set_done) (void)cfw_hooks_install_iq(boot, iq_ready);
+    }
+    settings_try(n);
     if (n == PATCH_SECTION && g_installed == 1) {
         g_installed = install(boot);
         DBG_HEX("main: installed at hook(10), rc", (uint32_t)g_installed);
+        if (g_installed == 0) {
+            settings_labels();         /* the menus' language tables exist now */
+            g_task = cfw_task_start();
+            if (!g_task) ERR("main: Task_Create failed at hook(10), starting at step 13");
+        }
     }
     if (!g_look_done) g_look_done = recipes_early_look();
 }
@@ -109,12 +145,15 @@ int cfw_main(const cfw_boot_t *boot) {
      * hooks may already be live, so the task must start even without it. */
     (void)cfw_shell_register();
     if (g_installed == 1) g_installed = install(boot);
-    int task = cfw_task_start();
-    if (task == 0) {   /* the id is a TCB pointer (0xA09xxxxx); stock parks the caller on failure (finding 26) */
-        ERR_HEX("Task_Create failed", (uint32_t)task);
-        return -1;
+    if (!g_task) {
+        g_task = cfw_task_start();
+        if (g_task == 0) {   /* the id is a TCB pointer (0xA09xxxxx); stock parks the caller on failure (finding 26) */
+            ERR("Task_Create failed");
+            return -1;
+        }
     }
-    DBG_HEX("task id", (uint32_t)task);
+    DBG_HEX("task id", (uint32_t)g_task);
     DBG("init done");
+    g_main_done = 1;
     return 0;
 }
