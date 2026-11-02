@@ -1,4 +1,4 @@
-/* Flashed loader stub for the GR II APP image (fw 3.00), M10. NOT FLASHED YET.
+/* Flashed loader stub for the GR II APP image (fw 3.00), M10 (v2: decides at section 3).
  *
  * Two patches in APP section 0 (b01firm8; RAM = 0xA0020200 + image offset), both
  * inside the range the IPL loads (section 0 = 0xA0020400 + 0xA46C4 B):
@@ -8,22 +8,29 @@
  *
  * The hook site is in FUN_a0022e28(n), run by the root init task 0xA0020944 for
  * every APP section n that is not loaded yet (shooting mode: 1 4 2 3 5 10 11 8 9 6
- * 12 13; section 1 is always first). Arguments: r0 = n, r1 = 0; the caller ignores
- * the result and keeps r4-r7. Stage 0 (GlobalHeap, RTOS task module, File_Init)
- * has run; H: is not mounted yet. See README.md.
+ * 12 13; playback: 1 2 3 8 9 ...; section 1 is always first). Arguments: r0 = n,
+ * r1 = 0 (0xA0022E58); the caller overwrites r0 right after (0xA0022E60 movs r0,r7)
+ * and keeps r4-r7. Stage 0 (GlobalHeap, RTOS task module, File_Init) has run; H: is
+ * not mounted yet. See README.md.
  *
  * Every call starts with the stock Section_Load(n, 0). The card must not be
  * touched before section 1 is resident: every SD sector read calls FUN_a00f9888
- * (section 1) through FUN_a00ae8a2 (finding 28).
+ * (section 1) through FUN_a00ae8a2 (finding 28). It is also not touched before
+ * section 3: a card session before JobSystem step 4 starts the lens delays the lens
+ * start by ~190 ms, and the lens then extends, retracts and extends again (F4,
+ * finding 33). Section 3 is the third load in both boot orders: after step 4,
+ * before the boot task's DCFMount (section 9). A USB-charge boot (section 1 only)
+ * never reaches it.
  *
- * First call only (status word 0), after section 1 has loaded: decide once.
+ * First call with n == 3 (status word 0): decide once.
  *   shutter half-press held (RL1, pin 0x27 = P6.1, active low) -> ST_SKIP
  *   File_MountMedia(H:...) returns -1 (no card, mount error)     -> ST_NOMOUNT
  *   LoadFile(H:/cfw/gr2_cfw.bin -> 0xA0017000, max 0x8000) <= 0  -> ST_NOFILE
  *   word +4 != LDR_MAGIC (stage 1 without the loader ABI)       -> ST_NOABI
  *   otherwise                                                   -> ST_ARMED
  * Then, if ST_ARMED, call the stage-1 hook (word +8, Thumb) with r0 = n,
- *   r1 = &ldr_state. Stage 1 may write another value to *r1 to stop further calls.
+ *   r1 = &ldr_state; the first call is n = 3. Stage 1 may write another value to
+ *   *r1 to stop further calls.
  * Anything but ST_ARMED leaves the boot stock apart from the H: mount and the
  * window contents (the IPL copy's erased tail, unused by the APP).
  */
@@ -41,6 +48,7 @@
     .equ PIN_RL1,   0x27
     .equ LDR_MAGIC, 0x47524C31          /* "GRL1" at stage 1 +4: loader ABI v1 */
 
+    .equ LDR_DECIDE_SECTION, 3
     .equ ST_SKIP,    1
     .equ ST_NOMOUNT, 2
     .equ ST_NOFILE,  3
@@ -56,14 +64,14 @@
     .thumb_func
 ldr_stub:
     push    {r3-r7, lr}                 /* 6 words: SP stays 8-byte aligned */
-    movs    r4, r0                      /* n (r1 is always 0 at the hook site) */
-    movs    r1, #0
+    movs    r4, r0                      /* n; r1 = 0 from the hook site */
     bl      Section_Load                /* the stock call first: section n is resident */
-    movs    r5, r0                      /* keep the stock result */
-    adr     r6, .Lstate
+    adr     r6, .Lstate                 /* the result is dead: the caller does movs r0,r7 */
     ldr     r0, [r6]
     cmp     r0, #0
     bne     .Lhook                      /* decided on an earlier call */
+    cmp     r4, #LDR_DECIDE_SECTION     /* not before the lens start (step 4) */
+    bne     .Lret
 
     movs    r7, #ST_SKIP
     movs    r0, #PIN_RL1
@@ -106,7 +114,6 @@ ldr_stub:
     movs    r1, r6
     blx     r3                          /* stage-1 hook(n, &ldr_state) */
 .Lret:
-    movs    r0, r5                      /* the stock result */
     pop     {r3-r7, pc}
 
     .ltorg

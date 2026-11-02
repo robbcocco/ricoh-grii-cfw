@@ -801,11 +801,11 @@ def sc_console(ctx):
 
 
 def sc_loader(ctx):
-    """Flashed loader: stage 1 header, hook(n) over a full boot (preload at 1, CFWldr task + disarm at 13),
-    M10c patch-on-load at hook(10) and the MY slot's look as soon as the mode props are final, nothing written
-    to H: before step 13, no double install by cfw_main; USB boot (section 1 only) writes nothing and starts
-    nothing; missing stage 2 is logged only once the task runs; Startup.ttl refuses while the loader is
-    active; no step 13 -> timeout, CFW not started."""
+    """Flashed loader (stub v2): stage 1 header, hook(n) from section 3 on (preload + unmount at the first
+    hook, CFWldr task + disarm at 13), M10c patch-on-load at hook(10) and the MY slot's look as soon as the
+    mode props are final, nothing written to H: before step 13, no double install by cfw_main; USB boot
+    (section 1 only) runs no CFW code at all; missing stage 2 is logged only once the task runs; Startup.ttl
+    refuses while the loader is active; no step 13 -> timeout, CFW not started."""
     import machine
     check = ctx.check
     s1 = (CFW / 'bin' / ctx.variant / 'gr2_cfw.bin').read_bytes()
@@ -826,14 +826,12 @@ def sc_loader(ctx):
     def on_hook(mm, n):
         seen.setdefault('card', mm.file('H:/cfw/cfw_log.txt') is not None)
         seen['card'] |= mm.file('H:/cfw/cfw_log.txt') is not None
-        if n == 1:
-            seen['unmounts_at_1'] = list(mm.unmounts)
-        if n == 4:                                              # JobSystem step 2's block has run
+        if n == machine.LOADER_DECIDE_SECTION:                  # the first hook: JobSystem step 2 ran later
+            seen['unmounts_at_first'] = list(mm.unmounts)
             seen['look_before_props'] = not shown(mm, {})
             mm.w32(machine.A_MODE_PROPS_FINAL, 1)
-        if n == 2:
-            seen['look_after_props'] = shown(mm, {3: portra['flags']})
         if n == 5:
+            seen['look_after_props'] = shown(mm, {3: portra['flags']})
             seen['bl_before_10'] = mm.u16(site)
         if n == 10:
             seen['bl_at_10'] = mm.u16(site)
@@ -844,8 +842,8 @@ def sc_loader(ctx):
     check(s.rc == 0 and len(ldr) == 1 and ldr[0]['entry'] & ~1 == m.syms1['ldr_task'] & ~1, 'CFWldr task')
     check(m.u32(machine.LDR_STATE) == 6, 'loader not disarmed after section 13')
     check(not seen['card'], 'H: written during the section-load hooks')
-    check(seen['unmounts_at_1'] == ['H:'] and m.unmounts == ['H:'],
-          f'H: not unmounted once after the hook(1) reads: {seen["unmounts_at_1"]} {m.unmounts}')
+    check(seen['unmounts_at_first'] == ['H:'] and m.unmounts == ['H:'],
+          f'H: not unmounted once after the first hook\'s reads: {seen["unmounts_at_first"]} {m.unmounts}')
     check(seen['bl_before_10'] != cfw_bl and seen['bl_at_10'] == cfw_bl and m.u16(site) == cfw_bl,
           f'press BL not patched at hook(10): {seen.get("bl_before_10", 0):#x} {seen.get("bl_at_10", 0):#x}')
     check(not seen['look_before_props'] and seen['look_after_props'],
@@ -867,20 +865,21 @@ def sc_loader(ctx):
         mm.wr(machine.WINDOW, s1)
         return mm
 
-    # USB/PC boot: only section 1 loads
+    # USB/PC boot: only section 1 loads, so the stub never decides and no CFW code runs
     mu = bare()
-    check(mu.loader_hooks([1]) == [1] and mu.u32(machine.LDR_STATE) == 5, 'USB boot: state')
-    check(not mu.tasks and mu.file('H:/cfw/cfw_log.txt') is None and mu.allocs, 'USB boot: task/log/preload')
-    # stage 2 missing: muted at hook(1), logged by the task
+    before = mu.u32(machine.LDR_STATE)
+    check(mu.loader_hooks([1]) == [] and mu.u32(machine.LDR_STATE) == before, 'USB boot: state')
+    check(not mu.tasks and not mu.allocs and not mu.unmounts, 'USB boot: CFW code ran')
+    # stage 2 missing: muted at the first hook, logged by the task
     mm = bare(main=False)
     mm.loader_hooks(machine.LOADER_SHOOTING)
-    check(mm.file('H:/cfw/cfw_log.txt') is None, 'card written at hook(1)')
+    check(mm.file('H:/cfw/cfw_log.txt') is None, 'card written at the first hook')
     check([t['name'] for t in mm.tasks] == ['CFWldr'], 'CFWldr not started after a failed preload')
     mm.boot_step_done(13)
     rc = mm.run_ldr_task()
     log = mm.log_lines()
     check(rc == 0xFFFFFFFF and any('gr2_main.bin missing' in l for l in log) and
-          any('not loaded at hook(1)' in l for l in log), f'missing stage 2: {log}')
+          any('not loaded at the first hook' in l for l in log), f'missing stage 2: {log}')
     # Startup.ttl while the loader runs this stage 1
     rc = mm.call_addr(mm.syms1['_start'] | 1, stack=machine.SCRIPT_TASK_STACK, task='Script')
     check(rc == 0xFFFFFFFF and any('flashed loader active' in l for l in mm.log_lines()), 'double load not refused')

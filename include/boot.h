@@ -32,7 +32,7 @@ typedef struct cfw_boot {
     uint32_t veneer_press, veneer_hold;
     volatile uint32_t *press_target, *hold_target;
     uint32_t loader;                   /* 0: `ex` from Startup.ttl, 1: flashed debug loader (M10b) */
-    uint32_t t_preload;                /* loader: System_GetTime at hook(1), when stage 2 was read */
+    uint32_t t_preload;                /* loader: System_GetTime at the first hook, when stage 2 was read */
 } cfw_boot_t;
 
 /* Flashed debug loader, ABI v1 (loader/flash/README.md §3): stage 1 carries
@@ -43,8 +43,8 @@ typedef struct cfw_boot {
 #define CFW_LDR_DISARMED  6            /* stage 1: no further calls */
 
 typedef int (*cfw_main_fn)(const cfw_boot_t *boot);
-/* Called by stage 1 after every APP section load n (loader only, n = 1 right after the
- * preload), in the boot task before section n has run: patch-on-load, early look. */
+/* Called by stage 1 after every APP section load n (loader only, from the first hook, right
+ * after the preload), in the boot task before section n has run: patch-on-load, early look. */
 typedef void (*cfw_hook_fn)(uint32_t n, const cfw_boot_t *boot);
 
 #endif /* BOOT_H */

@@ -18,11 +18,11 @@ Only APP (`b01firm8`, type 1) changes. RES (`b01firm6`) is byte-identical. The c
 
 | Image offset | RAM | Bytes | Stock → patched |
 |---|---|---|---|
-| `0x00016C` | header | 4 | nUpdateCsum `826A5E33` → `8268D223` (recomputed by `gr2frm.repack`) |
+| `0x00016C` | header | 4 | nUpdateCsum `826A5E33` → `8268E3E9` (stub v2; recomputed by `gr2frm.repack`) |
 | `0x002C5C` | `0xA0022E5C` | 4 | `F01C FE51` `bl 0xA003FB02` → `F08C FF48` `bl 0xA00AFCF0` |
 | `0x08FAF0` | `0xA00AFCF0` | 132 | all `0xFF` → stub: code, literals, the path, `0xFF` fill, status word `ldr_state` = 0 at `0xA00AFD70` |
 
-136 bytes differ in the `.frm`, all inside the APP payload. `gr2frm.py verify` passes: round trip, header sizes and both checksums. Output SHA-256: `f8c4f9b68aec10fc63bb9e290445294e0f689acb002e9ae4ed7976537058a7d5` (stub fixed 2026-11-01, finding 28; the earlier build `497e5c98…b514` mounted the card before section 1 was loaded and must never be flashed). The full byte listing and disassembly are in `dist/rg2_v003_loader.diff.txt`.
+136 bytes differ in the `.frm`, all inside the APP payload. `gr2frm.py verify` passes: round trip, header sizes and both checksums. Output SHA-256 (stub v2, 2026-11-02): `1914ac9069cb5e9803d348bea999258884d0d8199f7ff2e257161ec44c1f91f1`. Earlier builds: v1 `f8c4f9b6…a7d5` (flashed F2, 2026-11-01; reads the card before the lens starts, which makes the lens bounce, finding 33) and `497e5c98…b514` (mounted the card before section 1 was loaded, finding 28; must never be flashed). The full byte listing and disassembly are in `dist/rg2_v003_loader.diff.txt`.
 
 **[R 2026-11-01]** Everything in this table, re-checked (for the first stub; the fixed stub changes only the stub bytes and the checksum, both re-checked by `make loader`):
 - `fw/b01firm8.bin` is byte-identical to the APP image unpacked from the stock `.frm` (`.frm` SHA-256 `3643850f…8331`); RES is identical in the loader `.frm`.
@@ -63,10 +63,11 @@ Only APP (`b01firm8`, type 1) changes. RES (`b01firm6`) is byte-identical. The c
   - `File_Init` (`FUN_a002c11a`) has run.
   - Stage 0 also loads `A:/fix/Sys_F.bin` with `LoadFile`, so file I/O on the **NAND** drives works by then.
   - The SD driver is in section 0 (`0xA00A2058`…), **but every SD sector read calls `FUN_a00f9888` in section 1** (`FUN_a00a219c` → `FUN_a00ae8a2`, finding 28 [V]). The card must not be touched before `Section_Load(1)` has returned; everything else the mount needs exists after stage 0.
+  - **Lens start [H F4, finding 33].** JobSystem step 4 starts the lens between the section-4 and section-2 loads (stock ~150 ms). A card session before it (v1: ~190 ms right after section 1) delays the lens start, and the lens then extends, retracts and extends again; unmounting the card afterwards does not help. Stub v2 therefore touches the card only after `Section_Load(3)`, the third load in both boot orders and still before DCFMount (section 8/9).
 - **What is not ready at the first hook:**
   - H: is not mounted. File_MountMedia is called only by DCFMount, its caller `FUN_a029e5b8` (both section 8), the shell, card hotplug and `up` [V callers]. So the stub mounts H: itself, which is BAK's pattern [I].
   - DCFMount later calls File_MountMedia again unconditionally [V], which unmounts and remounts [I].
-  - Because the DCF code lives in section 8, nothing can remount H: while section 8 is not loaded [V]. That is always true at hook(1).
+  - Because the DCF code lives in section 8, nothing can remount H: while section 8 is not loaded [V]. That is true at the first hook (section 3) in both boot orders.
   - Property values: Prop_Get is section 1 code; the property DB is loaded by JobSystem step 1 after `notify(1)` [I].
   - Menus, Effect hooks and the input handler slot `0xA04071F0` (initial value `0xA039725F` in section 10 `.data`): section 10.
   - Shell init `FUN_a0029ff8`: stage `0xC`, after the section-12 load.
@@ -89,7 +90,7 @@ Only APP (`b01firm8`, type 1) changes. RES (`b01firm6`) is byte-identical. The c
 
 ## 3. Stub behaviour (`ldr_stub.S`)
 
-Every call first runs the stock `Section_Load(n, 0)` (so section 1 is resident before the card is touched, finding 28). Then, on the first call only (`ldr_state == 0`), in this order:
+Every call first runs the stock `Section_Load(n, 0)` (so section 1 is resident before the card is touched, finding 28). Then, on the first call with `n == 3` while `ldr_state == 0` (stub v2; v1 decided on the first call, n = 1), in this order:
 
 1. If `Port_Get(0x27)` is 0 (shutter half-press held): `ST_SKIP` = 1.
 2. If `File_MountMedia("H:/cfw/gr2_cfw.bin")` returns −1: `ST_NOMOUNT` = 2.
@@ -97,12 +98,13 @@ Every call first runs the stock `Section_Load(n, 0)` (so section 1 is resident b
 4. If the word at `0xA0017004` is not `0x47524C31` ("GRL1", loader ABI v1): `ST_NOABI` = 4. Stage 1 carries it since M10b (2026-11-01); an older stage 1 is loaded but never run.
 5. Otherwise `ST_ARMED` = 5.
 
-If `ldr_state` is 5, it then calls `*(0xA0017008)(n, &ldr_state)` (Thumb) and returns the stock result.
-- The skip key is read before anything touches the card, so it also bypasses a mount or file-load that hangs.
-- `emu_loader.py` fails any card access before `Section_Load(1)`; the first stub (built until 2026-11-01) failed 7 of 8 cases that way.
+If `ldr_state` is 5, it then calls `*(0xA0017008)(n, &ldr_state)` (Thumb); the first call is n = 3. The stock result is not kept: the caller overwrites `r0` right after (`0xA0022E60 movs r0,r7`), and `r1` is already 0 at the hook site (`0xA0022E58`) [V]; dropping those three instructions paid for the `n == 3` test.
+- The skip key is read before anything touches the card, so it also bypasses a mount or file-load that hangs. It is now read at section 3 (~0.3 s after power-on), so it has to be held until the LCD comes on.
+- A USB-charge boot loads only section 1, so the stub never decides and the card is never touched.
+- `emu_loader.py` fails any card access before `Section_Load(3)`; the v1 stub fails 8 of 9 cases that way, the first stub (card before section 1) failed the same way.
 - `ldr_state` lives in section 0, which the IPL loads from NAND before every APP start, so it is 0 again on every boot [V cold boot; I warm `reboot app`, which also re-reads the IPL and its window tail as `0xFF`].
 
-The 132 bytes left no room for a `DriveMounted` pre-check or a range check of the entry pointer. On a cold boot nothing has mounted H: before hook(1) (§2). The magic word is the guard that an old stage 1 is never called.
+The 132 bytes left no room for a `DriveMounted` pre-check or a range check of the entry pointer. On a cold boot nothing has mounted H: before section 3 (§2). The magic word is the guard that an old stage 1 is never called.
 
 ### Stage-1 loader ABI v1 (M10b passed on hardware 2026-11-01; M10c stage-2 hooks built, F4 pending)
 
@@ -112,39 +114,40 @@ The 132 bytes left no room for a `DriveMounted` pre-check or a range check of th
   - It may write `*ldr_state = 6` to stop further calls.
   - On the first call it zeroes stage 1's `.bss` (as `_start` does) and holds its log lines in RAM.
 - **Policy (M10b, hardware-verified F3; M10c built 2026-11-01, F4 pending):**
-  - **hook(1):** window check, then read `H:/cfw/gr2_main.bin` into the heap and relocate it. Stage 2's header carries a second entry, `cfw_hook(n, boot)`, which stage 1 then calls after every section load (n = 1 included).
+  - **First hook (section 3 with stub v2, section 1 with v1):** window check, then read `H:/cfw/gr2_main.bin` into the heap and relocate it, call stage 2's `cfw_hook` (second header entry), then `File_UnmountMedia("H:")` so the boot task's mount after section 9 is a fresh one as in a stock boot. Stage 1 then calls `cfw_hook(n, boot)` after every later section load.
   - **Nothing is written to H: before step 13.** The boot task remounts the card right after hook(9) (finding 32), and a USB-charge boot loads only section 1. Both stages hold their log lines in a 2 KiB RAM buffer (`cfw_log_hold`) and write them once from the `CFWldr` task. Every file opened in a hook is closed before it returns.
-  - **Stage 2, hook(1):** read `config.txt` and the recipe files remembered for MY1–MY3 (≤ 3 files, no folder scan) into RAM.
+  - **Stage 2, first hook:** read `config.txt` and the recipe files remembered for MY1–MY3 (≤ 3 files, no folder scan) into RAM.
   - **Stage 2, hook(10) (patch-on-load):** menus (records, language/attribute/font tables, string bounds), Effect press/hold BLs and the APP message-handler slot are installed into section 10 before it first runs. No stock code rewrites any of them later, and no later section load covers them (finding 32).
   - **Stage 2, every hook (early look):** once `*0xA012A0EC == 1` (set after JobSystem step 2 has written the mode props and loaded the active MY slot) and the ISP holds IQ.bin, the active slot's look is written into IQ RAM (shooting boot: the first hook after the flag, ~0.8 s). If live view already runs, `look.c`'s cache flip shows it on the next frame. A debug build logs a per-hook timeline (time, props flag, steps 2/5, shown LV frame) to measure this on hardware; if hook(10) proves late, the next step is the IQ-ready callback (BL `0xA01B584A` at hook(5), finding 32).
   - **hook(13):** `Task_Create` the `CFWldr` task (stack 0x4000) and set `*ldr_state = 6`. Section 13 is last in both boot orders.
   - **`CFWldr`:** waits until JobSystem_Boot has finished step 13 (`Ctrl()+0x54+4·13`, 100 ms polls, 60 s timeout), writes the held log lines, then calls `cfw_main`: shell command, anything the hooks did not install, the CFW task. The task then sleeps forever.
-  - A failure at hook(1) disarms nothing early. `CFWldr` logs `stage 2 not loaded at hook(1)` once the card belongs to the camera, and does not start the CFW.
+  - A failure at the first hook disarms nothing early. `CFWldr` logs `stage 2 not loaded at the first hook` once the card belongs to the camera, and does not start the CFW.
 
 ## 4. Emulation and byte check (run 2026-10-31, case H added 2026-11-01; all re-run 2026-11-01 [R])
 
 `make loader` runs `scripts/build_loader_frm.py` and then `python3 scripts/emu_loader.py`, which does two things:
 
 - **Byte check.** RES is identical. APP differs only in `0x16C–0x16F`, `0x2C5C–0x2C5F` and `0x8FAF0–0x8FB73`, and every one of these ranges is patched. Every changed container byte maps onto those APP bytes. nUpdateCsum equals the plain formula sum of finding 15 §7.1, and `gr2frm.py verify` exits 0.
-- **Unicorn run.** ARM946, BE-32, patched APP mapped at `0xA0020200`. The real hook site `0xA0022E58..0xA0022E60` runs once per section load, so the flashed stub runs as is.
-  - Any execution outside the hook site and the stub, any write other than the stack and `ldr_state`, a changed `r4`–`r7`/SP or a lost stock result fails the run.
+- **Unicorn run.** ARM946, BE-32, patched APP mapped at `0xA0020200`. The real hook site `0xA0022E58..0xA0022E62` runs once per section load, so the flashed stub runs as is, followed by the caller's own `movs r0,r7`.
+  - Any execution outside the hook site and the stub, any write other than the stack and `ldr_state`, a changed `r4`–`r7`/SP, or a card access before `Section_Load(3)` fails the run.
   - Run against the stock `.frm`, every scenario fails, which shows the check discriminates.
 
 | Case | `ldr_state` | Mount / LoadFile | Stock loads | Stage-1 hook calls | Window |
 |---|---|---|---|---|---|
-| A file with loader ABI | 5 | 1 / 1 | all 12, in order | after each load, n = 1…13 | file |
+| A file with loader ABI | 5 | 1 / 1 | all 12, in order | after each load from n = 3 (3 5 10 11 8 9 6 12 13) | file |
 | B file absent | 3 | 1 / 1 | all 12 | none | 0xFF |
 | C half-press held | 1 | 0 / 0 | all 12 | none | 0xFF |
 | D no card | 2 | 1 / 0 | all 12 | none | 0xFF |
 | E stage 1 without loader ABI (pre-M10b bin, magic cleared) | 4 | 1 / 1 | all 12 | none | file (same as `fload`) |
-| F playback order, ABI | 5 | 1 / 1 | all 12 | after each load | file |
-| G stage 1 disarms at n = 5 | 6 | 1 / 1 | all 12 | 1 4 2 3 5 | file |
-| H current `bin/release/gr2_cfw.bin` (ABI v1) | 5 | 1 / 1 | all 12, in order | after each load, at its real +8 entry | file |
+| F playback order, ABI | 5 | 1 / 1 | all 12 | after each load from n = 3 (3 8 9 10 11 6 4 5 12 13) | file |
+| G stage 1 disarms at n = 5 | 6 | 1 / 1 | all 12 | 3 5 | file |
+| I USB-charge boot (section 1 only) | 0 | 0 / 0 (no Port_Get) | 1 | none | 0xFF |
+| H current `bin/release/gr2_cfw.bin` (ABI v1) | 5 | 1 / 1 | all 12, in order | from n = 3, at its real +8 entry | file |
 
 The stage-1 side of the ABI runs for real in `make emu` (scenario `loader`, `tests/emu/run.py`):
-- full boot: preload at hook(1), `CFWldr` + disarm at hook(13), `cfw_main` after the step-13 flag, Effect BL retargeted;
-- USB boot (hook(1) only): no task and no card write;
-- `gr2_main.bin` missing: no card write at hook(1), the error is logged by `CFWldr`;
+- full boot: preload, stage 2's first hook and the H: unmount at the first hook (section 3), `CFWldr` + disarm at hook(13), `cfw_main` after the step-13 flag, Effect BL retargeted;
+- USB boot (section 1 only): no CFW code runs;
+- `gr2_main.bin` missing: no card write at the first hook, the error is logged by `CFWldr`;
 - `Startup.ttl` while armed: refused;
 - no step-13 flag: 60 s timeout, the CFW is not started.
 
@@ -176,14 +179,14 @@ Nothing below has been run. Steps F0–F4 are M10; M11's P-steps come after F3 a
 ### 6.1 Preparation (once, on the Mac; no camera)
 
 1. Run `make check` (= `verify_safety.py`). It must print `STATUS: ALL GATES PASSED`: the stock `rg2_v003.frm` is factory stock and the NAND dump the maintainer's hardware data is present. It never inspects the card.
-2. Run `make test` (lint, ISA audit, `make emu` with `PASS release/loader` and `PASS debug/loader`, `make loader` with `ALL PASSED`). `dist/rg2_v003_loader.frm` must have SHA-256 `f8c4f9b6…a7d5`.
+2. Run `make test` (lint, ISA audit, `make emu` with `PASS release/loader` and `PASS debug/loader`, `make loader` with `ALL PASSED`). `dist/rg2_v003_loader.frm` must have SHA-256 `1914ac90…91f1` (stub v2).
 3. Prepare the cards. `make flash-kit` writes `dist/flash/<step>/` with a `STEP.md` and the exact card-root contents per step (`card/`, or `card-L/` + `card-N/` for F2), all hashes checked. **Format each card in the camera** (MENU → format): for H: the firmware checks the cluster size and FS type against the SD-card specification table and refuses other layouts (BAK has the same table), so a Mac-formatted card can fail to mount (finding 28 [V]). FAT32 for cards ≤ 32 GB. Delete `._*` files after every copy from macOS. After copying, check each `.frm` on the card with `shasum -a 256`. There are four roles:
 
    | Card | Root contents | Notes |
    |---|---|---|
    | **R** rescue | stock `rg2_v003.frm` (`3643850f…8331`) + `loader/flash/rescue/backup.ttl` as `backup.ttl` (ASCII, CRLF) | Never left in the camera. Each BAK entry (combo, crash, broken APP header) runs `up` from it. |
    | **S** stock flash | only the stock `rg2_v003.frm` | F1a, uninstall |
-   | **L** loader flash | only `dist/rg2_v003_loader.frm`, **renamed `rg2_v003.frm`** (`f8c4f9b6…a7d5`) | F2. Exactly one `rg2_v*.frm`, no `backup.ttl`. |
+   | **L** loader flash | only `dist/rg2_v003_loader.frm`, **renamed `rg2_v003.frm`** (`1914ac90…91f1`) | F2, F5. Exactly one `rg2_v*.frm`, no `backup.ttl`. |
    | **N** normal | per step: `loader/flash/probe/Startup.ttl` as `Startup.ttl`, plus the debug zip for F3 | DCIM etc. may stay |
 
    - Card R has a `backup.ttl` on purpose: it runs `up` itself, so BAK's automatic cause-6 reflash is kept and the combo (cause 8) becomes a manual reflash path. Confirmed by F1b (2026-11-01); the maintainer's rescue rule describes this card.
@@ -208,7 +211,8 @@ The exact instructions for each step (what to put on the card, what the screens 
 - **F3** debug CFW files + probe `Startup.ttl`: CFW up, `main: started by the flashed loader`, `LDR_STATE` 6; then the skip-key boot. Never with card R inserted (a crash would reflash stock). Optional: the CFW `Startup.ttl` back once → logged refusal, no second CFW.
   - Attempt 1 (2026-11-01) **failed**: the loader started the CFW, but boots crashed or came up with garbled labels; the skip key gave a clean stock boot. Cause (finding 31): the `CFWldr` task had a 0x1000 stack, and `cfw_main`'s file I/O needs up to ~9.3 KB in the stock file API, so it overflowed into the heap. Fixed in stage 1 (stack 0x4000, like the Script task); the loader `.frm` is unchanged. The emulator now checks the stock file API's stack need against each task's stack. Data: the maintainer's hardware data.
   - Attempt 2 (2026-11-01) **passed [H]**: `main: started by the flashed loader (stage 2 read at, now) systime 0x11F 0x7AF`, CFW task at 2005 ms (Startup.ttl path ≈ 2000 ms, as expected for M10b), menus, recipes, looks and the shutdown status dump work, no `ERROR`; the skip-key boot afterwards read `LDR_STATE` 1. Data: the maintainer's hardware data.
-- **F4** (M10c, built 2026-11-01, `dist/flash/F4-early-look/`): menus from hook(10), the slot's look on the first live-view frames, the hook timeline in the debug log.
+- **F4** (M10c) — **look passed, lens failed 2026-11-02 [H]**: the slot's look was in IQ RAM at hook(10) (~0.96 s), before the first live-view frame (~1.6 s); menus installed at hook(10); no `ERROR`. But the lens extends, retracts and extends again at power-on whenever the v1 stub reads the card (also with a card without `cfw/`; not with the skip key, not with the pre-flash Startup.ttl path; unmounting the card after the reads did not help). Data: the maintainer's hardware data; finding 33.
+- **F5** reflash with stub v2 (card read at section 3, after the lens start), `dist/flash/F5-loader-v2/`: no lens bounce with and without `cfw/`, look and menus as F4, skip key held until the LCD comes on.
 - **U** menu update with the stock `.frm`: `LDR_STATE` `FFFFFFFF` again.
 
 ### 6.3 Summary
@@ -221,7 +225,8 @@ The exact instructions for each step (what to put on the card, what the screens 
 | F2 | loader | L, then N + probe | "Firmware update complete."; `LDR_STATE` 3, stock behaviour | — (**passed 2026-11-01**) |
 | F2b | no | N + probe | 1 / normal / USB OK | — (**passed 2026-11-01**) |
 | F3 | no | N + debug zip − CFW TTL + probe | CFW up, log line, `LDR_STATE` 6 | — (**passed 2026-11-01**, attempt 2) |
-| F4 | no | N | look on first frame | half-press |
+| F4 | no | N | look on first frame | half-press (look **passed**; lens bounce → F5) |
+| F5 | loader v2 | L, then N + debug | one lens extension, look on first frame | half-press, then U; R + combo |
 | U | stock bytes | S | `LDR_STATE` FFFFFFFF | R + combo |
 
 ### 6.4 M11 P-steps (release firmware; after F3; not buildable yet)
@@ -235,7 +240,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 
 1. **Same-version install: resolved.** F1a passed on hardware 2026-11-01: the menu installs 3.00 over 3.00, as the static evidence predicted (finding 27). M11 can keep the version "3.00".
 2. **Recomputed nUpdateCsum: resolved.** F2 installed the patched APP through the menu (2026-11-01 [H]).
-3. **The early H: mount (after `Section_Load(1)`): works on hardware** (F2, `LDR_STATE` 3, normal boots). Open: UHS-I cards, other card sizes/formats.
+3. **The early H: mount works on hardware** (F2, `LDR_STATE` 3, normal boots). Open: UHS-I cards, other card sizes/formats.
    - Fixed 2026-11-01 before flashing: the first stub mounted before section 1 was loaded; that build must never be flashed (§1).
 4. **BAK specifics:** F1b showed on hardware that BAK's `up` from `backup.ttl` reflashes and does not return on success. Still untested: `forcedown` after a refusal, exFAT in BAK (keep FAT32).
 5. **Card-content mistakes.**
@@ -249,12 +254,12 @@ The exact instructions for each step (what to put on the card, what the screens 
    - There is no watchdog for hangs [V finding 22 §2.3]: battery pull.
    - The skip key restores a stock boot without touching the card.
 8. **A crashing armed stage 1** (cause 1–4) → BAK → power off. A crash with card R inserted → full stock reflash.
-9. **Every boot with a card and without the skip key pays the mount + ≤ 32 KiB read**, even without a CFW (`ST_NOFILE`): ~190 ms more in section 1 (F2), offset by a faster DCFMount later; the boot finished 70 ms earlier than F0.
-   - **Lens bounce [H 2026-11-02]:** with the card read at hook(1) the lens extends, retracts and extends again at power-on (also with a card without `cfw/`); the skip key and the pre-flash Startup.ttl path do not bounce. No software retract exists in a shooting boot, so the early card session disturbs the lens start-up itself (timing or card state, finding 33). Test: stage 1 unmounts H: after its reads (T4, current debug build). Fallback: stub v2 deferring the card session to hook(3) (reflash).
+9. **Every boot with a card and without the skip key pays the mount + ≤ 32 KiB read**, even without a CFW (`ST_NOFILE`).
+   - **Lens bounce [H 2026-11-02]:** with v1 (card read right after section 1, ~190 ms) the lens extends, retracts and extends again at power-on, also with a card without `cfw/`; the skip key and the pre-flash Startup.ttl path do not bounce, and unmounting the card after the reads did not help. No software retract exists in a shooting boot, so the delayed lens start disturbs the lens start-up itself (finding 33). Stub v2 reads the card at section 3, after the lens start; F5 checks it.
 10. **`LoadFile` truncates silently at 32 KiB** [V].
     - Today's stage 1 is 32,424 B, but only because the hook veneers sit at `0xA001E07C`/`0xA001EEA0`. Code + data is 1,860 B + 180 B `.bss` [R].
     - `package_sd.py` and `gr2_boot.ld` assert the limits. Release and debug `gr2_cfw.bin` are byte-identical.
-11. The stub has 1 spare byte. A change needs the 316-byte tail after section 0 (section-0 size `0xA46C4` → `0xA4800`, IPL-checked). Not planned.
+11. The stub v2 has 5 spare bytes. A larger change needs the 316-byte tail after section 0 (section-0 size `0xA46C4` → `0xA4800`, IPL-checked). Not planned.
 12. IPL and BAK are never touched. They are the only recovery.
 
-One loader-source defect was found and fixed on 2026-11-01 (card access before section 1, finding 28).
+One loader-source defect was found and fixed on 2026-11-01 (card access before section 1, finding 28); a second on 2026-11-02 (card access before the lens start, finding 33; stub v2).

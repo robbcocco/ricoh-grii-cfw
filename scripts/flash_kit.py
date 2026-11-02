@@ -23,10 +23,10 @@ LOADER = ROOT / "dist" / "rg2_v003_loader.frm"
 PROBE = ROOT / "loader" / "flash" / "probe" / "Startup.ttl"
 RESCUE = ROOT / "loader" / "flash" / "rescue" / "backup.ttl"
 STOCK_SHA = "3643850f2ae74ae967eb336794048f554caa1b11d05b8569824d5719f1838331"
-LOADER_SHA = "f8c4f9b68aec10fc63bb9e290445294e0f689acb002e9ae4ed7976537058a7d5"
+LOADER_SHA = "1914ac9069cb5e9803d348bea999258884d0d8199f7ff2e257161ec44c1f91f1"   # stub v2 (card at section 3)
 
 COMMON = """\
-Before every flash step (F1a, F1b, F2, U):
+Before every flash step (F1a, F1b, F2, F5, U):
 - `make check` printed `STATUS: ALL GATES PASSED` on the Mac.
 - Battery indicator **full**; a second charged battery at hand.
 - Card R (step F1b) prepared and checked, kept out of the camera.
@@ -111,14 +111,14 @@ Loader `rg2_v003.frm` (renamed from `rg2_v003_loader.frm`) SHA-256 `{LOADER_SHA}
    "Confirm Firmware Version" without No/Yes, or *New Version* is blank, the camera rejected the file (header or
    checksum): nothing was erased; stop and report.
 3. "Firmware update complete." → OK → the camera switches off. Switch it on **with card L still in**: it must boot normally
-   (the loader mounts the card, finds no `cfw/gr2_cfw.bin`, and stays stock).
+   (the loader mounts the card at section 3, finds no `cfw/gr2_cfw.bin`, and stays stock).
 4. Card N root = `card-N/` (probe `Startup.ttl`, **no** `cfw/gr2_cfw.bin`: move or delete the `cfw/` folder). Power on,
    wait ~10 s, power off. Copy `H:/cfw/probe/` to the Mac, run `scripts/loader_timing.py` on it.
 5. Once more after a cold start (battery out for 30 s). Then power-cycle a few times; shoot, play back, check the files
    on the Mac.
 
 **Pass:** the camera looks and behaves stock; `LDR_STATE.BIN` = `00 00 00 03` (loader ran, no stage 1 on the card), also
-after the cold start; section 1 takes about the F0 time (36 ms) plus a card mount.
+after the cold start; section 1 takes the F0 time (36 ms), the card mount shows up in section 3's load.
 **Rejected / "Error occurred.":** as F1a.
 **No LCD / hang at power-on:** battery out; boot with the skip key (stock, the card is not touched); then uninstall (U).
 No usable menu at all: card R + combo.
@@ -145,7 +145,7 @@ Card N root = `card/`: the debug zip contents with its `Startup.ttl` **replaced 
 3. Power on with the skip key held: stock camera, no CFW; `LDR_STATE.BIN` = `00 00 00 01`.
 
 **Pass:** CFW up as usual; `cfw_log.txt` has `main: started by the flashed loader …`; `LDR_STATE.BIN` = `00 00 00 06`;
-`loader_timing.py` shows the hook(1) preload time.
+`loader_timing.py` shows the first-hook preload time.
 **Crash (camera powers off):** next boot with the skip key; report the log. **Hang:** battery out + skip key.
 Send me: `cfw_log.txt`, `H:/cfw/probe/`.
 """),
@@ -168,6 +168,34 @@ Card root = `card/` (the debug `cfw/` folder and `Shutdown.ttl`; no `Startup.ttl
 `main: installed at hook(10), rc 0x00000000`, `recipes: early look (slot, IQ mode)` and the `hook:` timeline.
 **Crash or hang at power-on:** battery out, switch on with the shutter half-pressed (stock), send the log.
 Send me: `cfw_log.txt` and what you saw on the first frames.
+"""),
+    ("F5-loader-v2", "F5 · Reflash the loader v2: card read after the lens start (lens bounce fix)",
+     {"card-L": ["loader"], "card": ["debug"]}, f"""\
+**Writes flash:** yes: stock 3.00 + the loader stub v2, over the v1 loader (same path as F2).
+
+Why: with v1 the stub reads the card right after section 1, before the camera starts the lens; that delays the lens
+start by ~190 ms and the lens extends, retracts and extends again (F4; also with a card without `cfw/`; unmounting the
+card afterwards did not help). v2 reads the card at section 3, after the lens has started (~0.3 s). A USB-charge boot
+no longer touches the card at all.
+
+Loader `rg2_v003.frm` SHA-256 `{LOADER_SHA}`
+
+1. Card L root = `card-L/` (only the loader `rg2_v003.frm`). Battery full.
+2. Menu update as in F2 (check "Execute?" with *New Version 3.00* before Yes).
+3. "Firmware update complete." → OK → the camera switches off. Switch it on **with card L still in** (no `cfw/`): it must
+   boot normally. Watch the lens: **one** smooth extension?
+4. Card root = `card/` (debug `cfw/` + `Shutdown.ttl`, no `Startup.ttl`). Dial on a My Settings slot with a recipe. Power
+   on a few times, once after a cold start (battery out 30 s). Watch the lens and the first live-view frames; open the
+   CFW Menu (Effect).
+5. Skip key: **keep the shutter half-pressed until the LCD comes on** (the stub now reads it at ~0.3 s instead of
+   ~30 ms) → stock camera, no CFW.
+6. Copy `H:/cfw/cfw_log.txt` to the Mac.
+
+**Pass:** no lens bounce in 3 and 4; recipe colours from the first frame; menus work; no `ERROR` in the log; the `hook:`
+timeline starts at `0x00000003`; `main: installed at hook(10), rc 0x00000000`.
+**Rejected / "Error occurred.":** as F1a. **No LCD / hang:** battery out; skip key; then uninstall (U). No usable menu:
+card R + combo.
+Send me: `cfw_log.txt`, whether the lens still bounces (with and without `cfw/`), and how the skip key behaved.
 """),
     ("U-uninstall", "U · Uninstall (back to stock 3.00)", {"card": ["stock"]}, f"""\
 **Writes flash:** yes, the stock firmware (any time after F2).

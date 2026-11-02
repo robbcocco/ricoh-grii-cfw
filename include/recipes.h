@@ -10,7 +10,7 @@
 void recipes_init(void);                  /* scan the folder (again), hand the names to the carousel */
 int recipes_count(void);
 void recipes_poll(void);                  /* ~200 ms: show the slot's or previewed recipe look */
-/* hook(1), after cfg_load: read the MY slots' recipe files (no folder scan; a missing or
+/* First loader hook, after cfg_load: read the MY slots' recipe files (no folder scan; a missing or
  * invalid file is skipped quietly and reported later by recipes_init). */
 void recipes_early_load(void);
 /* Every hook until it returns 1: show the active slot's look once the mode properties are

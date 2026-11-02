@@ -5,16 +5,16 @@
  *   apply its relocations, zero its .bss and call its cfw_main.
  *
  * - cfw_ldr_hook(n, &ldr_state): the flashed debug loader (M10, loader ABI v1)
- *   after every section load in the root init task. hook(1) reads stage 2
- *   while nothing can race the card (DCFMount lives in section 8) and writes
- *   nothing to the card (a USB boot hands it to the PC). hook(13) starts the
- *   "CFWldr" task and disarms the loader; that task waits until JobSystem boot
- *   step 13 (which queues Startup.ttl to the Script task) has finished, then
- *   calls cfw_main exactly like the Startup.ttl path. Step 13 does not wait for
- *   the script (finding 26), so a Startup.ttl on the card may still be running
- *   then; with the loader flashed the card must not carry the CFW Startup.ttl.
- *   Patch-on-load and the look before the first live-view frame are the next
- *   step (the project plan M10c).
+ *   after every section load in the root init task, from the section where the
+ *   stub decided (stub v2: section 3, after JobSystem step 4 has started the
+ *   lens; v1: section 1). The first hook reads stage 2 while nothing can race the
+ *   card (DCFMount lives in section 8), writes nothing to the card, then unmounts
+ *   it. hook(13) starts the "CFWldr" task and disarms the loader; that task waits
+ *   until JobSystem boot step 13 (which queues Startup.ttl to the Script task) has
+ *   finished, then calls cfw_main exactly like the Startup.ttl path. Step 13 does
+ *   not wait for the script (finding 26), so a Startup.ttl on the card may still be
+ *   running then; with the loader flashed the card must not carry the CFW
+ *   Startup.ttl. Stage 2's cfw_hook does patch-on-load and the early look (M10c).
  *
  * The heap block has never held code, so the I-cache has no stale lines for
  * it, and DRAM is write-through: instruction fetches see the loaded bytes. */
@@ -153,7 +153,7 @@ int cfw_ldr_start(void) {
     }
     cfw_log_release();                 /* the card is the camera's now (remounted after section 9) */
     if (g_ldr_err || !g_main_entry) {
-        ERR("boot (loader): stage 2 not loaded at hook(1), CFW not started");
+        ERR("boot (loader): stage 2 not loaded at the first hook, CFW not started");
         return -1;
     }
     return ((cfw_main_fn)g_main_entry)(&g_boot);
@@ -166,24 +166,23 @@ static void ldr_task(uint32_t arg) {
 }
 
 /* After every section load n, in the boot task (loader/flash/README.md §3). Nothing may
- * be written to H: here: the boot task remounts the card after section 9 (finding 32), and
- * a USB-charge boot loads only section 1. Log lines are held until cfw_ldr_start. */
+ * be written to H: here: the boot task remounts the card after section 9 (finding 32).
+ * Log lines are held until cfw_ldr_start. */
 void cfw_ldr_hook(uint32_t n, volatile uint32_t *state) {
     if (g_ldr_first) {                 /* the loader never ran _start */
         for (uint32_t *p = __bss_start__; p < __bss_end__; p++) *p = 0;
         g_ldr_first = 0;
         cfw_log_hold();
-    }
-    if (n == 1 && !g_main_entry && !g_ldr_err) {
         uint32_t base = 0, t = GR2_FN_SYSTEM_GETTIME();
         g_ldr_err = preload(&base, &g_main_entry, &g_main_hook);
         if (!g_ldr_err) make_boot(base, 1, t);
+        if (g_main_hook && !g_ldr_err) ((cfw_hook_fn)g_main_hook)(n, &g_boot);
+        /* Card reads are done: unmount and power the card down, so the boot task's mount
+         * after section 9 is a fresh one as in a stock boot (finding 33). */
+        GR2_FN_FILE_UNMOUNT("H:");
+    } else if (g_main_hook && !g_ldr_err) {
+        ((cfw_hook_fn)g_main_hook)(n, &g_boot);
     }
-    if (g_main_hook && !g_ldr_err) ((cfw_hook_fn)g_main_hook)(n, &g_boot);
-    /* Card reads are done: unmount and power the card down, so the boot task's mount after
-     * section 9 is a fresh one as in a stock boot. Testing whether the stub's early card
-     * session is what makes the lens extend, retract and extend again (finding 33, T4). */
-    if (n == 1) GR2_FN_FILE_UNMOUNT("H:");
     if (n == LDR_START_SECTION) {
         if (!GR2_FN_TASK_CREATE(ldr_task, 0, LDR_TASK_PRIO, LDR_TASK_STACK, "CFWldr")) g_ldr_err = 1;
         *state = CFW_LDR_DISARMED;

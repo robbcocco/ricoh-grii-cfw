@@ -7,15 +7,18 @@
    recomputed here with the plain formula of finding 15 §7.1; `gr2frm.py verify`
    passes.
 2. Unicorn (ARM946, BE-32): the patched APP image is mapped at 0xA0020200 and the
-   real hook site 0xA0022E58..0xA0022E60 (`movs r1,#0; movs r0,r5; bl`) runs once
-   per section load, in the root init task's order, so the stub executes exactly
-   as flashed. Port_Get, File_MountMedia, LoadFile, the stock section loader and
-   the stage-1 hook are Python models; any other execution, any write outside the
-   stack and ldr_state, or an unbalanced register/stack state fails the run.
+   real hook site 0xA0022E58..0xA0022E62 (`movs r1,#0; movs r0,r5; bl <patched>;
+   movs r0,r7`) runs once per section load, in the root init task's order, so the
+   stub executes exactly as flashed and the caller's own `movs r0,r7` shows the
+   stub's result is dead. Port_Get, File_MountMedia, LoadFile, the stock section
+   loader and the stage-1 hook are Python models; any other execution, any write
+   outside the stack and ldr_state, an unbalanced register/stack state, or a card
+   access before Section_Load(3) (lens start, finding 33) fails the run.
 
 Scenarios: CFW with loader ABI (model) / file absent / skip key held / no card /
 stage 1 without loader ABI (pre-M10b) / playback boot order / stage 1 disarming the
-stub / the current bin/release/gr2_cfw.bin (its +8 hook entry is called).
+stub / USB-charge boot (section 1 only) / the current bin/release/gr2_cfw.bin (its
++8 hook entry is called).
 
 Usage: python3 scripts/emu_loader.py [--frm dist/rg2_v003_loader.frm] [--stock fw/rg2_v003.frm]
 """
@@ -37,7 +40,7 @@ from gr2frm import unpack, update_header, walk  # noqa: E402
 
 STOCK_FRM = REPO_ROOT / "fw" / "rg2_v003.frm"
 APP_BASE = 0xA0020200
-HOOK_SITE, HOOK_END = 0xA0022E58, 0xA0022E60          # movs r1,#0; movs r0,r5; bl <patched>
+HOOK_SITE, HOOK_END = 0xA0022E58, 0xA0022E62          # movs r1,#0; movs r0,r5; bl <patched>; movs r0,r7
 STUB, STUB_END, STATE = 0xA00AFCF0, 0xA00AFD74, 0xA00AFD70
 WINDOW, WINDOW_SIZE = 0xA0017000, 0x8000
 STAGE1_HOOK = WINDOW + 0x100                          # entry in the model stage 1 (word +8)
@@ -174,10 +177,11 @@ class Emu:
         return 0 if self.skip else 1                            # active low
 
     def _card_access(self, name):
-        # Every SD sector read calls FUN_a00f9888 in section 1 (finding 28): the card must not be
-        # touched before section 1 is resident.
-        if 1 not in self.loaded:
-            raise Fail(f"{name} before Section_Load(1): SD reads need section 1 code (finding 28)")
+        # Every SD sector read calls FUN_a00f9888 in section 1 (finding 28), and a card session
+        # before JobSystem step 4 (between sections 4 and 2) delays the lens start and makes the
+        # lens bounce (F4, finding 33): the card waits for Section_Load(3).
+        if not {1, 3} <= self.loaded:
+            raise Fail(f"{name} before Section_Load(3): it must follow the lens start (finding 33)")
 
     def _File_MountMedia(self):
         path = self.cstr(self.r(0))
@@ -240,8 +244,8 @@ class Emu:
         for reg, v in regs.items():
             if uc.reg_read(reg) != v:
                 raise Fail(f"section {n}: callee-saved register/SP not preserved")
-        if uc.reg_read(UC_ARM_REG_R0) != 0x5EC00000 | n:
-            raise Fail(f"section {n}: stock loader result not returned")
+        if uc.reg_read(UC_ARM_REG_R0) != regs[UC_ARM_REG_R7]:
+            raise Fail(f"section {n}: the caller's movs r0,r7 did not run")
 
     def run(self):
         for n in self.order:
@@ -256,7 +260,7 @@ def stage1_model():
     return bytes(img)
 
 
-def expect(name, emu, status, mount, load, hooks, window):
+def expect(name, emu, status, mount, load, hooks, window, port=1):
     ev = emu.events
     loads = [e[1] for e in ev if e[0] == "Section_Load"]
     got_hooks = [e[1] for e in ev if e[0] == "stage1_hook"]
@@ -264,10 +268,10 @@ def expect(name, emu, status, mount, load, hooks, window):
     n_load = sum(e[0] == "LoadFile" for e in ev)
     win = bytes(emu.uc.mem_read(WINDOW, WINDOW_SIZE))
     ok = (emu.u32(STATE) == status and loads == emu.order and got_hooks == hooks
-          and n_mount == mount and n_load == load and sum(e[0] == "Port_Get" for e in ev) == 1
+          and n_mount == mount and n_load == load and sum(e[0] == "Port_Get" for e in ev) == port
           and win == window)
     print(f"[{'OK' if ok else 'FAIL'}] {name}")
-    print(f"       ldr_state={emu.u32(STATE)} ({ST.get(emu.u32(STATE))}); Port_Get x1, "
+    print(f"       ldr_state={emu.u32(STATE)} ({ST.get(emu.u32(STATE))}); Port_Get x{port}, "
           f"File_MountMedia x{n_mount}, LoadFile x{n_load}; stock loads {loads}")
     print(f"       stage-1 hook calls {got_hooks or 'none'}; window "
           f"{'unchanged (0xFF)' if win == b'\xff' * WINDOW_SIZE else 'holds gr2_cfw.bin'}")
@@ -305,27 +309,29 @@ def main(argv=None):
     ff = b"\xff" * WINDOW_SIZE
     loaded = lambda f: f[:WINDOW_SIZE] + ff[len(f):]                       # noqa: E731
     cases = [
-        ("A  card + H:/cfw/gr2_cfw.bin with loader ABI -> load once, hook after every section",
-         dict(file=abi), 5, 1, 1, SHOOTING, loaded(abi)),
+        ("A  card + H:/cfw/gr2_cfw.bin with loader ABI -> load at section 3, hook from there on",
+         dict(file=abi), 5, 1, 1, SHOOTING[3:], loaded(abi)),
         ("B  card, file absent -> stock", dict(file=None), 3, 1, 1, [], ff),
         ("C  shutter half-press held (file present) -> stock, no mount", dict(file=abi, skip=True), 1, 0, 0, [], ff),
         ("D  no card -> stock", dict(card=False, file=abi), 2, 1, 0, [], ff),
         ("E  stage 1 without loader ABI (pre-M10b) -> loaded, never called", dict(file=old), 4, 1, 1, [],
          loaded(old)),
-        ("F  playback boot order, loader ABI", dict(file=abi, order=PLAYBACK), 5, 1, 1, PLAYBACK, loaded(abi)),
-        ("G  stage 1 disarms at section 5", dict(file=abi, disarm_at=5), 6, 1, 1, [1, 4, 2, 3, 5], loaded(abi)),
+        ("F  playback boot order, loader ABI", dict(file=abi, order=PLAYBACK), 5, 1, 1, PLAYBACK[2:], loaded(abi)),
+        ("G  stage 1 disarms at section 5", dict(file=abi, disarm_at=5), 6, 1, 1, [3, 5], loaded(abi)),
+        ("I  USB-charge boot (section 1 only) -> card untouched, undecided", dict(file=abi, order=[1]), 0, 0, 0, [],
+         ff, 0),
         (f"H  current {a.stage1.name} (loader ABI v1) -> hook at its +8 entry 0x{cur_hook:08X}",
-         dict(file=cur, hook=cur_hook), 5, 1, 1, SHOOTING, loaded(cur)),
+         dict(file=cur, hook=cur_hook), 5, 1, 1, SHOOTING[3:], loaded(cur)),
     ]
     ok = True
-    for name, kw, status, mount, load, hooks, window in cases:
+    for name, kw, status, mount, load, hooks, window, *port in cases:
         try:
             emu = Emu(app, **kw).run()
         except Fail as ex:
             print(f"[FAIL] {name}: {ex}")
             ok = False
             continue
-        ok &= expect(name, emu, status, mount, load, hooks, window)
+        ok &= expect(name, emu, status, mount, load, hooks, window, *port)
     print("ALL PASSED" if ok else "FAILED")
     return 0 if ok else 1
 

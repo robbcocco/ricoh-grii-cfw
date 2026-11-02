@@ -1,6 +1,6 @@
 /* Stage 2 entries (stage 1, src/boot.c):
  *   cfw_hook(n)  flashed loader only: after every APP section load n, in the boot task, before
- *                section n has run (M10c, finding 32). hook(1): read the config and the MY
+ *                section n has run (M10c, finding 32). First hook (stub v2: section 3): read the config and the MY
  *                slots' recipes; hook(10): install the menus, Effect hooks and input capture
  *                into section 10 before it first runs; every hook: the slot's look as soon as
  *                the mode properties are final and IQ RAM is loaded. Log lines are held in RAM

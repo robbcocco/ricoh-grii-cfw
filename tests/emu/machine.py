@@ -63,6 +63,7 @@ A_TSK_OBJ_TABLE = 0xA05FB884
 LDR_STATE, LDR_MAGIC = 0xA00AFD70, 0x47524C31     # flashed debug loader status word, stage-1 ABI magic
 A_MODE_PROPS_FINAL = 0xA012A0EC       # set by the block after JobSystem step 2 (finding 32)
 LOADER_SHOOTING = [1, 4, 2, 3, 5, 10, 11, 8, 9, 6, 12, 13]   # section-load order, shooting boot
+LOADER_DECIDE_SECTION = 3            # the stub's card session waits for the lens start (finding 33)
 SNAP_TABLES = {0xA06FD5E2: 0x0400, 0xA06FD5E8: 0x02AA, 0xA0700066: 0x0400, 0xA070006C: 0x02AA}  # Lens_F / AF_F
 # Full ("RGB") plane, display layer 2 (finding 23): RGBA4444 front buffers BITMAPS[2], [3] (pitch 640 px)
 # and the stock canvas (pitch 720 px), all held as uncached aliases like the OSD bitmaps.
@@ -846,15 +847,18 @@ class Machine:
         return rc - (1 << 32) if rc & 0x80000000 else rc
 
     def loader_hooks(self, order, on_hook=None):
-        """What the armed stub does (loader/flash/README.md §3): stage 1 is in the window, ldr_state = 5,
-        and after every section load the stub calls *(window+8)(n, &ldr_state) while the state is 5.
-        on_hook(machine, n) runs after each hook (tests inspect and change the boot state there).
-        Returns the sections whose hook ran."""
+        """What the armed stub v2 does (loader/flash/README.md §3): sections load in `order`; at section 3
+        it decides (stage 1 in the window -> ldr_state = 5), and from then on after every section load it
+        calls *(window+8)(n, &ldr_state) while the state is 5. on_hook(machine, n) runs after each hook
+        (tests inspect and change the boot state there). Returns the sections whose hook ran."""
         if self.u32(WINDOW + 4) != LDR_MAGIC:
             raise EmuError('stage 1 has no loader ABI magic')
-        self.w32(LDR_STATE, 5)
         hook, ran = self.u32(WINDOW + 8), []
         for n in order:
+            if not ran and n != LOADER_DECIDE_SECTION:
+                continue
+            if not ran:
+                self.w32(LDR_STATE, 5)
             if self.u32(LDR_STATE) != 5:
                 break
             self.call_addr(hook, n, LDR_STATE, stack=ROOT_TASK_STACK, task='boot')
