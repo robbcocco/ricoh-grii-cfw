@@ -85,11 +85,11 @@ def elf_sections(elf):
     return out
 
 
-def assemble_stub():
+def assemble_stub(src=STUB_SRC):
     with tempfile.TemporaryDirectory() as tmp:
         obj, elf = Path(tmp) / "ldr_stub.o", Path(tmp) / "ldr_stub.elf"
         for cmd in (["arm-none-eabi-as", "-mbig-endian", "-march=armv5te", "-mthumb-interwork",
-                     "-o", str(obj), str(STUB_SRC)],
+                     "-o", str(obj), str(src)],
                     ["arm-none-eabi-ld", "-EB", "-T", str(STUB_LD), "-o", str(elf), str(obj)]):
             r = subprocess.run(cmd, capture_output=True, text=True, check=False)
             if r.returncode:
@@ -129,8 +129,11 @@ def stub_calls(stub):
 
 
 # ── build ─────────────────────────────────────────────────────────────────
-def build_patches():
-    secs, listing = assemble_stub()
+def build_patches(src=STUB_SRC, expected_calls=STUB_CALLS):
+    """Assemble a stub placed by ldr_stub.ld (ldr_stub.S or rom_stub.S) and check it:
+    hook BL to the stub, exactly the 132-byte range, BL targets = `expected_calls`,
+    one Section_Load call, ldr_state 0."""
+    secs, listing = assemble_stub(src)
     if set(secs) != {".ldr_hook", ".ldr_stub"}:
         fail(f"unexpected sections {sorted(secs)}")
     hook_addr, hook = secs[".ldr_hook"]
@@ -140,7 +143,7 @@ def build_patches():
     if thumb_bl(HOOK_ADDR, hook) != (STUB_ADDR, False):
         fail(f"hook {hook.hex()} is not `bl 0x{STUB_ADDR:08X}`")
     calls = stub_calls(stub)
-    if any(blx for _, _, blx in calls) or sorted({t for _, t, _ in calls}) != sorted(STUB_CALLS):
+    if any(blx for _, _, blx in calls) or sorted({t for _, t, _ in calls}) != sorted(expected_calls):
         fail("stub BL targets: " + ", ".join(f"0x{a:08X}->0x{t:08X}{' (BLX)' if x else ''}"
                                               for a, t, x in calls))
     if [t for _, t, _ in calls].count(SECTION_LOAD) != 1:

@@ -540,9 +540,11 @@ void settings_labels(void) {
     if (g_snap_on) snap_labels(1);
 }
 
+/* The task's late phase. Without settings_early (Startup.ttl path; rom: no valid config on D: at the first hook) the
+ * config is loaded here, with the card copy as the fallback, and applied now. */
 void settings_init(void) {
     if (!g_early) {
-        cfg_load();
+        cfg_load(1);
         load_values();
         apply_all();
     }

@@ -6,7 +6,8 @@
  *                and before live view starts; hook(10): install the menus, Effect hooks and input
  *                capture into section 10 before it first runs, then start the CFW task; every hook:
  *                settings and look if the IQ-ready call missed them. Log lines are held in RAM (the
- *                card is remounted after section 9) and written by cfw_main.
+ *                card is remounted after section 9) and written by cfw_main. The rom build (CFW_ROM, release
+ *                firmware) reads only D: and A: in the hooks, never the card.
  *   cfw_main     once per power cycle: after JobSystem step 13 (loader) or from Startup.ttl:
  *                register the `cfw` shell command, install whatever the hooks did not, start the
  *                resident CFW task unless the hooks did. */
@@ -26,6 +27,7 @@
 static int g_installed = 1;            /* 1: not tried yet; else the result of install() */
 static int g_early;                    /* the loader's hooks ran */
 static int g_look_done, g_set_done;
+static int g_cfg_early;                /* settings_early may run: a config was loaded at the first hook (rom) */
 static int g_iq_seen, g_seen5, g_seen9;
 static volatile int g_card_ready, g_main_done;
 static int g_task;                     /* CFW task id once created */
@@ -81,7 +83,7 @@ static void trace_log(void) {
 static void settings_try(uint32_t n) {
     if (g_set_done || GR2_MODE_PROPS_FINAL != 1 || !(g_iq_seen || (g_seen5 && n != IQ_SECTION))) return;
     g_set_done = 1;
-    settings_early();
+    if (g_cfg_early) settings_early();
 }
 
 /* CapInit(5), boot task: IQ.bin, AF_F and AE_F are in RAM, live view has not started (notify(5) follows). */
@@ -102,7 +104,10 @@ void cfw_hook(uint32_t n, const cfw_boot_t *boot) {
         DBG("=== gr2_cfw " CFW_VERSION " debug ===");
         DBG_HEX("main: loaded at", boot->base);
         info_set_main_base(boot->base);
-        cfg_load();                    /* card reads only; files closed before the hook returns */
+        /* Reads only, files closed before the hook returns. debug/release: D:, else the card copy (the stub mounted
+         * the card). rom: D: only, no card access in the boot hooks; without a config there, settings_init applies
+         * the card copy in the task's late phase and the boot runs with stock settings until then. */
+        g_cfg_early = cfg_load(!CFW_ROM) || !CFW_ROM;
         recipes_early_load();
     }
 #if CFW_DEBUG

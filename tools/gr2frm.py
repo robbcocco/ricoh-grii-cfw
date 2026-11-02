@@ -7,12 +7,15 @@ Subcommands
   ls     FRM                 list the A: drive (name, size, offset in b01firm6)
   shell  FRM                 list the debug-shell commands (base table + A:/command.txt)
   verify FRM                 unpack -> repack -> compare (byte-exact round trip)
-  repack FRM IMAGE_DIR OUT   re-encrypt same-length images from IMAGE_DIR into FRM
+  repack FRM IMAGE_DIR OUT   re-encrypt images from IMAGE_DIR into FRM (lengths may change)
 
 Format facts (all verified against rg2_v003.frm):
   * Container "UNITY FILE V1.10 / RICOH COMPANY": 0x800-byte header, directory of
     64-byte entries at 0x40 (u32be sector, u32be length, name[11], ...), payloads
     at sector*512.  A payload that does not start with the magic is encrypted.
+    Layout (both stock containers): the first entry at sector 4 (0x800), each next
+    entry at the sector after the previous one, 0xFF padding, header +0x20 = total
+    length = end of the last entry rounded up to a sector.
   * Encryption: every 512-byte block is XORed with a 32-bit big-endian key,
     key(0) = 0xF8E69612, key(n+1) = key(n) + 0xBE39B193 (mod 2^32).  Involution.
   * Entry b01firm6 = flash image holding the A: drive; entry rg2_v001up is a
@@ -115,35 +118,59 @@ def unpack(frm):
     return {p.rsplit("/", 1)[1]: data for p, _, data, nested in walk(frm) if not nested}
 
 
+def _sectors(n):
+    return -(-n // SECTOR) * SECTOR
+
+
+def _check_layout(buf):
+    """Raise ValueError unless `buf` has the stock container layout (see the module doc)."""
+    total, entries = parse_container(buf)
+    end = CONTAINER_HDR
+    for e in entries:
+        if e.offset != _sectors(end) or set(buf[end:e.offset]) - {0xFF}:
+            raise ValueError(f"{e.name}: not at the sector after the previous entry with 0xFF padding")
+        end = e.offset + e.length
+    if total != _sectors(end) or set(buf[end:total]) - {0xFF}:
+        raise ValueError(f"container length 0x{total:X} is not the end of its last entry")
+
+
 def repack(frm, images):
-    """Re-encrypt `images` into a copy of `frm`. Every image must keep its length.
+    """Re-encrypt `images` ({name: plaintext}) into a copy of `frm`.
+
+    Images may change their length: every container is laid out again in the stock
+    layout (module doc) and only the entry sector/length words and the container
+    lengths (+0x20) change; every other header and entry byte is kept. With
+    same-length images the result equals patching `frm` in place. A container not
+    in the stock layout is refused. Each image is encrypted from its own offset 0.
 
     An image whose payload (bytes after the 0x200 header) differs from the one
     in `frm` gets its nUpdateCsum recomputed; unchanged images are left as-is.
+    The update-header sizes (+0x164/+0x168) of a resized image are the caller's
+    job (`verify` checks them).
     """
-    out = bytearray(frm)
-
-    def apply(buf_off, buf):
+    def build(buf):
+        _check_layout(buf)
         _, entries = parse_container(buf)
+        out = bytearray(buf[:CONTAINER_HDR])
         for e in entries:
             raw = buf[e.offset:e.offset + e.length]
             if is_container(raw):
-                sub = apply(buf_off + e.offset, raw)
-                out[buf_off + e.offset:buf_off + e.offset + e.length] = sub
-                continue
-            if e.name not in images:
-                continue
-            new = images[e.name]
-            if len(new) != e.length:
-                raise ValueError(f"{e.name}: length {len(new)} != {e.length} "
-                                 "(resizing is not supported)")
-            if new[IMAGE_HDR:] != xor_blocks(raw)[IMAGE_HDR:]:
-                new = with_csum(new)
-            out[buf_off + e.offset:buf_off + e.offset + e.length] = xor_blocks(new)
-        return bytes(out[buf_off:buf_off + len(buf)])
+                new = build(raw)
+            elif e.name in images:
+                img = images[e.name]
+                if img[IMAGE_HDR:] != xor_blocks(raw)[IMAGE_HDR:]:
+                    img = with_csum(img)
+                new = xor_blocks(img)
+            else:
+                new = raw
+            out += b"\xff" * (_sectors(len(out)) - len(out))
+            struct.pack_into(">II", out, 0x40 + e.index * ENTRY_SIZE, len(out) // SECTOR, len(new))
+            out += new
+        out += b"\xff" * (_sectors(len(out)) - len(out))
+        struct.pack_into(">I", out, 0x20, len(out))
+        return bytes(out)
 
-    apply(0, frm)
-    return bytes(out)
+    return build(frm)
 
 
 # ── update header ──────────────────────────────────────────────────────────
@@ -197,20 +224,25 @@ def with_csum(img):
 
 
 # ── A: drive ───────────────────────────────────────────────────────────────
+AFS_DIR_MAX = 0x80 * 512 // AFS_ENTRY   # the camera scans at most 0x80 directory sectors
+
+
 def afs_entries(img):
-    """[(name, file_offset_in_image, size)]; empty name terminates the table."""
+    """[(name, file_offset_in_image, size)], parsed like the camera's A: readers
+    (RTOS 0xA0056ADC, finding 29 §2): a size-0 entry ends the table, at most 1024 entries."""
     dir_off = struct.unpack_from(">I", img, AFS_DIR_PTR)[0] + IMAGE_HDR
     out = []
-    while dir_off + AFS_ENTRY <= len(img):
-        rec = img[dir_off:dir_off + AFS_ENTRY]
+    for i in range(AFS_DIR_MAX):
+        rec = img[dir_off + i * AFS_ENTRY:dir_off + (i + 1) * AFS_ENTRY]
+        if len(rec) < AFS_ENTRY:
+            raise ValueError("A: directory runs past image end")
         name = rec[:32].split(b"\0")[0].decode("latin1")
-        if not name:
-            break
         off, size = struct.unpack(">II", rec[32:40])
+        if size == 0:
+            break
         if off + IMAGE_HDR + size > len(img):
             raise ValueError(f"{name}: extends past image end")
         out.append((name, off + IMAGE_HDR, size))
-        dir_off += AFS_ENTRY
     return out
 
 

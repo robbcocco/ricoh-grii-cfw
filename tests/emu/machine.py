@@ -2,7 +2,9 @@
 
 The CFW runs unmodified: stage 1 is loaded into the window like `fload`,
 `_start` loads stage 2 from the H: drive model, and the scenarios then call
-stage-2 functions directly. Firmware entry points the CFW calls are Python
+stage-2 functions directly. The `rom` variant (release firmware, M11) boots
+through a model of the release stub instead: stage 1 from the read-only A:
+drive (`scripts/rom_files.py`), stage 2, fonts and built-in recipes from A:. Firmware entry points the CFW calls are Python
 stubs (see `_install_stubs`); firmware code in `REAL_CODE` runs as is. Any
 other instruction fetch outside the CFW raises `EmuError` with its address.
 
@@ -11,7 +13,9 @@ Memory: one 16 MiB host buffer is mapped at 0xA0000000 (cached DRAM) and at
 frame and the IQ dump), so both views share their bytes like on the camera.
 """
 import ctypes
+import pathlib
 import struct
+import sys
 import zlib
 
 from unicorn import (UC_ARCH_ARM, UC_HOOK_BLOCK, UC_HOOK_MEM_FETCH_UNMAPPED, UC_HOOK_MEM_READ_UNMAPPED,
@@ -70,6 +74,8 @@ LDR_STATE, LDR_MAGIC = 0xA00AFD70, 0x47524C31     # flashed debug loader status 
 A_MODE_PROPS_FINAL = 0xA012A0EC       # set by the block after JobSystem step 2 (finding 32)
 LOADER_SHOOTING = [1, 4, 2, 3, 5, 10, 11, 8, 9, 6, 12, 13]   # section-load order, shooting boot
 LOADER_DECIDE_SECTION = 3            # the stub's card session waits for the lens start (finding 33)
+ROM_STAGE1 = 'A:/cfw/gr2_cfw.bin'     # the release stub's LoadFile (loader/flash/rom_stub.S)
+ROM_STAGE2_OFFSET = 32                # rom stage 1 runs stage 2 past its header in the block (src/boot.c)
 SNAP_TABLES = {0xA06FD5E2: 0x0400, 0xA06FD5E8: 0x02AA, 0xA0700066: 0x0400, 0xA070006C: 0x02AA}  # Lens_F / AF_F
 # Full ("RGB") plane, display layer 2 (finding 23): RGBA4444 front buffers BITMAPS[2], [3] (pitch 640 px)
 # and the stock canvas (pitch 720 px), all held as uncached aliases like the OSD bitmaps.
@@ -84,7 +90,7 @@ SYSMODE_SHOOTING = 6
 FN = dict(
     memory_alloc=0xA0024D6E, file_open=0xA002C70E, file_read=0xA002CA98, file_write=0xA002CC4A,
     file_close=0xA002C904, find_first=0xA002EF58, find_next=0xA002F354, find_close=0xA002FA3C,
-    file_mkdir=0xA002E6EC,
+    file_mkdir=0xA002E6EC, load_file=0xA002CD2C,
     prop_get=0xA00E0E2E, prop_get_raw=0xA00E0E80, prop_set=0xA00E0C94, prop_lock=0xA00E127A,
     prop_unlock=0xA00E1286, prop_sa_read=0xA00E0FFE, prop_sa_write=0xA00E100E, prop_path=0xA00DDB68,
     pdb_clone=0xA0037E14, pdb_load=0xA0037A42, pdb_save=0xA0037AE6, pdb_free=0xA0037478,
@@ -182,7 +188,7 @@ def yuv_rgb(y, u, v):
 
 
 class Machine:
-    def __init__(self, inputs, variant, cfw_dir, files=None, props=None, slots=None):
+    def __init__(self, inputs, variant, cfw_dir, files=None, props=None, slots=None, card=True):
         self.stack_limit, self.stack_task = STACK_TOP - CFW_TASK_STACK, 'CFW'
         self.inputs, self.variant, self.cfw_dir = inputs, variant, cfw_dir
         self.uc = Uc(UC_ARCH_ARM, UC_MODE_ARM | UC_MODE_BIG_ENDIAN)
@@ -199,6 +205,14 @@ class Machine:
 
         # state of the modelled firmware
         self.files, self.names, self.dirs = {}, {}, set()
+        self.io = []                  # (api, path, task) of every file-system call, in order
+        self.card = card              # False: no SD card, every H: open or listing fails
+        # A: (RES drive, finding 29): read-only, case-sensitive full paths, in directory order
+        self.a_files = {}
+        if variant == 'rom':
+            sys.path.insert(0, str(pathlib.Path(cfw_dir) / 'scripts'))
+            from rom_files import rom_files
+            self.a_files = rom_files(pathlib.Path(cfw_dir))
         for k, v in (files or {}).items():
             self.put_file(k, v)
         self.handles, self.next_fd = {}, 0x100
@@ -295,6 +309,14 @@ class Machine:
     def file(self, path):
         f = self.files.get(path.upper())
         return None if f is None else bytes(f)
+
+    def _data(self, key):
+        """File bytes by handle key: A: paths are kept as given (case-sensitive), the FAT drives upper-case."""
+        return self.a_files[key] if key.startswith('A:') else self.files[key]
+
+    def h_io(self, since=0):
+        """Card (H:) file-system calls from index `since` of the I/O log."""
+        return [e for e in self.io[since:] if e[1].upper().startswith('H:')]
 
     def log_lines(self):
         f = self.file('H:/cfw/cfw_log.txt')
@@ -418,8 +440,13 @@ class Machine:
 
     # ---- hooks -------------------------------------------------------------------------------
     def _install_hooks(self):
-        hdr = struct.unpack('>8I', self.inputs_main()[:32])
-        self.main_end = HEAP_LO + ((hdr[1] + hdr[2] + 7) & ~7)
+        _magic, image, bss, _entry, nrelocs = struct.unpack('>5I', self.inputs_main()[:20])
+        if self.variant == 'rom':     # one block: header, image, then the larger of relocations and .bss
+            self.main_lo = HEAP_LO + ROM_STAGE2_OFFSET
+            self.main_end = self.main_lo + image + max(bss, 4 * nrelocs)
+        else:
+            self.main_lo = HEAP_LO
+            self.main_end = HEAP_LO + ((image + bss + 7) & ~7)
         # Block hooks everywhere except the CFW's own code (stage 1 window, stage 2 block):
         # stage 2 is the first Memory_Alloc block, so its range is known before boot.
         for lo, hi in ((0, WINDOW - 1), (WINDOW + WINDOW_SIZE, HEAP_LO - 1), (self.main_end, MASK)):
@@ -485,15 +512,24 @@ class Machine:
     def _file_open(self):
         self._stack_need('File_Open')
         path, mode = self.cstr(self.r(0)), self.r(1)
+        self.io.append(('File_Open', path, self.stack_task))
         key = path.upper()
-        if key.startswith('D:/'):
+        if path.startswith('A:'):
+            if mode != 0:
+                raise EmuError(f'File_Open({path!r}, {mode:#x}): A: is read-only (the mode goes to the FAT layer)')
+            if path not in self.a_files:
+                return self.ret(0)
+            key = path
+        elif key.startswith('D:/'):
             parent = key.rsplit('/', 1)[0]
             if mode != 0 and parent != 'D:' and parent not in self.dirs:
                 return self.ret(0)          # PrFILE2 does not create directories in File_Open
         elif not key.startswith('H:/'):
-            raise EmuError(f'File_Open({path!r}): only H: and D: are modelled')
+            raise EmuError(f'File_Open({path!r}): only A:, H: and D: are modelled')
+        elif not self.card:
+            return self.ret(0)
         if mode == 0:
-            if key not in self.files:
+            if key not in self.files and key not in self.a_files:
                 return self.ret(0)
         elif mode == 1:
             self.put_file(path, b'')
@@ -510,6 +546,7 @@ class Machine:
     def _file_mkdir(self):
         self._stack_need('File_Mkdir')
         path = self.cstr(self.r(0)).upper().rstrip('/')
+        self.io.append(('File_Mkdir', path, self.stack_task))
         if path not in D_DIRS:
             raise EmuError(f'File_Mkdir({path!r}) not modelled')
         if path in self.dirs:
@@ -551,7 +588,7 @@ class Machine:
         self._stack_need('File_Read')
         h = self._handle(self.r(0))
         buf, n = self.r(1), self.r(2)
-        d = self.files[h[0]][h[1]:h[1] + n]
+        d = self._data(h[0])[h[1]:h[1] + n]
         self.wr(buf, d)
         h[1] += len(d)
         self.ret(len(d))
@@ -575,7 +612,25 @@ class Machine:
         del self.handles[self.r(0)]
         self.ret(0)
 
+    def _load_file(self):
+        """LoadFile(path, dst, max) on A:: min(size, max) bytes (silent truncation) or -1 (finding 29 section 3)."""
+        path, dst, n = self.cstr(self.r(0)), self.r(1), self.r(2)
+        self.io.append(('LoadFile', path, self.stack_task))
+        if not path.startswith('A:'):
+            raise EmuError(f'LoadFile({path!r}): only A: is modelled (the CFW uses File_Open on the FAT drives)')
+        self.ret(self.a_load(path, dst, n))
+
+    def a_load(self, path, dst, n):
+        d = self.a_files.get(path)
+        if d is None:
+            return MASK
+        self.wr(dst, d[:n])
+        return min(len(d), n)
+
     def _dir_entries(self, d):
+        if d.startswith('A:'):        # raw case-sensitive prefix; full paths, no directories, no "." / ".."
+            ents = [(k, False, len(v), True) for k, v in self.a_files.items() if k.startswith(d)]
+            return ents or None
         pre = d.upper().rstrip('/') + '/'
         out = {}
         for key in self.files:
@@ -584,29 +639,30 @@ class Machine:
                 comp = rest.split('/')[0]
                 isdir = '/' in rest
                 name = comp if isdir else self.names[key].split('/')[-1]
-                out[comp] = (name, isdir, 0 if isdir else len(self.files[key]))
+                out[comp] = (name, isdir, 0 if isdir else len(self.files[key]), False)
         if not out:
             return None
-        return [('.', True, 0), ('..', True, 0)] + [out[k] for k in sorted(out)]
+        return [('.', True, 0, False), ('..', True, 0, False)] + [out[k] for k in sorted(out)]
 
     def _fill_find(self, h, out):
         ents, i = self.finds[h]
         if i >= len(ents):
             return 0
         self.finds[h][1] += 1
-        name, isdir, size = ents[i]
+        name, isdir, size, a_drive = ents[i]
         b = bytearray(0x230)
         b[:len(name)] = name.encode()
-        sfn = name.upper().encode()[:12]
+        sfn = name.encode()[:12] if a_drive else name.upper().encode()[:12]   # A:: the path's first 12 bytes
         b[0x200:0x200 + len(sfn)] = sfn
-        b[0x20D] = 0x10 if isdir else 0x20
-        struct.pack_into('>II', b, 0x210, 0, size)
+        b[0x20D] = 0x01 if a_drive else 0x10 if isdir else 0x20
+        struct.pack_into('>IIII', b, 0x210, 0, size, 0, size)
         self.wr(out, b)
         return 1
 
     def _find_first(self):
         d, out = self.cstr(self.r(0)), self.r(1)
-        ents = self._dir_entries(d)
+        self.io.append(('FindFirst', d, self.stack_task))
+        ents = None if d.upper().startswith('H:') and not self.card else self._dir_entries(d)
         if ents is None:
             return self.ret(0)
         h = self.obj_alloc(16)
@@ -871,13 +927,17 @@ class Machine:
     def boot(self, loader=False, on_hook=None):
         """fload stage 1, `ex 0xA0017001`, resolve stage 2 at its load address.
         loader=True: boot through the flashed debug loader's ABI instead (loader_hooks over the
-        shooting order, JobSystem step 13 done, then cfw_ldr_start as the CFWldr task runs it)."""
+        shooting order, JobSystem step 13 done, then cfw_ldr_start as the CFWldr task runs it).
+        The rom variant always boots like this, with stage 1 and 2 on A: and nothing on the card."""
         s1 = open(f'{self.cfw_dir}/bin/{self.variant}/gr2_cfw.bin', 'rb').read()
         if len(s1) > WINDOW_SIZE:
             raise EmuError('stage 1 larger than the window')
-        self.put_file('H:/cfw/gr2_cfw.bin', s1)
-        self.put_file('H:/cfw/gr2_main.bin', self.inputs_main())
-        self.wr(WINDOW, s1)
+        if self.variant == 'rom':
+            loader = True             # the release stub reads A: itself (loader_hooks)
+        else:
+            self.put_file('H:/cfw/gr2_cfw.bin', s1)
+            self.put_file('H:/cfw/gr2_main.bin', self.inputs_main())
+            self.wr(WINDOW, s1)
         if loader:
             self.loader_hooks(LOADER_SHOOTING, on_hook)
             self.boot_step_done(13)
@@ -888,8 +948,8 @@ class Machine:
         base = self.u32(boot)
         if base == 0:
             raise EmuError(f'stage 2 not loaded (rc {rc:#x}); log: {self.log_lines()}')
-        if base != HEAP_LO:
-            raise EmuError(f'stage 2 at {base:#x}, expected the first heap block {HEAP_LO:#x}')
+        if base != self.main_lo:
+            raise EmuError(f'stage 2 at {base:#x}, expected {self.main_lo:#x} in the first heap block')
         self.main_base = base
         self.syms = Symbols(f'{self.cfw_dir}/bin/{self.variant}/gr2_main.elf', base)
         return rc - (1 << 32) if rc & 0x80000000 else rc
@@ -898,18 +958,25 @@ class Machine:
         """What the armed stub v2 does (loader/flash/README.md §3): sections load in `order`; at section 3
         it decides (stage 1 in the window -> ldr_state = 5), and from then on after every section load it
         calls *(window+8)(n, &ldr_state) while the state is 5. on_hook(machine, n) runs after each hook
-        (tests inspect and change the boot state there). Returns the sections whose hook ran."""
-        if self.u32(WINDOW + 4) != LDR_MAGIC:
+        (tests inspect and change the boot state there). Returns the sections whose hook ran.
+        rom: the release stub (loader/flash/rom_stub.S) decides at section 3 by LoadFile(A:/cfw/gr2_cfw.bin,
+        window, 0x8000): <= 0 -> 3 (no file), no magic -> 4, else 5; the skip key is never held here."""
+        if self.variant != 'rom' and self.u32(WINDOW + 4) != LDR_MAGIC:
             raise EmuError('stage 1 has no loader ABI magic')
-        hook, ran = self.u32(WINDOW + 8), []
+        ran = []
         for n in order:
             if not ran and n != LOADER_DECIDE_SECTION:
                 continue
             if not ran:
-                self.w32(LDR_STATE, 5)
+                state = 5
+                if self.variant == 'rom':
+                    self.io.append(('LoadFile', ROM_STAGE1, 'stub'))
+                    got = self.a_load(ROM_STAGE1, WINDOW, WINDOW_SIZE)
+                    state = 3 if got == MASK or got == 0 else 5 if self.u32(WINDOW + 4) == LDR_MAGIC else 4
+                self.w32(LDR_STATE, state)
             if self.u32(LDR_STATE) != 5:
                 break
-            self.call_addr(hook, n, LDR_STATE, stack=ROOT_TASK_STACK, task='boot')
+            self.call_addr(self.u32(WINDOW + 8), n, LDR_STATE, stack=ROOT_TASK_STACK, task='boot')
             ran.append(n)
             base = self.u32(self.syms1['g_boot'])
             if self.syms is None and base:   # stage 2 is loaded: on_hook may call into it

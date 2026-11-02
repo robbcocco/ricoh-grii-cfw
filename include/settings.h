@@ -3,7 +3,8 @@
 
 /* M5 settings engine (src/settings.c). CFW task only, except settings_early/settings_labels (flashed loader,
  * boot task, before the CFW task touches settings) and settings_log_status (also from the shell). */
-void settings_early(void);                /* loader, IQ-ready call: apply from the loaded config, no file writes */
+void settings_early(void);                /* loader, IQ-ready call: apply from the loaded config, no file writes;
+                                             rom: only if the first hook found a config on D: */
 void settings_labels(void);               /* the menus are installed: Snap labels may be patched */
 void settings_init(void);                 /* CFW task: load + apply (unless settings_early ran), labels, save */
 void settings_poll(void);                 /* ~200 ms: re-apply after mode/MY changes, TAv sync */

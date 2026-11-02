@@ -14,7 +14,7 @@
  * bytes, 8-bit palette indices. Palette entries are 0x0AYYUUVV (4-bit alpha,
  * YCbCr), read with FUN_a0393990(idx). Buffers are at 0x20xxxxxx (uncached).
  *
- * Text: GFNT fonts from H:/cfw/fonts (4-bit coverage per pixel, see
+ * Text: GFNT fonts from H:/cfw/fonts (rom: A:/cfw/fonts; 4-bit coverage per pixel, see
  * scripts/make_fonts.py). Edge pixels are blended with the pixel underneath
  * in YCbCr and mapped to the nearest opaque palette entry; ramps are cached
  * per (background, foreground) pair. Without font files the ROM font is used. */
@@ -47,7 +47,11 @@
 #define ROM_ADVANCE     34
 #define ROM_LINE        40
 
+#if CFW_ROM
+#define FONT_PATH       "A:/cfw/fonts/"   /* release firmware: the RES A: drive (finding 29) */
+#else
 #define FONT_PATH       "H:/cfw/fonts/"
+#endif
 #define FONT_MAX_BYTES  0x10000
 static const char *const FONT_FILE[FONT_COUNT] = {
     "inm13.fnt", "insb15.fnt", "inm18.fnt", "insb18.fnt", "bcsb22.fnt",
@@ -72,28 +76,40 @@ int osd_height(void) { return g_h; }
 
 static uint32_t be32(const uint8_t *p) { return ((uint32_t)p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]; }
 
+/* File size from a GFNT header, 0 if the header is not a usable font. */
+static uint32_t font_size(const uint8_t *head) {
+    if (head[0] != 'G' || head[1] != 'F' || head[2] != 'N' || head[3] != 'T' || head[4] != 1) return 0;
+    uint32_t size = be32(head + 8);
+    return size > 12u + 8u * head[7] && size <= FONT_MAX_BYTES ? size : 0;
+}
+
 static const uint8_t *load_font(const char *name) {
     char path[40], *p = path;
     for (const char *s = FONT_PATH; *s; s++) *p++ = *s;
     while (*name) *p++ = *name++;
     *p = 0;
+    uint8_t head[12];
+#if CFW_ROM
+    /* A: (finding 29 §9.3): LoadFile scans the directory twice per call, File_Read twice per read. */
+    uint32_t size = GR2_FN_LOAD_FILE(path, head, 12) == 12 ? font_size(head) : 0;
+    uint8_t *f = size ? GR2_FN_MEMORY_ALLOC(size) : 0;
+    if (f && GR2_FN_LOAD_FILE(path, f, size) != (int)size) f = 0;   /* block leaks */
+    return f;
+#else
     int fd = GR2_FN_FILE_OPEN(path, 0x00);
     if (fd == 0) return 0;
-    uint8_t head[12];
     uint8_t *f = 0;
-    if (GR2_FN_FILE_READ(fd, head, 12) == 12 && head[0] == 'G' && head[1] == 'F' && head[2] == 'N' &&
-        head[3] == 'T' && head[4] == 1) {
-        uint32_t size = be32(head + 8);
-        if (size > 12u + 8u * head[7] && size <= FONT_MAX_BYTES) {
-            f = GR2_FN_MEMORY_ALLOC(size);
-            if (f) {
-                for (int i = 0; i < 12; i++) f[i] = head[i];
-                if (GR2_FN_FILE_READ(fd, f + 12, size - 12) != (int)(size - 12)) f = 0;   /* block leaks */
-            }
+    uint32_t size = GR2_FN_FILE_READ(fd, head, 12) == 12 ? font_size(head) : 0;
+    if (size) {
+        f = GR2_FN_MEMORY_ALLOC(size);
+        if (f) {
+            for (int i = 0; i < 12; i++) f[i] = head[i];
+            if (GR2_FN_FILE_READ(fd, f + 12, size - 12) != (int)(size - 12)) f = 0;   /* block leaks */
         }
     }
     GR2_FN_FILE_CLOSE(fd);
     return f;
+#endif
 }
 
 void osd_fonts_load(void) {

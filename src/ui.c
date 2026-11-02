@@ -401,7 +401,11 @@ static void render_strip(int w, int y) {
         osd_fill(x, y + STRIP_H - 16, 12, 10, OSD_DARK);
     }
     if (g_recipe_n == 0) {
+#if CFW_ROM
+        const char *msg = "No recipes found";
+#else
         const char *msg = "No recipes in H:/cfw/recipes";
+#endif
         osd_text(FONT_ROW, (w - osd_text_width(FONT_ROW, msg)) >> 1,
                  text_mid(FONT_ROW, y, STRIP_H), msg, OSD_GREY, w);
         return;

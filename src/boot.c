@@ -4,12 +4,16 @@
  *   has booted: check the window, load H:/cfw/gr2_main.bin into the heap,
  *   apply its relocations, zero its .bss and call its cfw_main.
  *
- * - cfw_ldr_hook(n, &ldr_state): the flashed debug loader (M10, loader ABI v1)
- *   after every section load in the root init task, from the section where the
- *   stub decided (stub v2: section 3, after JobSystem step 4 has started the
- *   lens; v1: section 1). The first hook reads stage 2 while nothing can race the
- *   card (DCFMount lives in section 8) and writes nothing to the card; the card
- *   stays mounted, so the boot task's remount after section 9 is a short one.
+ * - cfw_ldr_hook(n, &ldr_state): a flashed loader stub (loader ABI v1; the debug
+ *   loader from H:/cfw, M10; the release firmware from A:/cfw, M11: the `rom`
+ *   build, CFW_ROM) after every section load in the root init task, from the
+ *   section where the stub decided (section 3, after JobSystem step 4 has started
+ *   the lens; debug stub v1: section 1). The first hook checks this image's
+ *   length and CRC-32 (the stub's LoadFile truncates silently) and disarms on a
+ *   mismatch; it then reads stage 2 while nothing can race the card (DCFMount lives
+ *   in section 8) and writes nothing to the card; the card stays mounted, so the
+ *   boot task's remount after section 9 is a short one. The rom build reads stage 2
+ *   from A: with LoadFile and never touches the card in the hooks.
  *   hook(13) starts the "CFWldr" task and disarms the loader; that task waits
  *   until JobSystem boot step 13 (which queues Startup.ttl to the Script task) has
  *   finished, then calls cfw_main exactly like the Startup.ttl path. Step 13 does
@@ -53,14 +57,95 @@ static uint32_t window_tail_not_ff(void) {
     return bad;
 }
 
+/* 1 if the window holds this image as linked: the length field (+12) is the linked size and
+ * the CRC-32 (+16, IEEE as zlib.crc32) over [0, 16) + [20, length) matches (include/boot.h,
+ * scripts/stage1_crc.py). Must run before anything in the window is written (.data, .bss).
+ * ~32 K table steps (~1 ms [I]); the table lives on the caller's stack only meanwhile. */
+static int image_ok(void) {
+    const uint8_t *p = (const uint8_t *)GR2_CFW_WINDOW_BASE;
+    const uint32_t *w = (const uint32_t *)GR2_CFW_WINDOW_BASE;
+    uint32_t len = w[CFW_S1_LEN_OFF / 4];
+    if (len != (uint32_t)(__image_end__ - (char *)GR2_CFW_WINDOW_BASE)) return 0;
+    uint32_t t[256];
+    for (uint32_t i = 0; i < 256; i++) {
+        uint32_t c = i;
+        for (int k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1)));
+        t[i] = c;
+    }
+    uint32_t c = 0xFFFFFFFFu;
+    for (uint32_t i = 0; i < len; i++) {
+        if (i == CFW_S1_CRC_OFF) {
+            i += 3;                    /* the CRC field itself */
+            continue;
+        }
+        c = t[(c ^ p[i]) & 0xFF] ^ (c >> 8);
+    }
+    return ~c == w[CFW_S1_CRC_OFF / 4];
+}
+
+static int hdr_ok(const cfw_main_hdr_t *h) {
+    return h->magic == CFW_MAIN_MAGIC && h->image_size != 0 && !(h->image_size & 3) && !(h->bss_size & 3) &&
+           h->entry < h->image_size && h->hook < h->image_size;
+}
+
+static int relocate(uint8_t *base, uint32_t image_size, uint32_t off) {
+    if (off > image_size - 4 || (off & 3)) {
+        ERR_HEX("boot: bad relocation", off);
+        return -1;
+    }
+    *(uint32_t *)(base + off) += (uint32_t)base;
+    return 0;
+}
+
+static void finish_main(uint8_t *base, const cfw_main_hdr_t *h, uint32_t *base_out, uint32_t *entry_out,
+                        uint32_t *hook_out) {
+    for (uint32_t i = 0; i < h->bss_size; i += 4) *(uint32_t *)(base + h->image_size + i) = 0;
+    *base_out = (uint32_t)base;
+    *entry_out = (uint32_t)base + h->entry;
+    *hook_out = (uint32_t)base + h->hook;
+}
+
+#if CFW_ROM
+/* A: (finding 29 §9.3): LoadFile scans the directory twice per call, File_Read twice per read. Two calls:
+ * the header, then header + image + relocations into one block with room for the larger of .bss and the
+ * relocations; stage 2 runs 32 bytes into the block, the relocation words become its .bss. */
+static int load_main(uint32_t *base_out, uint32_t *entry_out, uint32_t *hook_out) {
+    cfw_main_hdr_t h;
+    int n = GR2_FN_LOAD_FILE(CFW_MAIN_PATH, &h, sizeof(h));
+    if (n < 0) {
+        ERR("boot: " CFW_MAIN_PATH " missing");
+        return -1;
+    }
+    if (n != (int)sizeof(h) || !hdr_ok(&h) || h.nrelocs > h.image_size / 4) {
+        ERR("boot: " CFW_MAIN_PATH " invalid");
+        return -1;
+    }
+    uint32_t rel = 4 * h.nrelocs, want = sizeof(h) + h.image_size + rel;
+    uint32_t size = sizeof(h) + h.image_size + (h.bss_size > rel ? h.bss_size : rel);
+    uint8_t *blk = GR2_FN_MEMORY_ALLOC(size);
+    if (!blk || ((uint32_t)blk & 3)) {
+        ERR_HEX("boot: Memory_Alloc failed, bytes", size);
+        return -1;
+    }
+    if (GR2_FN_LOAD_FILE(CFW_MAIN_PATH, blk, want) != (int)want) {
+        ERR("boot: " CFW_MAIN_PATH " truncated");
+        return -1;
+    }
+    uint8_t *base = blk + sizeof(h);
+    const uint32_t *r = (const uint32_t *)(base + h.image_size);
+    for (uint32_t i = 0; i < h.nrelocs; i++)
+        if (relocate(base, h.image_size, r[i])) return -1;
+    finish_main(base, &h, base_out, entry_out, hook_out);
+    return 0;
+}
+#else
 static int read_all(int fd, void *buf, uint32_t size) {
     return GR2_FN_FILE_READ(fd, buf, size) == (int)size ? 0 : -1;
 }
 
-static int load_main(int fd, uint32_t *base_out, uint32_t *entry_out, uint32_t *hook_out) {
+static int load_fd(int fd, uint32_t *base_out, uint32_t *entry_out, uint32_t *hook_out) {
     cfw_main_hdr_t h;
-    if (read_all(fd, &h, sizeof(h)) || h.magic != CFW_MAIN_MAGIC || h.image_size == 0 ||
-        (h.image_size & 3) || (h.bss_size & 3) || h.entry >= h.image_size || h.hook >= h.image_size) {
+    if (read_all(fd, &h, sizeof(h)) || !hdr_ok(&h)) {
         ERR("boot: " CFW_MAIN_PATH " invalid");
         return -1;
     }
@@ -80,21 +165,25 @@ static int load_main(int fd, uint32_t *base_out, uint32_t *entry_out, uint32_t *
             ERR("boot: relocations truncated");
             return -1;
         }
-        for (uint32_t i = 0; i < n; i++) {
-            if (chunk[i] > h.image_size - 4 || (chunk[i] & 3)) {
-                ERR_HEX("boot: bad relocation", chunk[i]);
-                return -1;
-            }
-            *(uint32_t *)(base + chunk[i]) += (uint32_t)base;
-        }
+        for (uint32_t i = 0; i < n; i++)
+            if (relocate(base, h.image_size, chunk[i])) return -1;
         done += n;
     }
-    for (uint32_t i = 0; i < h.bss_size; i += 4) *(uint32_t *)(base + h.image_size + i) = 0;
-    *base_out = (uint32_t)base;
-    *entry_out = (uint32_t)base + h.entry;
-    *hook_out = (uint32_t)base + h.hook;
+    finish_main(base, &h, base_out, entry_out, hook_out);
     return 0;
 }
+
+static int load_main(uint32_t *base_out, uint32_t *entry_out, uint32_t *hook_out) {
+    int fd = GR2_FN_FILE_OPEN(CFW_MAIN_PATH, FILE_READ);
+    if (fd == 0) {
+        ERR("boot: " CFW_MAIN_PATH " missing");
+        return -1;
+    }
+    int rc = load_fd(fd, base_out, entry_out, hook_out);
+    GR2_FN_FILE_CLOSE(fd);
+    return rc;
+}
+#endif
 
 /* Window check + stage 2 into the heap. 0 on success. */
 static int preload(uint32_t *base, uint32_t *entry, uint32_t *hook) {
@@ -103,14 +192,7 @@ static int preload(uint32_t *base, uint32_t *entry, uint32_t *hook) {
         ERR_HEX("window 0xA0017000-0xA001EFFF in use by someone else, bytes changed", dirty);
         return -1;
     }
-    int fd = GR2_FN_FILE_OPEN(CFW_MAIN_PATH, FILE_READ);
-    if (fd == 0) {
-        ERR("boot: " CFW_MAIN_PATH " missing");
-        return -1;
-    }
-    int rc = load_main(fd, base, entry, hook);
-    GR2_FN_FILE_CLOSE(fd);
-    return rc;
+    return load_main(base, entry, hook);
 }
 
 static cfw_boot_t g_boot;
@@ -135,6 +217,10 @@ int cfw_boot(void) {
         /* The flashed loader already runs this stage 1: `fload` has just rewritten
          * it under the running CFW. Do not start a second one. */
         ERR("boot: flashed loader active, Startup.ttl must not load the CFW (remove it from the card)");
+        return -1;
+    }
+    if (!image_ok()) {
+        ERR("boot: stage 1 length/CRC mismatch (gr2_cfw.bin truncated or corrupt), CFW not started");
         return -1;
     }
     uint32_t base = 0, entry = 0, hook = 0;
@@ -178,9 +264,17 @@ static void ldr_task(uint32_t arg) {
  * Log lines are held until cfw_ldr_start. */
 void cfw_ldr_hook(uint32_t n, volatile uint32_t *state) {
     if (g_ldr_first) {                 /* the loader never ran _start */
+        int bad = !image_ok();         /* the window exactly as the stub loaded it */
         for (uint32_t *p = __bss_start__; p < __bss_end__; p++) *p = 0;
         g_ldr_first = 0;
         cfw_log_hold();
+        if (bad) {
+            /* Truncated or corrupt: nothing else of this image runs (no stage 2, no CFWldr task), so the
+             * line stays in stage 1's hold buffer in RAM. */
+            ERR("boot (loader): stage 1 length/CRC mismatch, CFW disarmed");
+            *state = CFW_LDR_DISARMED;
+            return;
+        }
         uint32_t base = 0, t = GR2_FN_SYSTEM_GETTIME();
         g_ldr_err = preload(&base, &g_main_entry, &g_main_hook);
         if (!g_ldr_err) make_boot(base, 1, t);

@@ -1,7 +1,9 @@
 /* Film recipes (findings 19, 20). CFW task only.
  *
  * A recipe is an ASCII text file in H:/cfw/recipes with `key=value` lines
- * (# comments, CRLF). README "Recipes" documents the keys. Applying a recipe
+ * (# comments, CRLF). The rom build (release firmware) lists the built-in
+ * recipes in A:/cfw/recipes plus the card's: a card file with the same 8.3 name
+ * replaces the built-in one. README "Recipes" documents the keys. Applying a recipe
  * writes it into a My Settings slot file (MY1..MY3): the slot keeps its other
  * settings, the recipe's properties and the slot name change. The recipe's
  * look (colour matrix, hue sectors, tone curves, post matrix; include/look.h)
@@ -28,6 +30,8 @@ void *memset(void *dst, int c, size_t n);              /* src/mem.c */
 void *memcpy(void *dst, const void *src, size_t n);
 
 #define DIR_PATH  "H:/cfw/recipes"
+#define ROM_DIR   "A:/cfw/recipes/"      /* rom: FindFirst on A: matches a raw path prefix (finding 29 §3) */
+#define PATH_LEN  32                     /* A: full paths are at most 31 characters (finding 29 §2) */
 #define NAME_LEN  24
 #define FILE_READ 0x00
 #define UNSET     (-128)
@@ -118,7 +122,8 @@ typedef struct {
 } recipe_t;
 
 typedef struct {
-    char sfn[13];
+    char sfn[13];          /* 8.3 name, upper case: the recipe's identity (config rcK.*, card overrides) */
+    char path[PATH_LEN];   /* where it is read from: H:/cfw/recipes/<sfn> or (rom) A:/cfw/recipes/<name> */
     char name[NAME_LEN];
     const base_t *base;
     int8_t con;
@@ -213,16 +218,27 @@ static int in_range(const char *v, int lo, int hi, int8_t *out) {
 
 /* ---- parsing ----------------------------------------------------------------------- */
 
-static int read_file(const char *sfn) {
-    char path[48], *p = path;
+/* H:/cfw/recipes/<sfn> */
+static void card_path(char *path, const char *sfn) {
     const char *d = DIR_PATH "/";
-    while (*d) *p++ = *d++;
-    for (int i = 0; sfn[i] && i < 12; i++) *p++ = sfn[i];
-    *p = 0;
-    int fd = GR2_FN_FILE_OPEN(path, FILE_READ);
-    if (fd == 0) return -1;
-    int n = GR2_FN_FILE_READ(fd, g_buf, sizeof(g_buf) - 1);
-    GR2_FN_FILE_CLOSE(fd);
+    while (*d) *path++ = *d++;
+    for (int i = 0; sfn[i] && i < 12; i++) *path++ = sfn[i];
+    *path = 0;
+}
+
+static int read_file(const char *path) {
+    int n;
+#if CFW_ROM
+    if (path[0] == 'A') {              /* LoadFile: two A: directory scans, File_Read takes two per read */
+        n = GR2_FN_LOAD_FILE(path, g_buf, sizeof(g_buf) - 1);
+    } else
+#endif
+    {
+        int fd = GR2_FN_FILE_OPEN(path, FILE_READ);
+        if (fd == 0) return -1;
+        n = GR2_FN_FILE_READ(fd, g_buf, sizeof(g_buf) - 1);
+        GR2_FN_FILE_CLOSE(fd);
+    }
     if (n <= 0 || n >= (int)sizeof(g_buf) - 1) return -1;   /* empty, error or too large */
     g_buf[n] = 0;
     return n;
@@ -359,8 +375,8 @@ static void log_file_err(const char *what, const char *sfn, uint32_t value) {
     cfw_log_hex(msg, value);
 }
 
-static int load(const char *sfn, recipe_t *r) {
-    if (read_file(sfn) < 0) {
+static int load(const char *path, const char *sfn, recipe_t *r) {
+    if (read_file(path) < 0) {
         log_file_err("ERROR recipes: cannot read (or > 4 KB) ", sfn, 0);
         return -1;
     }
@@ -548,7 +564,7 @@ static void cache_update(void) {
 /* ---- early look (flashed loader, boot-task hooks; M10c) ------------------------------- */
 
 /* First loader hook: the slot looks from the D: cache; a slot the cache does not hold
- * (or holds for another file) is read from its recipe file if the card is there. */
+ * (or holds for another file) is read from its recipe file if the card is there (not rom). */
 void recipes_early_load(void) {
     if (!W) W = GR2_FN_MEMORY_ALLOC(sizeof(work_t));
     if (!W) return;                    /* recipes_init reports it */
@@ -559,10 +575,14 @@ void recipes_early_load(void) {
         if (has && g_early[k].ok && str_eq(g_early[k].sfn, sfn)) continue;
         if (g_early[k].ok || g_early[k].sfn[0]) g_cache_stale = 1;
         memset(&g_early[k], 0, sizeof(g_early[k]));
+#if !CFW_ROM   /* rom: the D: cache only (no card access in the boot hooks); recipes_init rebuilds the slot */
         /* quiet: a missing or bad file is reported by recipes_init in the task */
-        if (!has || read_file(sfn) < 0 || parse(&g_r) != 0) continue;
+        char path[PATH_LEN];
+        card_path(path, sfn);
+        if (!has || read_file(path) < 0 || parse(&g_r) != 0) continue;
         fill_early(&g_early[k], sfn, g_r.base->mode, &g_r.look);
         g_cache_stale = 1;
+#endif
     }
 }
 
@@ -617,7 +637,7 @@ int recipes_apply(int i, int k) {
     uint16_t name16[GR2_MY_NAME_BYTES / 2];
     if (i < 0 || i >= g_n || k < 0 || k >= N_SLOTS) return RECIPE_E_SLOT;
     if (*(volatile uint32_t *)(GR2_FN_UI_STATE() + 0x274)) return RECIPE_E_BUSY;
-    if (load(g_list[i].sfn, &g_r)) return RECIPE_E_FILE;
+    if (load(g_list[i].path, g_list[i].sfn, &g_r)) return RECIPE_E_FILE;
     int n = recipe_props(&g_r, pv);
     for (int c = 0; c < GR2_MY_NAME_BYTES / 2; c++) name16[c] = 0;
     for (int c = 0; g_r.name[c] && c < 32; c++) name16[c] = (uint8_t)g_r.name[c];
@@ -664,6 +684,52 @@ const look_t *recipes_look(int i, int *mono) {
     return &g_list[i].look;
 }
 
+static int find_sfn(const char *sfn) {
+    for (int i = 0; i < g_n; i++) if (str_eq(g_list[i].sfn, sfn)) return i;
+    return -1;
+}
+
+/* One listing into g_list. Card: FindFirst appends the wildcard and returns 8.3 names plus "." and "..". rom, A:: dir
+ * is a raw prefix, names are full paths (sfn holds garbage). A file with the 8.3 name of a listed one replaces it
+ * (the card's own copy of a built-in recipe), unless it cannot be read. */
+static int scan(const char *dir, int rom) {
+    void *h = GR2_FN_FIND_FIRST(dir, &g_find);
+    if (!h) return 0;
+    int full = 0;
+    do {
+        char sfn[13], path[PATH_LEN];
+        if (g_find.attr & GR2_FIND_ATTR_DIR) continue;
+        if (rom) {
+            const char *b = g_find.name, *d = dir;
+            while (*d && *b == *d) { b++; d++; }
+            int n = 0;
+            while (b[n] && b[n] != '/') n++;
+            if (*d || b[n] || n > 12 || (b - g_find.name) + n >= PATH_LEN || !ends_with_txt(b)) continue;
+            for (int i = 0; i <= n; i++) sfn[i] = (b[i] >= 'a' && b[i] <= 'z') ? (char)(b[i] - 32) : b[i];
+            copy_str(path, g_find.name, PATH_LEN);
+        } else {
+            if (g_find.name[0] == '.' || !ends_with_txt(g_find.name)) continue;
+            copy_str(sfn, g_find.sfn, sizeof(sfn));
+            card_path(path, sfn);
+        }
+        int i = find_sfn(sfn);
+        if (i < 0 && g_n == RECIPES_MAX) {
+            full = 1;
+            break;
+        }
+        if (load(path, sfn, &g_r)) continue;
+        entry_t *e = &g_list[i < 0 ? g_n++ : i];
+        copy_str(e->sfn, sfn, sizeof(e->sfn));
+        copy_str(e->path, path, PATH_LEN);
+        copy_str(e->name, g_r.name, NAME_LEN);
+        e->base = g_r.base;
+        e->con = g_r.con;
+        e->look = g_r.look;
+    } while (GR2_FN_FIND_NEXT(h, &g_find) == 1);
+    GR2_FN_FIND_CLOSE(h);
+    return full;
+}
+
 void recipes_init(void) {
     g_n = 0;
     if (!W) W = GR2_FN_MEMORY_ALLOC(sizeof(work_t));
@@ -672,26 +738,12 @@ void recipes_init(void) {
         return;
     }
     cache_load();
-    void *h = GR2_FN_FIND_FIRST(DIR_PATH, &g_find);
-    if (h) {
-        do {
-            if (g_find.attr & GR2_FIND_ATTR_DIR) continue;
-            if (g_find.name[0] == '.' || !ends_with_txt(g_find.name)) continue;
-            if (g_n == RECIPES_MAX) {
-                ERR("recipes: more than 24 files, ignoring the rest");
-                break;
-            }
-            entry_t *e = &g_list[g_n];
-            copy_str(e->sfn, g_find.sfn, sizeof(e->sfn));
-            if (load(e->sfn, &g_r)) continue;
-            copy_str(e->name, g_r.name, NAME_LEN);
-            e->base = g_r.base;
-            e->con = g_r.con;
-            e->look = g_r.look;
-            g_n++;
-        } while (GR2_FN_FIND_NEXT(h, &g_find) == 1);
-        GR2_FN_FIND_CLOSE(h);
-    }
+#if CFW_ROM
+    if (scan(ROM_DIR, 1) | scan(DIR_PATH, 0))
+#else
+    if (scan(DIR_PATH, 0))
+#endif
+        ERR("recipes: more than 24 files, ignoring the rest");
     sort_list();
     for (int i = 0; i < g_n; i++) g_names[i] = g_list[i].name;
     cfw_ui_set_recipes(g_names, g_n);

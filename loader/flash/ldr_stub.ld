@@ -1,5 +1,6 @@
-/* Places the two flashed-loader patches (ldr_stub.S) at their APP addresses.
- * Used only by scripts/build_loader_frm.py; nothing else links against it. */
+/* Places the two flashed-loader patches (ldr_stub.S debug loader, rom_stub.S release
+ * firmware: same sections and symbol) at their APP addresses.
+ * Used only by scripts/build_loader_frm.py and scripts/build_cfw_frm.py. */
 OUTPUT_FORMAT("elf32-bigarm", "elf32-bigarm", "elf32-bigarm")
 OUTPUT_ARCH(arm)
 ENTRY(ldr_stub)

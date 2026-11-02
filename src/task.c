@@ -4,8 +4,9 @@
  *   - until JobSystem step 10 (APP exists): nothing but waiting;
  *   - then every 20 ms: Effect-button requests, key input, INFO and the VIEW
  *     overlays, a 1 s heartbeat for `cfw status`;
- *   - fonts once the card is readable (after the boot task's remount); menu
- *     requests wait for them, the Recipes menu also for the recipe scan;
+ *   - fonts once the card is readable (after the boot task's remount; rom:
+ *     from A: at the same point); menu requests wait for them, the Recipes
+ *     menu also for the recipe scan;
  *   - "late" (loader hooks over, step 13 done): settings_init (the settings
  *     were applied at boot already: it records labels and saves the config),
  *     the recipe scan and the 200 ms settings / recipe-look polls.

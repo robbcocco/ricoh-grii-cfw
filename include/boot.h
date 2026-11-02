@@ -3,17 +3,21 @@
 #include <stdint.h>
 
 /* Two-stage payload.
- *   Stage 1 (bin/<v>/gr2_cfw.bin, H:/cfw/gr2_cfw.bin): fixed in the 32 KiB IPL-tail
- *   window 0xA0017000 (src/boot.c, src/entry.S, src/veneers.S). Started by
- *   Startup.ttl; loads stage 2 into the heap, relocates it and calls it.
- *   Stage 2 (bin/<v>/gr2_main.bin, H:/cfw/gr2_main.bin): everything else, linked at
- *   0 and relocated at load (no size limit from the window).
+ *   Stage 1 (bin/<v>/gr2_cfw.bin; H:/cfw/gr2_cfw.bin, ROM: A:/cfw/gr2_cfw.bin): fixed in the 32 KiB
+ *   IPL-tail window 0xA0017000 (src/boot.c, src/entry.S, src/veneers.S). Started by Startup.ttl
+ *   or a flashed loader stub; loads stage 2 into the heap, relocates it and calls it.
+ *   Stage 2 (bin/<v>/gr2_main.bin; H:/cfw/gr2_main.bin, ROM: A:/cfw/gr2_main.bin): everything
+ *   else, linked at 0 and relocated at load (no size limit from the window).
  *
  * gr2_main.bin = cfw_main_hdr_t, image (text + data), nrelocs u32 image offsets
  * of absolute words that need + load address (made by scripts/mkmain.py). */
 
 #define CFW_MAIN_MAGIC   0x47524D31u   /* "GRM1" */
+#if CFW_ROM
+#define CFW_MAIN_PATH    "A:/cfw/gr2_main.bin"   /* release firmware: the RES A: drive (finding 29) */
+#else
 #define CFW_MAIN_PATH    "H:/cfw/gr2_main.bin"
+#endif
 
 typedef struct {
     uint32_t magic;
@@ -39,12 +43,19 @@ typedef struct cfw_boot {
     volatile uint32_t *off_target;
 } cfw_boot_t;
 
-/* Flashed debug loader, ABI v1 (loader/flash/README.md §3): stage 1 carries
+/* Flashed loader, ABI v1 (loader/flash/README.md §3): stage 1 carries
  * CFW_LDR_MAGIC at +4 and its hook entry at +8; the stub's status word. */
 #define CFW_LDR_MAGIC     0x47524C31u  /* "GRL1" */
 #define CFW_LDR_STATE     ((volatile uint32_t *)0xA00AFD70u)   /* 0xFFFFFFFF in stock firmware */
 #define CFW_LDR_ARMED     5            /* stub: stage 1 is called after every section load */
 #define CFW_LDR_DISARMED  6            /* stage 1: no further calls */
+
+/* Stage-1 self-check (all variants): +12 the image length (= the file size), +16 its CRC-32 (IEEE,
+ * as zlib.crc32) over bytes [0, 16) and [20, length); filled in after linking by
+ * scripts/stage1_crc.py. The stubs' LoadFile truncates a file silently at 0x8000 bytes and the
+ * stub checks only the magic, so stage 1 verifies itself before it runs anything else. */
+#define CFW_S1_LEN_OFF    12
+#define CFW_S1_CRC_OFF    16
 
 typedef int (*cfw_main_fn)(const cfw_boot_t *boot);
 /* Called by stage 1 after every APP section load n (loader only, from the first hook, right

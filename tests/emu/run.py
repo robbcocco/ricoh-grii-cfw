@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Emulator smoke test of the CFW (both stages, real code) against b01firm8.
 
-    python3 tests/emu/run.py [--variant release|debug] [--render OUT_DIR]
+    python3 tests/emu/run.py [--variant release|debug|rom] [--render OUT_DIR]
 
 Boots stage 1 like `fload` + `ex`, loads stage 2 from the modelled H: drive,
-then drives the CFW task functions through the scenarios below. Exit 0 when
+then drives the CFW task functions through the scenarios below. The rom
+variant (release firmware, M11) runs its own scenario: boots through a model
+of the release stub with the CFW on the A: drive (scripts/rom_files.py). Exit 0 when
 all checks pass, 1 on a failure or missing inputs. Inputs (`make fw`, not in
 the repo):
     GR2_FW          firmware image (default fw/b01firm8.bin)
@@ -22,6 +24,7 @@ import types
 HERE = pathlib.Path(__file__).resolve().parent
 CFW = HERE.parents[1]
 sys.path.insert(0, str(HERE))
+sys.path.insert(1, str(CFW / 'scripts'))
 
 KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_OK, KEY_EFFECT = 0x4206, 0x4207, 0x4208, 0x4209, 0x420A, 0x421C
 MENU_SETTINGS, MENU_RECIPES = 0, 1
@@ -102,16 +105,19 @@ class Checks:
 class Session:
     """One emulated camera: boot + the CFW task's start sequence (src/task.c)."""
 
-    def __init__(self, ctx, files=None, props=None, slots=None, loader=False, on_hook=None, drop=()):
+    def __init__(self, ctx, files=None, props=None, slots=None, loader=False, on_hook=None, drop=(), cfw_files=True,
+                 card=True):
+        """cfw_files: the card carries cfw/recipes and cfw/fonts (the SD zip); card=False: no card at all."""
         import machine
         self.ctx = ctx
-        self.m = m = machine.Machine(ctx.inputs, ctx.variant, str(CFW), files=files, props=props, slots=slots)
+        self.m = m = machine.Machine(ctx.inputs, ctx.variant, str(CFW), files=files, props=props, slots=slots,
+                                     card=card)
         ctx.machines.append(m)
-        for p in sorted((CFW / 'recipes').glob('*.txt')):
+        for p in sorted((CFW / 'recipes').glob('*.txt')) if cfw_files else ():
             m.put_file('H:/cfw/recipes/' + p.name, p.read_bytes())
-        for p in sorted((CFW / 'recipes' / 'licenses').glob('*')):
+        for p in sorted((CFW / 'recipes' / 'licenses').glob('*')) if cfw_files else ():
             m.put_file('H:/cfw/recipes/licenses/' + p.name, p.read_bytes())
-        for p in sorted((CFW / 'fonts').glob('*.fnt')):
+        for p in sorted((CFW / 'fonts').glob('*.fnt')) if cfw_files else ():
             m.put_file('H:/cfw/fonts/' + p.name, p.read_bytes())
         for path in drop:                       # card files that are gone in this session
             del m.files[path.upper()]
@@ -1000,10 +1006,120 @@ def sc_store(ctx):
     finish(ctx, s3)
 
 
+def sc_rom(ctx):
+    """Release firmware (rom build, M11): stage 1's length/CRC fields; stage 1 from A: through the release-stub model,
+    stage 2, fonts and built-in recipes from A:; no card access in the boot hooks nor in the CFW task before step 13.
+    First boot with an empty D: (first start, or stock formatted it after a battery pull) and a card config:
+    settings_early is skipped (the camera's Clarity at the IQ-ready call, no early look); the late phase imports the
+    card config, applies it, writes D: and the card copy, lists the A: recipes plus the card's (a card file with a
+    built-in's 8.3 name replaces it), shows MY2's look and saves the look cache; the log holds only ERROR lines (a
+    broken card recipe). Next boot from that D: without a card: the config and MY2's look at the IQ-ready call, the
+    A: recipes only, no log. A stage 1 with one flipped bit, or truncated, disarms at its first hook: no stage 2, no
+    task, no file access; its ERROR line stays in stage 1's RAM log buffer."""
+    import machine
+    import stage1_crc
+    check = ctx.check
+    s1 = (CFW / 'bin' / 'rom' / 'gr2_cfw.bin').read_bytes()
+    check(stage1_crc.check(s1) is None, f'bin/rom/gr2_cfw.bin: {stage1_crc.check(s1)}')
+    builtin = [r for r in ctx.recipes if r['file'] != 'lvtest.txt' and not r['file'].startswith('t_')]
+    portra = next(r for r in builtin if r['file'] == 'portra.txt')
+    src = (CFW / 'recipes' / 'portra.txt').read_bytes()
+    card_portra = src.replace(b'\r\nname=Portra 400\r\n', b'\r\nname=Portra Card\r\n')
+    mine = (CFW / 'recipes' / 'gold.txt').read_bytes().replace(b'\r\nname=Gold 200\r\n', b'\r\nname=Mine\r\n')
+    check(card_portra != src and b'name=Mine' in mine, 'recipe name lines not found')
+    card = {'H:/cfw/config.txt': b'rc2.0=504F5254\r\nrc2.1=52412E54\r\nrc2.2=58540000\r\nclarity=00000009\r\n',
+            'H:/cfw/recipes/portra.txt': card_portra, 'H:/cfw/recipes/mine.txt': mine,
+            'H:/cfw/recipes/bad.txt': b'name=Bad\r\nbase=nope\r\n'}
+    aef = (machine.A_AEF, 0x2D8)                                # AE_F, loaded by CapInit(5) (finding 35)
+    iq_site = 0xA01B584A                                        # IQ-ready BL in CapInit(5) (finding 32)
+
+    def boot(files, card=True):
+        seen = {}
+
+        def on_hook(mm, n):
+            if n == machine.LOADER_DECIDE_SECTION:              # JobSystem step 2 ran later, CapInit(5) not yet
+                mm.w32(machine.A_MODE_PROPS_FINAL, 1)
+                seen['iq_ctx'] = mm.u32(machine.A_IQ_CTX_PTR)
+                mm.w32(machine.A_IQ_CTX_PTR, 0)
+                seen['aef'] = mm.rd(*aef)
+                mm.wr(aef[0], bytes(aef[1]))
+            if n == 5:
+                mm.w32(machine.A_IQ_CTX_PTR, seen['iq_ctx'])
+                mm.wr(aef[0], seen['aef'])
+                mm.run_range(iq_site | 1, iq_site + 4, stack=machine.ROOT_TASK_STACK, task='boot')   # CapInit(5)
+                view = object.__new__(Session)
+                view.m = mm
+                seen['look_at_iq'] = view.look_shown({3: portra['flags']})
+                seen['clarity_at_iq'] = mm.props[0xCE]
+            if n == 10:
+                mm.boot_step_done(10)
+            if n in (10, 6):                                    # the early CFW task: loop live, fonts after hook(9)
+                mm.call('cfw_task_poll')
+            if n == 13:                                         # last hook: CFWldr / cfw_main / late phase follow
+                seen['fonts'] = mm.u32(mm.syms['g_task_fonts'])
+                seen['io'] = list(mm.io)
+        s = Session(ctx, files=files, props={0x2D: 4, 6: 2, 0xCE: 5}, loader=True, on_hook=on_hook, cfw_files=False,
+                    card=card)
+        hooks_io = seen['io']
+        check(hooks_io[0] == ('LoadFile', machine.ROM_STAGE1, 'stub') and
+              [e for e in hooks_io if e[2] == 'boot'][:2] == [('LoadFile', 'A:/cfw/gr2_main.bin', 'boot')] * 2,
+              f'stage 1 / stage 2 not read from A: by LoadFile: {hooks_io[:3]}')
+        check(s.rc == 0 and s.m.u32(machine.LDR_STATE) == 6, 'not armed and disarmed after section 13')
+        h = [e for e in hooks_io if e[1].upper().startswith('H:')]
+        check(not h, f'card accessed before JobSystem step 13 (boot hooks, early CFW task): {h}')
+        a_fonts = sorted(k for k in s.m.a_files if k.startswith('A:/cfw/fonts/'))
+        fonts = sorted({e[1] for e in hooks_io if e[1].startswith('A:/cfw/fonts/') and e[2] == 'CFW'})
+        check(seen['fonts'] == 1 and len(a_fonts) == 5 and fonts == a_fonts, f'fonts not read from A:: {fonts}')
+        return s, seen
+
+    # First boot: D: empty, card with config, a replacement for a built-in recipe, an own recipe and a broken one.
+    s, seen = boot(card)
+    m = s.m
+    check(seen['clarity_at_iq'] == 5 and not seen['look_at_iq'],
+          'empty D:: settings or look applied at the IQ-ready call (settings_early must be skipped)')
+    check(m.props[0xCE] == 9 and 'clarity=00000009' in m.cfg_text() and 'rc2.0=504F5254' in m.cfg_text() and
+          m.file('H:/cfw/config.txt').decode() == m.cfg_text(),
+          f'card config not imported and saved in the late phase: {m.cfg_text()!r}')
+    want = sorted([r['name'] for r in builtin if r['file'] != 'portra.txt'] + ['Portra Card', 'Mine'], key=str.lower)
+    check(s.recipe_names() == want, f'recipes: {s.recipe_names()} != {want}')
+    check(('LoadFile', 'A:/cfw/recipes/portra.txt', 'CFW') in m.io and
+          ('File_Open', 'H:/cfw/recipes/PORTRA.TXT', 'CFW') in m.io, 'A: recipe or its card replacement not read')
+    check(s.look_shown({3: portra['flags']}), 'MY2 look not shown after the late phase')
+    check(m.store('D:/CFW/LOOK_A.DAT', 'D:/CFW/LOOK_B.DAT') is not None, 'look cache not saved to D:')
+    log = m.log_lines()
+    check(log and all(l.startswith('ERROR') for l in log) and any('BAD.TXT' in l for l in log), f'log: {log}')
+    m.files.pop('H:/CFW/CFW_LOG.TXT')                           # the expected ERROR line
+    finish(ctx, s)
+
+    # Next boot: D: from the first one, no card.
+    s2, seen2 = boot(m.d_files(), card=False)
+    m2 = s2.m
+    check(seen2['clarity_at_iq'] == 9 and seen2['look_at_iq'], 'D: config or MY2 look not applied at the IQ-ready call')
+    check(s2.recipe_names() == sorted([r['name'] for r in builtin], key=str.lower), f'recipes: {s2.recipe_names()}')
+    check(s2.look_shown({3: portra['flags']}) and m2.props[0xCE] == 9, 'MY2 look or Clarity lost after the late phase')
+    check(not [e for e in m2.io if e[1].upper() == 'H:/CFW/CFW_LOG.TXT'], 'log written without an error')
+    finish(ctx, s2)
+
+    # Stage 1 corrupt (one bit in its zero padding) or truncated (window tail stays 0xFF): disarmed at the first hook.
+    flipped = bytearray(s1)
+    flipped[len(s1) // 2] ^= 0x10
+    for what, data in (('one flipped bit', bytes(flipped)), ('truncated', s1[:0x7000])):
+        mm = machine.Machine(ctx.inputs, 'rom', str(CFW))
+        ctx.machines.append(mm)
+        mm.a_files[machine.ROM_STAGE1] = data
+        ran = mm.loader_hooks(machine.LOADER_SHOOTING)
+        held = mm.rd(mm.syms1['g_hold'], 2048)                  # stage 1's boot-task log buffer
+        check(ran == [3] and mm.u32(machine.LDR_STATE) == 6 and not mm.allocs and not mm.tasks and
+              mm.io == [('LoadFile', machine.ROM_STAGE1, 'stub')],
+              f'{what}: hooks {ran}, state {mm.u32(machine.LDR_STATE)}, allocs {mm.allocs}, io {mm.io}')
+        check(b'ERROR boot (loader): stage 1 length/CRC mismatch' in held, f'{what}: no ERROR line held')
+
+
 SCENARIOS = [('boot', sc_boot), ('menu', sc_menu), ('snap', sc_snap), ('recipes', sc_recipes),
              ('palette', sc_palette), ('dev', sc_dev), ('recipe-files', sc_recipe_files), ('view', sc_view),
              ('ae-hooks', sc_ae_hooks), ('console', sc_console), ('loader', sc_loader), ('pattern', sc_pattern),
              ('store', sc_store)]
+ROM_SCENARIOS = [('rom', sc_rom)]          # the rom variant boots only through the release stub
 
 
 # ---- main -----------------------------------------------------------------------------------------------
@@ -1013,7 +1129,7 @@ def run_variant(variant, inputs, renderer):
     ctx = types.SimpleNamespace(variant=variant, inputs=inputs, renderer=renderer, check=Checks(),
                                 machines=[], recipes=shipped_recipes())
     ok = True
-    for name, fn in SCENARIOS:
+    for name, fn in (ROM_SCENARIOS if variant == 'rom' else SCENARIOS):
         ctx.check.scenario = f'{variant}/{name}'
         try:
             fn(ctx)
@@ -1028,26 +1144,26 @@ def run_variant(variant, inputs, renderer):
             ok = False
             print(f'FAIL {variant}/{name}: harness error')
             traceback.print_exc()
-    if variant == 'release':
+    if variant in ('release', 'rom'):
         logged = [m.file('H:/cfw/cfw_log.txt') for m in ctx.machines if m.file('H:/cfw/cfw_log.txt') is not None]
         if logged:
             ok = False
-            print(f'FAIL release/log: H:/cfw/cfw_log.txt written: {logged[0][:200]!r}')
+            print(f'FAIL {variant}/log: H:/cfw/cfw_log.txt written: {logged[0][:200]!r}')
         else:
-            print('PASS release/log (no cfw_log.txt)')
+            print(f'PASS {variant}/log (no cfw_log.txt)')
     return ok
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--variant', choices=['release', 'debug'], help='default: both')
+    ap.add_argument('--variant', choices=['release', 'debug', 'rom'], help='default: all')
     ap.add_argument('--render', metavar='OUT_DIR', help='write PNGs of key screens')
     args = ap.parse_args()
     inputs, missing = load_inputs()
     if inputs is None:
         print('ERROR firmware inputs not found (run make fw):\n  ' + '\n  '.join(missing))
         return 1
-    variants = [args.variant] if args.variant else ['release', 'debug']
+    variants = [args.variant] if args.variant else ['release', 'debug', 'rom']
     for v in variants:
         for f in ('gr2_cfw.bin', 'gr2_cfw.elf', 'gr2_main.bin', 'gr2_main.elf'):
             if not (CFW / 'bin' / v / f).is_file():

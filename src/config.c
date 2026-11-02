@@ -4,7 +4,7 @@
  * first boot after a battery pull or crash (finding 34 §11); when D: holds no
  * valid copy (that, Reset Settings, a first start) the card copy is imported and
  * the next cfg_save writes it back to D:. Owned by the CFW task; the loader's
- * first hook only loads. File_Open flags (File.c, 0xA002C70F): 0x00 = "r",
+ * first hook only loads (rom: from D: only, the card is read in the task's late phase). File_Open flags (File.c, 0xA002C70F): 0x00 = "r",
  * 0x01 = "w" (create/truncate). */
 #include <stdint.h>
 #include "config.h"
@@ -86,25 +86,27 @@ static int read_card(void) {
     return n;
 }
 
-void cfg_load(void) {
+int cfg_load(int card) {
     g_n = 0;
     g_dirty = 0;
     if (!S) S = GR2_FN_MEMORY_ALLOC(sizeof(cfg_store_t));
     if (!S) {
         ERR("config: Memory_Alloc failed, settings will not be saved");
-        return;
+        return 0;
     }
     int n = store_load(&g_file, g_io, sizeof(g_io));
     if (n >= 0) {
         parse_text(g_io, n);
         DBG_HEX2("config: D: (generation, entries)", g_file.gen, (uint32_t)g_n);
-        return;
+        return 1;
     }
+    if (!card) { DBG("config: none on D:"); return 0; }
     n = read_card();
-    if (n < 0) { DBG("config: none"); return; }
+    if (n < 0) { DBG("config: none"); return 0; }
     parse_text(g_io, n);
     g_dirty = 1;                       /* the next cfg_save moves it to D: */
     DBG_HEX("config: imported " CARD_PATH ", entries", (uint32_t)g_n);
+    return 1;
 }
 
 int cfg_has(const char *key) {

@@ -5,10 +5,15 @@
 #define CFW_LOG_PATH "H:/cfw/cfw_log.txt"
 
 /* Build variants (Makefile): CFW_DEBUG=1 writes every log line, CFW_DEBUG=0
- * (release) writes only ERR lines; DBG calls compile to nothing and their
- * arguments are not evaluated. Messages passed to ERR must be literals. */
+ * (release, rom) writes only ERR lines; DBG calls compile to nothing and their
+ * arguments are not evaluated. Messages passed to ERR must be literals.
+ * CFW_ROM=1 (rom): the CFW lives in the release firmware's A: drive (the project plan):
+ * code, fonts and built-in recipes from A:/cfw, no card access in the boot hooks. */
 #ifndef CFW_DEBUG
 #define CFW_DEBUG 1
+#endif
+#ifndef CFW_ROM
+#define CFW_ROM 0
 #endif
 
 /* Append one line to CFW_LOG_PATH: "msg", "label 0xV", "label 0xA 0xB". */

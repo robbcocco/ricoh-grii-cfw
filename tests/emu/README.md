@@ -1,7 +1,9 @@
 # Emulator tests
 
-`make emu` (or `python3 tests/emu/run.py [--variant release|debug] [--render OUT_DIR]` after `make fw`) runs
-the built CFW (`bin/<variant>/`) in Unicorn against the stock APP image and checks the scenarios below. It
+`make emu` (or `python3 tests/emu/run.py [--variant release|debug|rom] [--render OUT_DIR]` after `make fw`) runs
+the built CFW (`bin/<variant>/`, all three by default) in Unicorn against the stock APP image and checks the
+scenarios below: release and debug run every scenario except `rom`, the rom variant (release firmware, M11) runs
+only `rom`. It
 takes a few seconds; `make test` (and CI) runs it. Exit 0 = pass, 1 = failure or missing inputs.
 
 **Inputs** come from the stock firmware (`make fw` → `fw/`, never committed):
@@ -21,7 +23,12 @@ with stock values, IQ.bin at a pool address with absolute section pointers (`*0x
 index), palette with two
 hardware banks. Firmware entry points the CFW calls are Python stubs (`FN`): properties, H: and D: files
 (D: subdirectories via `File_Mkdir`) and directory listing, My Settings slot files, Memory_Alloc (bump), tasks,
-time, mutexes, palette/layer, Msg_Post, ADC, temperatures. Firmware code in `REAL_CODE` runs for real (the
+time, mutexes, palette/layer, Msg_Post, ADC, temperatures. A: is the RES drive of the release firmware with the
+files of `scripts/rom_files.py` (rom variant): read-only, case-sensitive full paths; `File_Open` mode 0 and
+`File_Read`, `LoadFile` (min(size, max) bytes or -1), `FindFirst`/`FindNext` as a raw prefix match returning full
+paths (sfn = the first 12 bytes, attr 0x01, no `.`/`..`), as the stock code does in emulation (finding 29 §3). Every
+file-system call is logged as (API, path, task) in `Machine.io`; `card=False` models a camera without a card (every
+H: open and listing fails). Firmware code in `REAL_CODE` runs for real (the
 string resolver, the patched Effect, IQ-ready and power-off BL sites); executing anything else outside the CFW
 raises with the address.
 
@@ -72,11 +79,26 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   late phase. The stub itself is checked by `scripts/emu_loader.py`.
 - `store`: config on D: in two generations with the card copy (finding 34): import, alternation, a torn newest
   file, D: over a stale card copy, defaults with nothing.
+- `rom` (rom variant only): `bin/rom/gr2_cfw.bin` carries valid length/CRC fields (`scripts/stage1_crc.py`). Boots
+  through a model of the release stub (`loader/flash/rom_stub.S`: at section 3 `LoadFile(A:/cfw/gr2_cfw.bin)` into
+  the window, ABI magic, then the hook after every section load; the stub itself runs for real in
+  `scripts/emu_release.py`) with the shooting order and the CapInit(5) world of `loader`. Every boot: stage 1 from A:
+  by the stub, stage 2 by two `LoadFile` calls of stage 1, fonts from `A:/cfw/fonts` by the early CFW task, and no
+  H: access at all before JobSystem step 13 (hooks and the early task). First boot, D: empty, card with a config
+  (Clarity 9, MY2 = Portra), a card `portra.txt` with another name, an own recipe and a broken one: Clarity stays 5
+  and no look at the IQ-ready call (`settings_early` skipped); after the late phase Clarity 9, config on D: and the
+  card copy, the recipe list = the A: recipes (no `lvtest`/`t_*`) with the card's Portra replacing the built-in one
+  plus the own recipe, MY2's look shown, look cache on D:, and the log holds only ERROR lines (the broken recipe).
+  Second boot with that D: and no card: Clarity 9 and MY2's look at the IQ-ready call, A: recipes only, no log
+  write. Stage 1 with one flipped bit (in its zero padding) or truncated to 0x7000 bytes: only the first hook runs,
+  `ldr_state` 6, no allocation, no task, no file access besides the stub's, the ERROR line in stage 1's RAM log
+  buffer.
 - Task stacks: every call runs on the stack of the task it belongs to (CFW 0x3000, Script 0x4000, boot task
   0x4000, `CFWldr` as created); the stock file API stubs fail when the remaining stack is below the stock
   worst case (finding 31).
 - After every scenario: no open file/directory handles, property lock and mutexes balanced, no `Prop_Set`
-  outside the lock, no `ERROR` in the debug log; release writes no `cfw_log.txt` at all.
+  outside the lock, no `ERROR` in the debug log; release and rom write no `cfw_log.txt` at all (`rom` removes
+  its one expected ERROR log after checking it).
 
 `--render DIR` writes `<variant>_<screen>.png` (menu tabs, recipes strip, apply prompt, screenshot, VIEW
 overlays) with the real palette and the full plane (layer 2) over a gradient backdrop.

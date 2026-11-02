@@ -4,7 +4,9 @@ A 132-byte stub in the APP image that loads the CFW's stage 1 from the card earl
 
 | File | Purpose |
 |---|---|
-| `ldr_stub.S`, `ldr_stub.ld` | Stub source and the two patch placements |
+| `ldr_stub.S`, `ldr_stub.ld` | Debug-loader stub source and the two patch placements (also used for `rom_stub.S`) |
+| `rom_stub.S` | Release-firmware stub (M11): stage 1 from `A:/cfw/gr2_cfw.bin`, no mount (§8) |
+| `../../scripts/build_cfw_frm.py`, `../../scripts/emu_release.py`, `../../scripts/rom_files.py` | M11 release firmware `dist/rg2_v003_cfw.frm` + manifest, its independent check (byte checks + stock `up`/A: code on a simulated NAND), the A: file set (`make rom`, §8) |
 | `../../scripts/build_loader_frm.py` | Builds `dist/rg2_v003_loader.frm` and `dist/rg2_v003_loader.diff.txt` from the stock `fw/rg2_v003.frm` (`make fw`). Run by `make loader` / `make test` and CI; the output contains Ricoh's firmware and is never published. |
 | `../../scripts/emu_loader.py` | Independent byte check of that `.frm` plus a Unicorn run of the patched hook path |
 | `probe/Startup.ttl` + `../../scripts/loader_timing.py` | Data-only probe: boot timeline (the APP's own section-load profile) and the loader status word |
@@ -108,13 +110,14 @@ The 132 bytes left no room for a `DriveMounted` pre-check or a range check of th
 
 ### Stage-1 loader ABI v1 (M10b passed on hardware 2026-11-01; M10c stage-2 hooks built, F4 pending)
 
-- `gr2_cfw.bin` +0: `b` over the header (the `ex 0xA0017001` entry is unchanged). +4: `0x47524C31`. +8: Thumb address (odd) of `cfw_ldr_hook(uint32_t n, volatile uint32_t *ldr_state)`, inside the window (`src/entry.S`, `src/boot.c`). `package_sd.py` checks all three.
+- `gr2_cfw.bin` +0: `b` over the header (the `ex 0xA0017001` entry is unchanged). +4: `0x47524C31`. +8: Thumb address (odd) of `cfw_ldr_hook(uint32_t n, volatile uint32_t *ldr_state)`, inside the window (`src/entry.S`, `src/boot.c`). +12: image length (= file size). +16: CRC-32 (zlib) over `[0, 16)` + `[20, length)`. `scripts/stage1_crc.py` writes +12/+16 after `objcopy` for every variant; `package_sd.py` (and `rom_files.py` for the release firmware) checks all five.
+- Self-check: stage 1 verifies +12/+16 over the window at its first hook, before `.bss`/`.data` are touched; on a mismatch (e.g. a file truncated by `LoadFile` at `0x8000`) it logs ERROR into its RAM hold buffer, writes `*ldr_state = 6` and runs nothing else.
 - The hook runs in the boot task (root init task, stack 0x4000), right after section n was loaded and before anything executed it. Every millisecond it spends delays boot.
   - It must return.
   - It may write `*ldr_state = 6` to stop further calls.
   - On the first call it zeroes stage 1's `.bss` (as `_start` does) and holds its log lines in RAM.
 - **Policy (M10b, hardware-verified F3; M10c F4–F8b 2026-11-02; settings at boot and the early task built, F9 pending):**
-  - **First hook (section 3 with stub v2, section 1 with v1):** window check, then read `H:/cfw/gr2_main.bin` into the heap and relocate it and call stage 2's `cfw_hook` (second header entry). The card stays mounted: the T4 build unmounted it, which did not help the lens and made the boot task's own mount after section 9 ~0.2 s slower (F4 T4/F5 logs). Stage 1 then calls `cfw_hook(n, boot)` after every later section load.
+  - **First hook (section 3 with stub v2, section 1 with v1):** self-check and window check, then read `gr2_main.bin` into the heap (debug/release: `H:/cfw/gr2_main.bin`; `rom` variant: `A:/cfw/gr2_main.bin` with two `LoadFile` calls, the 32-byte header and then header + image + relocations, stage 2 at block + 32), relocate it and call stage 2's `cfw_hook` (second header entry). The card stays mounted: the T4 build unmounted it, which did not help the lens and made the boot task's own mount after section 9 ~0.2 s slower (F4 T4/F5 logs). Stage 1 then calls `cfw_hook(n, boot)` after every later section load.
   - **Nothing is written to H: before step 13.** The boot task remounts the card right after hook(9) (finding 32), and a USB-charge boot loads only section 1. Both stages hold their log lines in RAM (`cfw_log_hold`; stage 2: one 2 KiB buffer for the boot task, one for the early CFW task) and write them once from the `CFWldr` task. Every file opened in a hook is closed before it returns; the early CFW task only reads the card (fonts) until its late phase.
   - **Stage 2, first hook:** the config from `D:/CFW` (card copy if D: has none) and the MY1–MY3 looks from the D: look cache (a recipe file on the card for a slot the cache lacks).
   - **Stage 2, hook(10) (patch-on-load):** menus (records, language/attribute/font tables, string bounds), Effect press/hold BLs, the APP message-handler slot and (debug) the power-off BL are installed into section 10 before it first runs. No stock code rewrites any of them later, and no later section load covers them (finding 32). Then the Snap labels and `Task_Create` of the CFW task (finding 35 §3): it waits for JobSystem step 10, then runs its 20 ms loop (Effect requests, input, INFO, VIEW overlays), reads the fonts at the hook after hook(9), and takes over settings, looks and saves only after `cfw_main`.
@@ -240,9 +243,9 @@ The exact instructions for each step (what to put on the card, what the screens 
 | F9 | no | N + debug | settings on the first frame, CFW from ~1.2 s | — (**passed 2026-11-02**) |
 | U | stock bytes | S | `LDR_STATE` FFFFFFFF | R + combo |
 
-### 6.4 M11 P-steps (release firmware; after F3; not buildable yet)
+### 6.4 M11 P-steps (release firmware; after F3 and M12/F10)
 
-`scripts/build_cfw_frm.py` does not exist yet. R1a–c are answered statically and in emulation by finding 29 (A: drive append with a new directory, RES ≤ `0x7E0000`, `LoadFile("A:/…")`, plan B APP section 7); F1a settles R1d. The planned steps follow milestone M11. Each needs the §6.1 preconditions and cards R/S:
+`make rom` builds and checks `dist/rg2_v003_cfw.frm` (§8). R1a–c are answered statically and in emulation by finding 29 and `scripts/emu_release.py` (A: drive append with a new directory, RES ≤ `0x7E0000`, stock `up` search/install, `LoadFile("A:/…")` by the stub); F1a settled R1d. The steps follow milestone M11. Each needs the §6.1 preconditions and cards R/S:
 - **P1:** flash `rg2_v003_cfw.frm` from a card holding only it (renamed `rg2_v003.frm`). Pass: CFW up without a card, INFO shows the release version, release log empty. Recovery: half-press boot, then U.
 - **P2:** skip key, no card, USB, playback-first boot. Pass: stock where expected, no card access in USB mode.
 - **P3:** uninstall with card S. Pass: stock APP + RES back (byte-identical if a BAK/shell checksum is available).
@@ -274,3 +277,60 @@ The exact instructions for each step (what to put on the card, what the screens 
 12. IPL and BAK are never touched. They are the only recovery.
 
 One loader-source defect was found and fixed on 2026-11-01 (card access before section 1, finding 28); a second on 2026-11-02 (card access before the lens start, finding 33; stub v2).
+
+## 8. Release firmware (M11)
+
+`make rom` builds `dist/rg2_v003_cfw.frm` with `scripts/build_cfw_frm.py` and checks it with `scripts/emu_release.py` (also part of `make test`): stock 3.00 + `rom_stub.S` in APP + the CFW files appended to the A: drive in RES (finding 29 §8, milestone M11). The CFW binaries come from `bin/rom/` (variant `rom`: release logging plus `CFW_ROM=1`). `dist/rg2_v003_cfw.manifest.txt` records the output SHA-256, the container layout, the header fields, every A: entry (payload offset, size, SHA-256), the APP diff runs and the stub listing. The output contains Ricoh's firmware and is never published; nothing here is flashed (P-steps §6.4). The build is deterministic for a given `bin/rom/`.
+
+### 8.1 What changes
+
+| Where | Change |
+|---|---|
+| APP `b01firm8` | Exactly as §1 (hook BL `0xA0022E5C`, the 132-byte range `0xA00AFCF0`, `ldr_state` 0, nUpdateCsum recomputed), with `rom_stub.S` in the range; length and sizes stock |
+| RES header | `+0x164` nUpdateTotalSize, `+0x168` nUpdateFileSize = `0x200 + +0x164`, `+0x16C` nUpdateCsum; `+0x170..+0x17C` stay 1 (`bCheckRomSize` bounds the write, finding 29 §5); every other byte stock |
+| RES payload `0x0` | the u32 directory pointer, `0x785E00` → the new directory |
+| RES payload `0x4–0x787C7F` | stock bytes, including the old directory (unused) |
+| RES payload `0x787C80–0x787DFF` | `0x00` |
+| RES payload from `0x787E00` | the CFW files, each 0x200-aligned, `0x00` padding |
+| new directory | the 121 stock entries verbatim, then one 64-byte entry per CFW file (full path, offset, size, FAT date/time 2026-01-01 00:00 ×3, attribute `0x01`), then a 64-byte zero terminator ending exactly at nUpdateTotalSize. Stock entries come first, so stock lookups and stock `FindFirst` indices are unchanged |
+| container | RES entry length; the nested `rg2_v001up` container (byte-identical apart from APP) moves to the next sector; total length. `gr2frm.py repack` lays the containers out the way Ricoh's are (sector 4, then the next sector, `0xFF` padding) |
+
+**A: file set** (`scripts/rom_files.py`, read by the builder, the check and `tests/emu`): `A:/cfw/gr2_cfw.bin` (first, so the stub's lookup scans the fewest directory sectors), `A:/cfw/gr2_main.bin`, `A:/cfw/fonts/*.fnt` (every `fonts/*.fnt`), `A:/cfw/recipes/*.txt` (`recipes/*.txt` without the test recipes `lvtest.txt`, `t_*.txt`). A: names are full paths of at most 31 characters, case-sensitive, never empty (size 0 ends the directory), and none collides with a stock name or prefix (finding 29 §2). Stage 1 must fit `0x8000` and carry valid length/CRC fields (`scripts/stage1_crc.py`).
+
+**Sizes (2026-11-02 build):** RES payload `0x787C80` → `0x7A9AC0` (17 CFW files, 123 KB), data blocks `0x62–0x9F`; cap `0x7E0000` (blocks `0x62–0xA0`, finding 29 §5) leaves 222,528 B for more A: files. APP unchanged in size.
+
+### 8.2 Release stub (`rom_stub.S`)
+
+Same hook site, free range, status word and `ST_*` values as stub v2 (§3), decided on the first call with n == 3:
+1. `Port_Get(0x27) == 0` (half-press held): `ST_SKIP` = 1.
+2. `LoadFile("A:/cfw/gr2_cfw.bin", 0xA0017000, 0x8000) <= 0`: `ST_NOFILE` = 3.
+3. word `+4` ≠ "GRL1": `ST_NOABI` = 4.
+4. Otherwise `ST_ARMED` = 5, and stage 1's hook `*(0xA0017008)(n, &ldr_state)` runs after this and every later section load.
+
+No `File_MountMedia` and no `ST_NOMOUNT` (2): A: is the RES partition read raw from NAND with no mount, cache or content checksum, and it works in stage 0 (finding 29 §1, finding 30). The stub never touches the card, so boots without a card, over USB-charge (section 1 only: never decides) and in playback order load the CFW the same way. 17 bytes of the range are spare. `LoadFile` truncates silently, so stage 1 checks its own length (`+12`) and CRC-32 (`+16`) over the window at its first hook and disarms (`*ldr_state = 6`, nothing runs) on a mismatch. The emulated A: lookup of stage 1 takes 40 NAND read calls, 100 sectors.
+
+### 8.3 Check (`scripts/emu_release.py`, run 2026-11-02, ALL PASSED)
+
+- **Bytes, independent of the builder** (own directory parser and plain checksum loop): RES = stock up to `0x787C80` apart from the pointer and `+0x164..+0x16F`; `0x00` gap; the new directory = stock entries verbatim + the `rom_files()` entries + terminator at the payload end; every stock and CFW file byte-identical through it; `+0x168` = entry length = `0x200 + +0x164`; `bCheckRomSize` 1; both nUpdateCsum = the plain sum; APP differs only in the §1 ranges; the nested container only in APP; the outer header only in its three length/sector words; `gr2frm.py verify` passes.
+- **Stock code in Unicorn on a simulated NAND** (finding 29 §8.4: the APP's sections 0–14 at their load addresses; only block → sector, sector read/erase/program, the container file stream, allocators, semaphores, task id, logs and ctype are modelled):
+
+| Step | Result |
+|---|---|
+| `up` search `0xA004003A` for types 3/0/2/1 on a stock NAND (header check, full nUpdateCsum, ROM size) | only RES (`b01firm6`) and APP (`b01firm8`) found; one flipped payload bit is refused |
+| Destroy APP `0xA00402B0`, install `0xA0040286(6)`, `(8)` | header block first, then data blocks `0x62–0x9F` (RES) / from `0x21` (APP); the NAND holds both new images |
+| Boot reads with the installed APP | stock `LoadFile` of all 121 stock + 17 CFW A: files byte-identical; `FindFirst`/`FindNext` list `A:/cfw/fonts/` and `A:/cfw/recipes/` as full paths in directory order; `fopen`/`fread` of a recipe in 1000-byte chunks |
+| Stub A: armed, shooting order | `ldr_state` 5, one `LoadFile` at section 3, stage 1's real `+8` entry called after 3 5 10 11 8 9 6 12 13, window = the file |
+| Stub F: playback order | 5, hooks 3 8 9 10 11 6 4 5 12 13 |
+| Stub G: stage 1 disarms at section 5 | 6, hooks 3 5 |
+| Stub C: half-press held | 1, A: not read, window `0xFF` |
+| Stub B: A: without CFW files (stock RES) | 3 (`LoadFile` −1), window `0xFF` |
+| Stub E: stage 1 without "GRL1" | 4, loaded, never called |
+| Stub I: USB-charge boot (section 1 only) | 0, nothing read |
+| Stock reinstall from the CFW camera (stock `.frm`, same `up` sequence) | passes; NAND byte-identical to stock except block `0x9F` past the stock RES end (unreachable CFW bytes; `up` never erases blocks after the new end); every stock A: file reads back, `A:/cfw/*` → −1 |
+
+The stub runs as flashed at the real hook site (as in §4), with the stock `LoadFile` and A: code underneath. Any card access (`File_MountMedia`, the FAT layer), a `LoadFile` other than `A:/cfw/gr2_cfw.bin` at section 3, a write into APP code or into the window outside `LoadFile`, or changed `r4`–`r7`/SP fails the run. The debug-loader APP fails it (card access), and so does a stub that decides at section 1. Not covered: real NAND timing and ECC, bad-block remapping, and the stage-1/stage-2 code itself on A: (that runs in `make emu`, `tests/emu/README.md`).
+
+### 8.4 Risks
+- A RES that passes `up` but has a broken directory makes stage 0's `LoadFile("A:/fix/Sys_F.bin")` assert → BAK → power off; only the rescue card recovers (finding 29 §7). The builder and the check parse the directory exactly like the camera and read every stock file back through it.
+- The P-steps (§6.4) need F1b (rescue card + combo) passed, which it has.
+- IPL and BAK are never touched; uninstall is the stock `.frm` through the same menu (U), emulated above.

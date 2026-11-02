@@ -29,6 +29,10 @@
 #define GR2_FN_FILE_WRITE    ((int (*)(int, const void *, uint32_t))0xA002CC4B) /* size or -1 */
 #define GR2_FN_FILE_CLOSE    ((int (*)(int))0xA002C905)
 #define GR2_FN_FILE_MKDIR    ((int (*)(const char *))0xA002E6ED)            /* 1 created, 0 exists, -1 error (finding 34) */
+/* LoadFile(path, dst, max): bytes read = min(size, max) (a larger file is truncated silently) or -1.
+ * On A: (the RES drive, read-only, no mount; finding 29 §3) two directory scans per call, where
+ * File_Read costs two per call; on other drives File_Open/Read/Close. */
+#define GR2_FN_LOAD_FILE     ((int (*)(const char *, void *, uint32_t))0xA002CD2D)
 #define GR2_FN_PROP_GET      ((uint32_t (*)(uint32_t))0xA00E0E2F)           /* Prop_Get(id), runs the per-property getter hook */
 #define GR2_FN_PROP_GET_RAW  ((uint32_t (*)(uint32_t))0xA00E0E81)           /* stored value, no getter hook */
 #define GR2_FN_PROP_SET      ((void (*)(uint32_t, uint32_t))0xA00E0C95)     /* scalar setter, no range check */
@@ -40,7 +44,10 @@
  * FindFirst takes a directory ("H:/cfw/recipes", upper-case drive) and appends
  * the match-all wildcard itself (it cannot filter); returns a handle or 0.
  * FindNext returns 1 per entry, 0 at the end. Every non-zero handle must be
- * closed. "." and ".." are returned. */
+ * closed. "." and ".." are returned.
+ * A: (finding 29 §3, stock code emulated): the pattern is a raw, case-sensitive
+ * path prefix ("A:/cfw/recipes/"); name = the full path, sfn = its first 12 bytes,
+ * attr 0x01, no directories, no "." / "..". */
 typedef struct {
     char     name[0x200];          /* +0x000 long name (else 8.3), NUL-terminated */
     char     sfn[13];              /* +0x200 "NAME.EXT" 8.3 name */

@@ -14,7 +14,8 @@ No Startup.ttl: on a camera with the loader it would load stage 1 a second time 
 running one (loader/flash/README.md §3). Also writes dist/SHA256SUMS.txt and dist/RELEASE_NOTES.md.
 
 Checks before packaging: recipe files are ASCII with CRLF only, recipe file names are
-8.3, stage 1 fits the 32 KiB loader window and links at 0xA0017000, stage 2 has a valid header
+8.3, stage 1 fits the 32 KiB loader window, links at 0xA0017000 and carries valid length/CRC
+self-check fields (scripts/stage1_crc.py), stage 2 has a valid header
 and carries the current VERSION string, the .frm is the reviewed loader build.
 """
 
@@ -29,6 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 sys.path.insert(0, str(ROOT / "scripts"))
+import stage1_crc  # noqa: E402
 from flash_kit import LOADER_SHA  # noqa: E402  (the reviewed loader build)
 
 LOADER_FRM = DIST / "rg2_v003_loader.frm"
@@ -122,6 +124,9 @@ def check_payload(variant: str, version: str) -> tuple:
             not WINDOW_BASE <= hook & ~1 < WINDOW_BASE + len(data):
         fail(f"{bin_path}: loader ABI v1 header (b over it, 'GRL1' at +4, Thumb hook in the image at +8) "
              "missing or wrong: rebuild")
+    bad = stage1_crc.check(data)
+    if bad:
+        fail(f"{bin_path}: self-check fields (+12 length, +16 CRC-32): {bad}: rebuild")
     main = main_path.read_bytes()
     magic, image_size, _bss, _entry, nrelocs = struct.unpack_from(">5I", main)
     if magic != MAIN_MAGIC or len(main) != 32 + image_size + 4 * nrelocs:
