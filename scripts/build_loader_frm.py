@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Build dist/rg2_v003_loader.frm: stock rg2_v003.frm + the M10 flashed loader (`make loader`).
 
-Builds and checks only; flashing follows loader/flash/README.md §6 and needs
+Builds and checks only; flashing is a user step (the camera's menu update) and needs
 `make check` (pre-flight safety gates) first. The output contains Ricoh's
-firmware: never publish it.
+firmware; it is published only as rg2_v003.frm in the debug zip (scripts/package_sd.py).
 
 Steps:
   1. Stock SHA-256 of the input (default fw/rg2_v003.frm from `make fw`).
@@ -263,7 +263,7 @@ def main(argv=None):
 
     # ── report ──
     rep = [
-        "rg2_v003_loader.frm - M10 flashed loader (NOT FLASHED; read loader/flash/README.md first)",
+        "rg2_v003_loader.frm - M10 flashed loader (loader/flash/README.md; the debug zip's rg2_v003.frm)",
         "built by scripts/build_loader_frm.py from loader/flash/ldr_stub.S",
         "",
         f"stock   {a.stock.name}  {len(frm):,} B  sha256 {sha256(frm)}",

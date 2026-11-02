@@ -3,7 +3,7 @@
 
 Each step folder holds STEP.md (what to do, pass/fail, recovery) and card*/
 directories whose contents are exactly the root of the SD card for that step.
-Full rationale and risks: loader/flash/README.md §6/§7. Nothing here touches a
+Full rationale and risks: loader/flash/README.md; test record: the reverse-engineering notes finding 36. Nothing here touches a
 card or the camera; the user copies the files.
 
 Inputs, all checked: fw/rg2_v003.frm (stock, SHA-256), dist/rg2_v003_loader.frm
@@ -338,7 +338,7 @@ Send me: `cfw_log.txt` and what you saw in 2–7.
      """\
 **Writes flash:** no. **Writes:** two spare bits of the camera's clock chip (finding 30; your R2a probe).
 
-What changed (all on the card; the project plan): a start counts as failed unless the CFW runs 20 s or the camera is switched
+What changed (all on the card): a start counts as failed unless the CFW runs 20 s or the camera is switched
 off normally. After two failed starts in a row the CFW stays off (stock camera) until you switch on once with PLAY.
 DEV → "Boot stock once" gives one stock start. The skip key (shutter half-pressed) works as before.
 
@@ -368,7 +368,7 @@ from the card at boot) and the CFW files added to A:. Replaces the debug loader.
    `H:/cfw/config.txt` and any own recipes in `H:/cfw/recipes/` to the Mac.
 2. Card S: format in the camera, root = `card/` (only this `rg2_v003.frm`). Battery full. Menu update as in F1a:
    *New Version 3.00* → **Yes** → "Firmware update complete." → **OK** → the camera switches off.
-3. Switch on **without a card**: CFW Menu on Effect, Recipes lists the built-in films, frame lines/settings as before.
+3. Switch on **without a card**: CFW Menu on Effect, Recipes lists only Stock, frame lines/settings as before.
    (If the settings are back to defaults, the update cleared D:; step 5 brings them back.)
 4. Power off. Switch on with the **skip key**: stock camera (no CFW Menu). Power off.
 5. Card: format in the camera, create `cfw/` and put `config.txt` (and your own recipes in `cfw/recipes/`) back.
@@ -453,7 +453,7 @@ def main():
         "debug": {n: debug.read(n) for n in debug.namelist() if not n.endswith("/") and n != "rg2_v003.frm"},
     }
     index = ["# Flash steps", "", f"Built from gr2_cfw v{version}. Do them in order; each only after the previous one "
-             "passed and you reported the result. Details and risks: `loader/flash/README.md` §6/§7.", "", COMMON,
+             "passed and you reported the result. Details: `loader/flash/README.md`.", "", COMMON,
              "| Step | Writes flash | Folder |", "|---|---|---|"]
     for folder, title, cards, text in STEPS:
         d = OUT / folder

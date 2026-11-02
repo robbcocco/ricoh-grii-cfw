@@ -46,6 +46,6 @@ jobs:
           name: gr2_cfw ${{ github.ref_name }}
           body_path: dist/RELEASE_NOTES.md
           files: |
-            dist/gr2_cfw-v*-release.zip
-            dist/gr2_cfw-v*-debug.zip
+            dist/gr2_cfw-${{ github.ref_name }}.zip
+            dist/gr2_cfw-${{ github.ref_name }}-debug.zip
             dist/SHA256SUMS.txt

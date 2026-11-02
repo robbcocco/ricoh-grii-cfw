@@ -53,7 +53,7 @@ jobs:
       - name: Loader .frm build + check
         run: make loader
 
-      - name: SD bundles
+      - name: Release firmware + zips (make dist builds rom first)
         run: |
           make dist
           cd dist && sha256sum -c SHA256SUMS.txt

@@ -52,7 +52,8 @@ audit: all
 	done
 	@$(SIZE) $(ELFS)
 
-dist: audit loader
+# Official zip (release firmware + recipes) and the debug zip (debug loader + debug CFW), scripts/package_sd.py.
+dist: audit loader rom
 	$(PYTHON) scripts/package_sd.py
 
 # Stock firmware inputs in fw/ (local rg2_v003.frm or the official download; never committed).
@@ -69,7 +70,7 @@ loader: all fw
 	$(PYTHON) scripts/emu_loader.py
 
 # M11 release firmware: dist/rg2_v003_cfw.frm + manifest (stock 3.00 + rom stub + bin/rom and the
-# A: files in RES), then the independent byte check and stock-code emulation (loader/flash/README.md §8).
+# A: files in RES), then the independent byte check and stock-code emulation (loader/flash/README.md §5).
 rom: all fw
 	$(PYTHON) scripts/build_cfw_frm.py
 	$(PYTHON) scripts/emu_release.py
@@ -93,11 +94,12 @@ clean:
 
 help:
 	@echo "make            build all variants: release, debug, rom (bin/<variant>/gr2_{cfw,main}.bin)"
-	@echo "make dist       ISA audit + SD-card zips, SHA256SUMS.txt, RELEASE_NOTES.md in dist/"
+	@echo "make dist       ISA audit + loader + rom, then dist/gr2_cfw-v<VERSION>.zip (release) and -debug.zip,"
+	@echo "                SHA256SUMS.txt, RELEASE_NOTES.md"
 	@echo "make fw         stock firmware inputs into fw/"
 	@echo "make emu        emulator tests (EMU_ARGS=\"--render DIR\" for screen PNGs)"
-	@echo "make loader     build + check dist/rg2_v003_loader.frm (never publish it)"
-	@echo "make rom        build + check dist/rg2_v003_cfw.frm, the M11 release firmware (never publish it)"
+	@echo "make loader     build + check dist/rg2_v003_loader.frm (debug loader, in the debug zip)"
+	@echo "make rom        build + check dist/rg2_v003_cfw.frm, the release firmware (in the official zip)"
 	@echo "make flash-kit  dist/flash/: one folder per flash step (F, P) with the card contents"
 	@echo "make test       lint + audit + emu + loader + rom (what CI runs)"
 	@echo "make check      pre-flight safety gates before flashing"

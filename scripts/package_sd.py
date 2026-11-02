@@ -1,22 +1,34 @@
 #!/usr/bin/env python3
-"""Package the release and debug zips (`make dist`, after `make loader`).
+"""Package the official and the developer zip (`make dist`, after `make loader rom`).
 
-Each zip is an SD-card root (H:):
-    rg2_v003.frm         the flashed debug loader (dist/rg2_v003_loader.frm, SHA-256 checked): stock
-                         3.00 + the 132-byte stub that starts the CFW from cfw/ (until M11 replaces it
-                         with the release firmware that carries the CFW itself)
-    cfw/gr2_cfw.bin      (bin/<variant>/gr2_cfw.bin: stage 1, loaded by the flashed loader)
-    cfw/gr2_main.bin     (bin/<variant>/gr2_main.bin: stage 2, loaded by stage 1)
-    cfw/recipes/*        (recipes/: recipe files and their licence notice)
-    cfw/fonts/*          (fonts/: overlay fonts from scripts/make_fonts.py, OFL licences)
-    cfw/LICENSE.txt      (LICENSE: MIT for the CFW, third-party notes)
+Each zip is an SD-card root (H:).
+
+dist/gr2_cfw-v<VERSION>.zip, the release:
+    rg2_v003.frm              the release firmware dist/rg2_v003_cfw.frm (SHA-256 = the `output` line of
+                              dist/rg2_v003_cfw.manifest.txt, whose A: entries must be the current
+                              scripts/rom_files.py set): stock 3.00 with the CFW, its fonts and the rom stub
+                              built in (stage 1/2 and fonts are not in the zip)
+    cfw/recipes/*.txt         recipes/*.txt (8.3 names)
+    cfw/recipes/licenses/*    recipes/licenses/* (licence texts of the film data)
+    cfw/fonts/licenses/*      fonts/licenses/* (OFL texts of the fonts built into the firmware; no .fnt files)
+    cfw/LICENSE.txt           LICENSE (MIT for the CFW, third-party notes)
+    rescue/backup.ttl         loader/flash/rescue/backup.ttl (ASCII + CRLF): the stock-reflash rescue card
+                              script, inert until the user copies it to a card root (README "Recovery")
+
+dist/gr2_cfw-v<VERSION>-debug.zip, for development and bug reports:
+    rg2_v003.frm              the flashed debug loader (dist/rg2_v003_loader.frm, SHA-256 checked): stock
+                              3.00 + the 132-byte stub that starts the CFW from cfw/
+    cfw/gr2_cfw.bin           bin/debug/gr2_cfw.bin (stage 1, loaded by the flashed loader)
+    cfw/gr2_main.bin          bin/debug/gr2_main.bin (stage 2, loaded by stage 1)
+    cfw/fonts/*               fonts/ (overlay fonts from scripts/make_fonts.py, OFL licences)
+    cfw/recipes/*, cfw/LICENSE.txt   as in the release zip
 No Startup.ttl: on a camera with the loader it would load stage 1 a second time over the
 running one (loader/flash/README.md §3). Also writes dist/SHA256SUMS.txt and dist/RELEASE_NOTES.md.
 
-Checks before packaging: recipe files are ASCII with CRLF only, recipe file names are
-8.3, stage 1 fits the 32 KiB loader window, links at 0xA0017000 and carries valid length/CRC
-self-check fields (scripts/stage1_crc.py), stage 2 has a valid header
-and carries the current VERSION string, the .frm is the reviewed loader build.
+Checks before packaging: recipe files and the rescue script are ASCII with CRLF only, recipe
+file names are 8.3, stage 1 fits the 32 KiB loader window, links at 0xA0017000 and carries valid
+length/CRC self-check fields (scripts/stage1_crc.py), stage 2 has a valid header and carries the
+current VERSION string (debug and rom builds), the debug .frm is the reviewed loader build.
 """
 
 import hashlib
@@ -31,13 +43,11 @@ ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 sys.path.insert(0, str(ROOT / "scripts"))
 import stage1_crc  # noqa: E402
-from flash_kit import LOADER_SHA  # noqa: E402  (the reviewed loader build)
 
 LOADER_FRM = DIST / "rg2_v003_loader.frm"
-VARIANTS = {
-    "release": "Errors only in H:/cfw/cfw_log.txt. For everyday use.",
-    "debug": "Every log line, the key trace and the `cfw status` dump at power-off. For testing and bug reports.",
-}
+ROM_FRM = DIST / "rg2_v003_cfw.frm"
+ROM_MANIFEST = DIST / "rg2_v003_cfw.manifest.txt"
+RESCUE = ROOT / "loader" / "flash" / "rescue" / "backup.ttl"
 WINDOW_BASE = 0xA0017000
 WINDOW_SIZE = 0x8000
 MAIN_MAGIC = 0x47524D31   # include/boot.h CFW_MAIN_MAGIC
@@ -91,6 +101,17 @@ def collect_recipes() -> dict:
             members[f"cfw/recipes/licenses/{path.name}"] = path.read_bytes()
     return members
 
+
+def collect_font_licenses() -> dict:
+    """fonts/licenses/* -> cfw/fonts/licenses/ (OFL 1.1: the licence travels with every copy of the fonts,
+    also the ones built into the release firmware)."""
+    members = {f"cfw/fonts/licenses/{p.name}": p.read_bytes()
+               for p in sorted((FONTS / "licenses").iterdir()) if not p.name.startswith(".")}
+    if not members:
+        fail("fonts/licenses/ (OFL texts of the overlay fonts) is missing")
+    return members
+
+
 def collect_fonts() -> dict:
     """fonts/*.fnt -> cfw/fonts/, fonts/licenses/* -> cfw/fonts/licenses/."""
     members = {}
@@ -99,11 +120,7 @@ def collect_fonts() -> dict:
         if data[:4] != b"GFNT" or len(data) < 12 or int.from_bytes(data[8:12], "big") != len(data):
             fail(f"fonts/{name} missing or not a GFNT file: run scripts/make_fonts.py")
         members[f"cfw/fonts/{name}"] = data
-    for path in sorted((FONTS / "licenses").iterdir()):
-        if not path.name.startswith("."):
-            members[f"cfw/fonts/licenses/{path.name}"] = path.read_bytes()
-    return members
-
+    return {**members, **collect_font_licenses()}
 
 
 def check_payload(variant: str, version: str) -> tuple:
@@ -136,6 +153,27 @@ def check_payload(variant: str, version: str) -> tuple:
     return data, main
 
 
+def release_frm(version: str) -> bytes:
+    """dist/rg2_v003_cfw.frm as `make rom` built and recorded it, from the current bin/rom and A: file set."""
+    from flash_kit import manifest_sha          # here: flash_kit needs the manifest at import
+    from rom_files import RomError, rom_files
+    if not ROM_FRM.is_file():
+        fail("dist/rg2_v003_cfw.frm missing: run make rom")
+    check_payload("rom", version)
+    frm = ROM_FRM.read_bytes()
+    if hashlib.sha256(frm).hexdigest() != manifest_sha():
+        fail("dist/rg2_v003_cfw.frm does not match the output SHA-256 of dist/rg2_v003_cfw.manifest.txt: run make rom")
+    try:
+        files = rom_files(ROOT)
+    except RomError as ex:
+        fail(f"rom_files: {ex}")
+    manifest = ROM_MANIFEST.read_text()
+    listed = re.findall(r"^\s+0x[0-9A-F]+\s+[\d,]+\s+([0-9a-f]{64})\s+(A:/cfw/\S+)$", manifest, re.M)
+    if sorted(listed) != sorted((hashlib.sha256(d).hexdigest(), n) for n, d in files.items()):
+        fail("dist/rg2_v003_cfw.manifest.txt lists other A: files than bin/rom + scripts/rom_files.py: run make rom")
+    return frm
+
+
 def write_zip(path: Path, members: dict) -> None:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data in members.items():
@@ -146,65 +184,79 @@ def write_zip(path: Path, members: dict) -> None:
 
 
 def main() -> None:
+    from flash_kit import LOADER_SHA            # the reviewed loader build
     version = (ROOT / "VERSION").read_text().strip().lstrip("v")
     if not LOADER_FRM.is_file():
         fail("dist/rg2_v003_loader.frm missing: run make loader")
-    frm = LOADER_FRM.read_bytes()
-    if hashlib.sha256(frm).hexdigest() != LOADER_SHA:
+    loader = LOADER_FRM.read_bytes()
+    if hashlib.sha256(loader).hexdigest() != LOADER_SHA:
         fail("dist/rg2_v003_loader.frm is not the reviewed loader build (scripts/flash_kit.py LOADER_SHA)")
+    rom = release_frm(version)
     DIST.mkdir(exist_ok=True)
     for old in DIST.glob("gr2_cfw-v*.zip"):
         old.unlink()
     recipes = collect_recipes()
-    fonts = collect_fonts()
+    if not recipes:
+        fail("recipes/ holds no recipe files")
+    license_txt = (ROOT / "LICENSE").read_bytes()
+    boot, main_bin = check_payload("debug", version)
 
+    zips = {
+        f"gr2_cfw-v{version}.zip": ("release firmware: the CFW is built into `rg2_v003.frm`; `cfw/` holds the film "
+                                     "recipes, `rescue/` the rescue card script. For everyday use.",
+                                     {"rg2_v003.frm": rom, **recipes, **collect_font_licenses(),
+                                      "cfw/LICENSE.txt": license_txt, "rescue/backup.ttl": check_text(RESCUE)}),
+        f"gr2_cfw-v{version}-debug.zip": ("debug loader + debug CFW on the card (every log line, key trace, `cfw "
+                                          "status` at power-off). For development and bug reports only.",
+                                          {"rg2_v003.frm": loader, "cfw/gr2_cfw.bin": boot, "cfw/gr2_main.bin": main_bin,
+                                           **collect_fonts(), **recipes, "cfw/LICENSE.txt": license_txt}),
+    }
     sums = []
-    for variant in VARIANTS:
-        boot, main_bin = check_payload(variant, version)
-        zip_path = DIST / f"gr2_cfw-v{version}-{variant}.zip"
-        members = {"rg2_v003.frm": frm, "cfw/gr2_cfw.bin": boot, "cfw/gr2_main.bin": main_bin, **fonts, **recipes,
-                   "cfw/LICENSE.txt": (ROOT / "LICENSE").read_bytes()}
+    for name, (desc, members) in zips.items():
+        zip_path = DIST / name
         write_zip(zip_path, members)
-        sums.append((hashlib.sha256(zip_path.read_bytes()).hexdigest(), zip_path.name))
-        print(f"packaged {zip_path.relative_to(ROOT)} (stage 2 {len(main_bin)} B, {len(recipes)} recipe files)")
+        sums.append((hashlib.sha256(zip_path.read_bytes()).hexdigest(), name, desc))
+        print(f"packaged {zip_path.relative_to(ROOT)} ({len(members)} files)")
 
-    (DIST / "SHA256SUMS.txt").write_text("".join(f"{h}  {n}\n" for h, n in sums))
+    (DIST / "SHA256SUMS.txt").write_text("".join(f"{h}  {n}\n" for h, n, _ in sums))
 
     lines = [
         f"# gr2_cfw v{version}",
         "",
-        "Custom firmware for the Ricoh GR II (firmware 3.00). `rg2_v003.frm` is Ricoh's firmware 3.00 plus a "
-        "132-byte loader that starts the CFW from the card's `cfw/` folder at power-on. Without the card, or with "
-        "the shutter half-pressed while switching on, the camera boots stock.",
+        "Custom firmware for the Ricoh GR II (firmware 3.00). `rg2_v003.frm` in "
+        f"`gr2_cfw-v{version}.zip` is Ricoh's firmware 3.00 with the CFW built in: it starts with the camera, "
+        "with or without a card. Hold the shutter half-pressed while switching on to start stock once.",
         "",
         "## Install",
         "1. Charge the battery to **full**. Format a card **in the camera** (FAT32 if 32 GB or smaller).",
-        "2. Unzip **one** of the zips below into the card root. On macOS, remove `._*` files afterwards "
-        "(`find /Volumes/<card> -name '._*' -delete`). The card must hold no other `rg2_v*.frm`.",
+        f"2. Unzip `gr2_cfw-v{version}.zip` and copy **only `rg2_v003.frm`** to the card root. On macOS, remove "
+        "`._*` files afterwards (`find /Volumes/<card> -name '._*' -delete`). The card must hold no other "
+        "`rg2_v*.frm`.",
         "3. MENU → Set-up → *Confirm Firmware Version*: it shows **Execute?** with *New Version 3.00*. Choose **Yes**, "
         "wait for **Firmware update complete.**, press OK (the camera switches off), switch it on.",
-        "4. In *Key Custom Options*, set *Effect Button Setting* (or *Effect Button Hold Setting*) to **CFW Menu** or "
+        "4. Copy the zip's `cfw/` folder (the film recipes) to the card root; `rg2_v003.frm` can go.",
+        "5. In *Key Custom Options*, set *Effect Button Setting* (or *Effect Button Hold Setting*) to **CFW Menu** or "
         "**Recipes**.",
         "",
-        "Updating the CFW later only needs the new `cfw/` folder; reflash only when `rg2_v003.frm` changes. "
-        "Never put a `Startup.ttl` from older CFW versions on the card. Uninstall: flash Ricoh's official "
-        "`rg2_v003.frm` the same way.",
+        "Updating: install a newer `rg2_v003.frm` the same way; recipe files never need a reflash. Uninstall: flash "
+        "Ricoh's official `rg2_v003.frm` the same way. `rescue/backup.ttl` is the rescue card script for a camera "
+        "that no longer starts (README, *Recovery*); never leave it in a card root.",
         "",
         "## Licences",
         "The CFW is MIT-licensed (`cfw/LICENSE.txt`). `rg2_v003.frm` contains Ricoh's firmware, which is Ricoh's "
         "property and not covered by that licence; this project is not affiliated with Ricoh. "
-        "The film recipes in `cfw/recipes/` are derived from [a third-party GR III project fits of "
-        "[spektrafilm](https://github.com/andreavolpato/spektrafilm) looks by Andrea Volpato (CC BY-SA 4.0) and, for Classic Neg, of "
-        "[FujifilmCameraProfiles](https://github.com/abpy/FujifilmCameraProfiles) by abpy (CC BY-NC-SA 4.0: non-commercial only). "
-        "Attribution is in each recipe file; licence texts in `cfw/recipes/licenses/`. Film names are used descriptively; not affiliated with Kodak or Fujifilm. "
-        "The overlay fonts in `cfw/fonts/` are rendered from Inter and Barlow Condensed (SIL Open Font License 1.1, `cfw/fonts/licenses/`).",
+        "The film recipes in `cfw/recipes/` are derived from [a third-party GR III project "
+        "fits of [spektrafilm](https://github.com/andreavolpato/spektrafilm) looks by Andrea Volpato (CC BY-SA 4.0). "
+        "Attribution is in each recipe file; licence texts in `cfw/recipes/licenses/`. Film names are used "
+        "descriptively; not affiliated with Kodak or Fujifilm. "
+        "The overlay fonts built into the firmware are rendered from Inter and Barlow Condensed (SIL Open Font "
+        "License 1.1, `cfw/fonts/licenses/`).",
         "",
         "## Downloads",
-        "| File | Build | SHA-256 |",
+        "| File | Contents | SHA-256 |",
         "|---|---|---|",
     ]
-    for (h, n), (variant, desc) in zip(sums, VARIANTS.items(), strict=True):
-        lines.append(f"| `{n}` | {variant}: {desc} | `{h}` |")
+    lines += [f"| `{n}` | {desc} | `{h}` |" for h, n, desc in sums]
     lines.append("")
     (DIST / "RELEASE_NOTES.md").write_text("\n".join(lines))
 
