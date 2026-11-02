@@ -217,7 +217,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 - **F6** IQ-ready hook, no unmount — **passed 2026-11-02 [H]**: recipe colours on the first frame. Log: the IQ-ready call at 772 ms with the LV frame still 0, followed by `recipes: early look`; hook 9 → 6 back to 338 ms (F5: 531–667 ms); CFW task at 2.32–2.35 s (F5: 2.44–3.28 s); no `ERROR`. Data: the maintainer's hardware data.
 - **F7** power-off status hook, no `Shutdown.ttl` — **passed 2026-11-02 [H]**: both sessions end with `status: power-off` and the full status block (power-off BL `0xA00E9950` patched at hook(10)); the camera switches off faster than with `Shutdown.ttl`; no `ERROR`. Data: the maintainer's hardware data.
 - **F8** config and look cache on `D:/CFW` — **partly passed 2026-11-02 [H]**: written once, read back across normal power-offs, the early look came from the cache, and a slot whose recipe file left the card kept its cached look; but every battery pull lost all of `D:/CFW` (sessions 4 and 6: `config: none`, cache rebuilt). Cause: stock formats D: on the first boot after any unclean shutdown (finding 34 §11). Decision: keep D: plus a backup copy of the config on the card (the project plan option C). Data: the maintainer's hardware data.
-- **F8b** (no flash, `dist/flash/F8b-config-card-backup/`): after a battery pull the settings and the MY1 link come back from `H:/cfw/config.txt` and are saved to D: again.
+- **F8b** card backup copy — **passed 2026-11-02 [H]**: sessions 1–3 read `D:` (generations 1→3, the MY1 recipe changed twice); after the battery pull in session 3, session 4 logged `config: imported H:/cfw/config.txt`, still showed the MY1 look from the first frame (the debug first hook reads the card) and saved config and look cache back to D:; session 5 read D: again; no `ERROR`. Only recipe changes were exercised (settings use the same file). Data: the maintainer's hardware data.
 - **U** menu update with the stock `.frm`: `LDR_STATE` `FFFFFFFF` again.
 
 ### 6.3 Summary
@@ -235,7 +235,7 @@ The exact instructions for each step (what to put on the card, what the screens 
 | F6 | no | N + debug | look on the very first frame | — (**passed 2026-11-02**) |
 | F7 | no | N + debug, no `Shutdown.ttl` | `status: power-off` lines at every power-off | — (**passed 2026-11-02**; faster power-off) |
 | F8 | no (writes `D:/CFW`) | N + debug | settings + slot looks from D: | — (**partly passed 2026-11-02**: lost on every battery pull → F8b) |
-| F8b | no (writes `D:/CFW`, `cfw/config.txt`) | N + debug | settings back after a battery pull | half-press until the LCD comes on |
+| F8b | no (writes `D:/CFW`, `cfw/config.txt`) | N + debug | settings back after a battery pull | — (**passed 2026-11-02**) |
 | U | stock bytes | S | `LDR_STATE` FFFFFFFF | R + combo |
 
 ### 6.4 M11 P-steps (release firmware; after F3; not buildable yet)
