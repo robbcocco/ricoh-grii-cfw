@@ -180,6 +180,10 @@ void cfw_ldr_hook(uint32_t n, volatile uint32_t *state) {
         if (!g_ldr_err) make_boot(base, 1, t);
     }
     if (g_main_hook && !g_ldr_err) ((cfw_hook_fn)g_main_hook)(n, &g_boot);
+    /* Card reads are done: unmount and power the card down, so the boot task's mount after
+     * section 9 is a fresh one as in a stock boot. Testing whether the stub's early card
+     * session is what makes the lens extend, retract and extend again (finding 33, T4). */
+    if (n == 1) GR2_FN_FILE_UNMOUNT("H:");
     if (n == LDR_START_SECTION) {
         if (!GR2_FN_TASK_CREATE(ldr_task, 0, LDR_TASK_PRIO, LDR_TASK_STACK, "CFWldr")) g_ldr_err = 1;
         *state = CFW_LDR_DISARMED;

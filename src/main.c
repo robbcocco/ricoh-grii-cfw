@@ -33,7 +33,7 @@ static int install(const cfw_boot_t *boot) {
 #if CFW_DEBUG
 /* Boot timeline per hook, logged by cfw_main: when the look could land (finding 32). */
 #define TRACE_MAX 16
-static struct { uint8_t n, props, step2, step5; uint32_t t, lv; } g_trace[TRACE_MAX];
+static struct { uint8_t n, props, step2, step5, lens; uint32_t t, lv; } g_trace[TRACE_MAX];
 static int g_ntrace;
 
 static void trace(uint32_t n) {
@@ -44,15 +44,16 @@ static void trace(uint32_t n) {
     g_trace[g_ntrace].step2 = (uint8_t)GR2_BOOT_STEP_DONE(2);
     g_trace[g_ntrace].step5 = (uint8_t)GR2_BOOT_STEP_DONE(5);
     g_trace[g_ntrace].lv = GR2_LV_DISP_ADDR;
+    g_trace[g_ntrace].lens = GR2_LENS_MOTION_ID;
     g_ntrace++;
 }
 
 static void trace_log(void) {
     for (int i = 0; i < g_ntrace; i++) {
         cfw_log_hex2("hook: (n, systime)", g_trace[i].n, g_trace[i].t);
-        cfw_log_hex2("hook:   (props final | step2 << 8 | step5 << 16, LV frame)",
-                     g_trace[i].props | (uint32_t)g_trace[i].step2 << 8 | (uint32_t)g_trace[i].step5 << 16,
-                     g_trace[i].lv);
+        cfw_log_hex2("hook:   (props final | step2 << 8 | step5 << 16 | lens script << 24, LV frame)",
+                     g_trace[i].props | (uint32_t)g_trace[i].step2 << 8 | (uint32_t)g_trace[i].step5 << 16 |
+                     (uint32_t)g_trace[i].lens << 24, g_trace[i].lv);
     }
 }
 #endif

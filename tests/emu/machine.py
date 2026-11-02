@@ -77,6 +77,7 @@ SYSMODE_SHOOTING = 6
 FN = dict(
     memory_alloc=0xA0024D6E, file_open=0xA002C70E, file_read=0xA002CA98, file_write=0xA002CC4A,
     file_close=0xA002C904, find_first=0xA002EF58, find_next=0xA002F354, find_close=0xA002FA3C,
+    file_unmount=0xA002DF2E,
     prop_get=0xA00E0E2E, prop_get_raw=0xA00E0E80, prop_set=0xA00E0C94, prop_lock=0xA00E127A,
     prop_unlock=0xA00E1286, prop_sa_read=0xA00E0FFE, prop_sa_write=0xA00E100E, prop_path=0xA00DDB68,
     pdb_clone=0xA0037E14, pdb_load=0xA0037A42, pdb_save=0xA0037AE6, pdb_free=0xA0037478,
@@ -214,6 +215,7 @@ class Machine:
         self.rtos_tasks = {}          # id -> {'stat', 'pri'} for ref_tsk
         self.sock_in, self.sock_out = [], bytearray()   # recv chunks queued for the console session; sent bytes
         self.closed_fds = []                            # sockets closed by the CFW
+        self.unmounts = []                              # File_UnmountMedia paths
         pal = list(inputs.palette)
         self.pal_stock = list(pal)
         self.pal_shadow = list(pal)   # what the palette getter returns
@@ -522,6 +524,14 @@ class Machine:
         self._stack_need('File_Close')
         self._handle(self.r(0))
         del self.handles[self.r(0)]
+        self.ret(0)
+
+    def _file_unmount(self):
+        # An open file makes the stock unmount fail (finding 28 section 4): treat it as a bug.
+        path = self.cstr(self.r(0))
+        if self.handles or self.finds:
+            raise EmuError(f'File_UnmountMedia({path!r}) with files or directories open')
+        self.unmounts.append(path)
         self.ret(0)
 
     def _dir_entries(self, d):

@@ -826,6 +826,8 @@ def sc_loader(ctx):
     def on_hook(mm, n):
         seen.setdefault('card', mm.file('H:/cfw/cfw_log.txt') is not None)
         seen['card'] |= mm.file('H:/cfw/cfw_log.txt') is not None
+        if n == 1:
+            seen['unmounts_at_1'] = list(mm.unmounts)
         if n == 4:                                              # JobSystem step 2's block has run
             seen['look_before_props'] = not shown(mm, {})
             mm.w32(machine.A_MODE_PROPS_FINAL, 1)
@@ -842,6 +844,8 @@ def sc_loader(ctx):
     check(s.rc == 0 and len(ldr) == 1 and ldr[0]['entry'] & ~1 == m.syms1['ldr_task'] & ~1, 'CFWldr task')
     check(m.u32(machine.LDR_STATE) == 6, 'loader not disarmed after section 13')
     check(not seen['card'], 'H: written during the section-load hooks')
+    check(seen['unmounts_at_1'] == ['H:'] and m.unmounts == ['H:'],
+          f'H: not unmounted once after the hook(1) reads: {seen["unmounts_at_1"]} {m.unmounts}')
     check(seen['bl_before_10'] != cfw_bl and seen['bl_at_10'] == cfw_bl and m.u16(site) == cfw_bl,
           f'press BL not patched at hook(10): {seen.get("bl_before_10", 0):#x} {seen.get("bl_at_10", 0):#x}')
     check(not seen['look_before_props'] and seen['look_after_props'],
