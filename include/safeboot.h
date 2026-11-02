@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include "gr2_hw.h"
 
-/* M12 safe boot (the project plan, finding 30 §1.5): a 2-bit state S in RTC OPSR bits 2-3 (kept across power-off and
+/* M12 safe boot (finding 30 §1.5): a 2-bit state S in RTC OPSR bits 2-3 (kept across power-off and
  * battery pulls, no flash wear; R2a [HW]).
  *   ARMED      the CFW runs; the first hook sets ONE_FAIL until the session proves healthy
  *   ONE_FAIL   the last session did not reach the healthy mark: the CFW runs once more, set DISARMED

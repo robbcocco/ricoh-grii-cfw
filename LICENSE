@@ -25,8 +25,8 @@ Third-party content in this repository keeps its own licence:
 
 - fonts/*.fnt: rendered from Inter and Barlow Condensed, SIL Open Font
   License 1.1 (fonts/licenses/).
-- recipes/*.txt film recipes: derived from a third-party GR III project fits of spektrafilm
-  looks (CC BY-SA 4.0); attribution in each file, licence texts in
+- recipes/*.txt film recipes: fitted to spektrafilm film simulations by
+  Andrea Volpato (CC BY-SA 4.0); attribution in each file, licence texts in
   recipes/licenses/.
 
 Ricoh firmware is not part of this repository. `make fw` downloads the

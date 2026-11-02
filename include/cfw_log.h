@@ -7,8 +7,8 @@
 /* Build variants (Makefile): CFW_DEBUG=1 writes every log line, CFW_DEBUG=0
  * (release, rom) writes only ERR lines; DBG calls compile to nothing and their
  * arguments are not evaluated. Messages passed to ERR must be literals.
- * CFW_ROM=1 (rom): the CFW lives in the release firmware's A: drive (the project plan):
- * code, fonts and built-in recipes from A:/cfw, no card access in the boot hooks. */
+ * CFW_ROM=1 (rom): the CFW lives in the release firmware's A: drive (loader/flash/README.md §5):
+ * code and fonts from A:/cfw, no card access in the boot hooks. */
 #ifndef CFW_DEBUG
 #define CFW_DEBUG 1
 #endif

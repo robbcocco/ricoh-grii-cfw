@@ -245,8 +245,8 @@ def main() -> None:
         "## Licences",
         "The CFW is MIT-licensed (`cfw/LICENSE.txt`). `rg2_v003.frm` contains Ricoh's firmware, which is Ricoh's "
         "property and not covered by that licence; this project is not affiliated with Ricoh. "
-        "The film recipes in `cfw/recipes/` are derived from [a third-party GR III project "
-        "fits of [spektrafilm](https://github.com/andreavolpato/spektrafilm) looks by Andrea Volpato (CC BY-SA 4.0). "
+        "The film recipes in `cfw/recipes/` are fitted to [spektrafilm](https://github.com/andreavolpato/spektrafilm) "
+        "film simulations by Andrea Volpato (CC BY-SA 4.0). "
         "Attribution is in each recipe file; licence texts in `cfw/recipes/licenses/`. Film names are used "
         "descriptively; not affiliated with Kodak or Fujifilm. "
         "The overlay fonts built into the firmware are rendered from Inter and Barlow Condensed (SIL Open Font "
