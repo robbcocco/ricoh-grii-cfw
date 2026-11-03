@@ -9,8 +9,9 @@
 # This recipe file is licensed CC BY-SA 4.0.
 # spektrafilm profiles kodak_vision3_250d / kodak_2383; fit CIEDE2000 mean/95th %: Standard 7.6/14.5, this recipe 2.7/4.9.
 # Halation test recipe: the Kodak Vision3 250D look with the halo of that negative without its anti-halation
-# (rem-jet) layer: spektrafilm's halation preset for a cine film with antihalation='no'.
-# The CFW adds the halo to the final JPEG only (README, Recipes).
+# (rem-jet) layer: spektrafilm's halation preset for a cine film with antihalation='no';
+# its knobs halation_amount 1.0, halation_spatial_scale 2.0, boost_ev 4.5, boost_range 0.3, protect_ev 2.0.
+# The CFW adds the halo to the final JPEG only (README, Halation).
 
 name=800D
 base=setting2
@@ -40,6 +41,8 @@ hue9=114,10,4,14,112,2,1,13,114
 hue10=111,12,5,14,112,2,1,12,115
 hue11=109,13,6,10,117,1,3,10,115
 hue12=114,11,3,5,120,3,8,10,110
-# halation (spektrafilm halation_strength x1000 R,G,B; first-bounce sigma in um on 35 mm film)
+# halation (spektrafilm halation_strength x amount x1000 R,G,B; first-bounce sigma x spatial scale in um
+# on 35 mm film; highlight boost: boost_ev, boost_range, protect_ev above mid grey)
 halation=300,100,15
-halation_size=50
+halation_size=100
+halation_boost=4.5,0.30,2.0

@@ -33,9 +33,13 @@ exposure 1.04, print density-curve morph gamma 0.82 on all layers and 0.85 on th
 DIR interlayer inhibition 0.9.
 Vivid Slide renders the reversal film itself with spektrafilm's film scan (io.scan_film; no print
 stage, no scanner white/black correction in LUT mode), otherwise as above.
-800T and 800D carry the looks of the Vision3 500T and 250D recipes plus two halation keys:
+800T and 800D carry the looks of the Vision3 500T and 250D recipes plus three halation keys:
 spektrafilm's back-reflection halation of the same film profile with its anti-halation class set to
 "no" (rem-jet removed), as spektrafilm's own parameter builder (digest_params) gives it: the strength
-per channel and the first-bounce size; the gr2_cfw firmware renders the halo with spektrafilm's
-halation model (three bounces, decay 0.5, renormalised) on the developed photo.
+per channel and the first-bounce size, with spektrafilm's user knobs set to halation_amount 1.0,
+halation_spatial_scale 2.0 and its highlight boost to boost_ev 4.5, boost_range 0.3, protect_ev 2.0
+(2 EV above mid grey instead of 4: a camera JPEG's white is ~3.35 EV above it; scale and boost_ev
+above spektrafilm's presets so the ring around a lamp shows in the 8-bit JPEG); the gr2_cfw firmware
+renders the halo with spektrafilm's halation model (three bounces, decay 0.5, renormalised) and boost
+on the developed photo.
 Modified by the gr2_cfw project; the spektrafilm-derived recipe files are licensed CC BY-SA 4.0.

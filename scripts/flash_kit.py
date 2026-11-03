@@ -437,53 +437,66 @@ my1.txt apart from the comments; no `ERROR` in the log.
 **Fail:** the row shows an error, a value differs, or a file is missing: keep the card as it is.
 Send me: `cfw/export/` from 5 and 8, `cfw_log.txt`, and what differed in 7 (a photo of the page).
 """),
-    ("H2-halation", "H2 · Film halation in final photos: 800T and 800D (no flash)", {"card": ["debug"]}, """\
+    ("H2-halation", "H2 · Film halation in final photos: 800T and 800D, visible glow (no flash)", {"card": ["debug"]},
+     """\
 **Writes flash:** no. Runs on the debug loader (F2/F5). If the camera runs the release firmware (P1), flash the debug
 loader back first with the F5 card (`F5-loader-v2/card-L/`, menu update as in F5), then come back here.
 
-What is new (all on the card; finding 37): two test recipes, **800T** and **800D** (CineStill-like: Vision3 500T and
-250D without the film's anti-halation layer). Photos taken with them get a soft red-orange glow around bright lights
-and along bright edges, added after the camera has developed the photo, before the review image and the JPEG. Only
-the final photo: never live view, never the DNG or its embedded previews, never in-camera RAW development. Every other
-recipe and the camera's own modes are unchanged. H1's DEV row "Halation probe" is gone. The debug log has one
-`halation:` block per photo (status, stock-step and halation times in ms, the work done).
+What is new since the last H2 run (all on the card; finding 37): **800T** and **800D** (CineStill-like: Vision3 500T
+and 250D without the film's anti-halation layer) restore the light that the JPEG clipped (spektrafilm's highlight
+boost, now 4.5 stops) and spread it wider (100 µm), so bare bulbs, street lamps, lit windows, headlights and clipped
+bright edges get a clearly visible red-orange ring that runs continuously from the white core outwards (no grey
+outline at the bulb's edge); no pixel ever gets darker; a large bright area (a lamp-lit wall, the sky in a window) is
+not a lamp: it loses the boost smoothly with its size, and a lit surface keeps its texture (no orange blotches or
+speckles, no hard edges or tile borders). Inside a clipped lamp the colour stays; the ring never turns green.
+Anything below the brightest highlights is untouched. Only the final photo: never live view, never the DNG or its
+embedded previews, never in-camera RAW development. Every other recipe and the camera's own modes are unchanged.
+The cost estimate is recalibrated from your last H2 photos: every one of them now fits the 3 s budget (the slowest,
+the lamp-lit walls, about 2.9 s); with a few lights it takes roughly 0.3–0.7 s. A photo that would need more than
+3 s is saved without halation (log status 6); status 5 means "nothing to add". The debug log has one `halation:`
+block per photo: status, stock-step and halation ms, the estimate (decoded groups, halo cells, source cells, cells
+near a lamp, modelled ms) and the work done; the estimate against the measured ms recalibrates the budget again.
 
-Card root = `card/` (debug `cfw/`, no `Startup.ttl`). Card R stays out.
+Card root = `card/` (debug `cfw/`, no `Startup.ttl`). Card R stays out. Delete the old `cfw/cfw_log.txt` first.
 
 **Setup.** Recipes → **800T** → save to **MY1**; Recipes → **Vision3 500T** → save to **MY2** (the same look without
 halation: the comparison). Single-frame drive, review display on, JPEG L, 3:2 unless a step says otherwise.
 
-1. Night, point lights (street lamps, lit windows, car lights; indoors: a candle or a phone torch in a dark room), on
-   a tripod or a fixed rest: MY1 one shot, MY2 one shot, same framing. In playback (also zoomed in): 800T has a
-   red-orange glow around the lights, 500T none; everything away from the lights looks the same in both.
+1. Night, point lights (street lamps, lit windows, car lights; indoors: a lamp, a candle or a phone torch in a dark
+   room), on a tripod or a fixed rest: MY1 one shot, MY2 one shot, same framing. In playback, the whole photo: 800T
+   has a red-orange glow around the lights, 500T none; zoomed in, everything away from the lights is identical.
 2. Backlit edge: a bright window or sky behind a dark object (a branch, a window frame): MY1 and MY2 one shot each.
-   800T: a red glow along the bright edge, spilling into the dark side.
-3. MY1, the scene of 1: one shot each in 1:1, 16:9, and 3:2 with crop 35 mm. The glow sits around the lights in
+   800T: an orange-red fringe along the bright edge, spilling into the dark side.
+3. A lit room: the bare-bulb lamp with its lit wall from your last H2 photos, and a window or a lamp in frame (like
+   your H1 room photos): MY1 and MY2 one shot each. 800T: a red-orange ring round the bulb, the lit wall's texture
+   unchanged (no orange specks or patches).
+4. MY1, the scene of 1: one shot each in 1:1, 16:9, and 3:2 with crop 35 mm. The glow sits around the lights in
    each; nothing odd at the borders.
-4. MY1, RAW+JPEG (DNG + JPEG L), the scene of 1: one shot. The JPEG has the glow. On the Mac the DNG's embedded
-   preview (Quick Look, or `exiftool -b -PreviewImage x.DNG > p.jpg`) has none. In the camera: develop that DNG
+5. MY1, RAW+JPEG (DNG + JPEG L), the scene of 1: one shot. The JPEG has the glow. In the camera: develop that DNG
    (playback → RAW development → save as a new JPEG): the new JPEG has **no** glow.
-5. Shot-to-review time, the scene of 1: MY2 three shots, then MY1 three shots. Film the screen with a phone (60 fps
+6. Shot-to-review time, the scene of 1: MY2 three shots, then MY1 three shots. Film the screen with a phone (60 fps
    or slow motion) or use a stopwatch: shutter click → review image, and → green access lamp off.
-6. MY1, continuous drive: one burst of 5 frames, JPEG.
-7. Recipes → **800D** → save to MY1, **Vision3 250D** → MY2. Daylight: a bright sky edge or sunlit chrome /
-   reflections, one shot each slot; then the scene of 1 once with each.
-8. Normal power-off. Copy `cfw/cfw_log.txt`, all JPEGs and the DNG of 1–7, and the developed JPEG of 4 to the Mac.
+7. MY1, continuous drive: one burst of 5 frames, JPEG.
+8. Recipes → **800D** → save to MY1, **Vision3 250D** → MY2. Daylight: a bright sky edge or sunlit chrome /
+   reflections, one shot each slot; a normal daylight scene without clipped highlights, one shot each (must look
+   the same); then the scene of 1 once with each.
+9. Normal power-off. Copy to the Mac: `cfw/cfw_log.txt`, **every JPEG and DNG of 1–8** and the developed JPEG of 5.
 
-**Pass:** every MY1 photo of 1–7 (JPEG and review) has the glow around lights and bright edges and is otherwise like
-its MY2 twin; MY2 photos, the DNG preview and the developed JPEG of 4 have none; the log has a `halation: shot`
-block per MY1 photo: status `0x00000000` (done) for the JPEGs, 3 (RAW/DNG) for the DNG's own step and for the RAW
-development (dial still on MY1); none for MY2 photos (the hook is in place only while a halation recipe is active);
-no `ERROR`; in 5, MY1 at most ~1.5 s slower than MY2 (night scene: expect well under 1 s); the burst completes.
-Status 5 (over budget: too many highlights, photo left without halation) is a finding, not a failure: say which
-photo.
+**Pass:** every MY1 photo of 1–8 with lights or clipped edges (JPEG and review) has the glow there and is otherwise
+like its MY2 twin; the daylight scene without clipped highlights is identical in both; MY2 photos, the DNG and its
+embedded preview, and the developed JPEG of 5 have none; the log has a `halation: shot` block per MY1 photo:
+status `0x00000000` (done) or 5 (nothing to add) for the JPEGs, 3 (RAW/DNG) for the DNG's own step and the RAW
+development (dial still on MY1); none for MY2 photos; no `ERROR`; in 6, MY1 at most ~3 s slower than MY2; the
+burst completes. Status 6 (over the 3 s budget, photo left without halation) is a finding, not a failure: say
+which photo.
 **Fail:** a glow in the wrong place, blocks, stripes or banding, a colour cast away from lights, a glow in the DNG
-preview or the developed JPEG, a broken photo; a hang or a crash during a shot. Keep the card as it is.
+preview or the developed JPEG, a changed midtone, a broken photo; a hang or a crash during a shot. Keep the card
+as it is.
 **Hang or crash during a shot:** battery out, power on with the skip key (stock), report. To turn halation off, save
 any other recipe into MY1 (or delete `cfw/recipes/c800t.txt` and `c800d.txt`, then DEV → Reload recipes). Two
 failed starts → stock until a PLAY power-on.
-Send me: `cfw_log.txt`, the photos and the DNG, the developed JPEG, the times of 5 (and the video), and pass/fail per
-step.
+Send me: `cfw_log.txt`, all photos and DNGs of 1–8, the developed JPEG, the times of 6 (and the video), and
+pass/fail per step (does the glow look like CineStill to you: too weak, right, too strong?).
 """),
     ("U-uninstall", "U · Uninstall (back to stock 3.00)", {"card": ["stock"]}, f"""\
 **Writes flash:** yes, the stock firmware (any time after F2).

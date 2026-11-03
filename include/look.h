@@ -14,7 +14,8 @@
  *           RGB->YCbCr (saturation) records so the saturation slider keeps working
  *   halo    film halation, not an IQ stage: the CFW adds it to the final still in
  *           the effect step (src/halation.c); spektrafilm's model: strength x1000
- *           per channel and the first-bounce sigma in um on 35 mm film */
+ *           per channel, the first-bounce sigma in um on 35 mm film and the
+ *           highlight boost (boost_ev, boost_range, protect_ev) */
 #define LOOK_KNOTS   33
 #define LOOK_SECTORS 12
 
@@ -26,13 +27,18 @@
 
 #define LOOK_HALO_MAX     1000           /* strength x1000 per channel */
 #define LOOK_HALO_UM_MIN  20             /* first-bounce sigma, um */
-#define LOOK_HALO_UM_MAX  80             /* src/halation.c: the third bounce still fits its kernel */
+#define LOOK_HALO_UM_MAX  130            /* src/halation.c: the third bounce still fits its kernel (RMAX) */
 #define LOOK_HALO_UM_DEF  65             /* spektrafilm's default halation_first_sigma_um */
+#define LOOK_BOOST_EV_MAX 60             /* boost_ev x10: the boosted white fits src/halation.c's 16-bit sources */
+#define LOOK_BOOST_RANGE_DEF 30          /* boost_range x100: spektrafilm's default */
+#define LOOK_BOOST_PROTECT_DEF 20        /* protect_ev x10 above mid grey (the camera's white is ~3.3 EV above) */
+#define LOOK_BOOST_PROTECT_MAX 40
 
 typedef struct {
     uint8_t flags;                       /* LOOK_* present */
     uint8_t halo_um;                     /* LOOK_HALO: first-bounce sigma, um */
     uint16_t halo[3];                    /* LOOK_HALO: strength x1000, R G B (not all 0) */
+    uint8_t boost[3];                    /* LOOK_HALO: boost_ev x10 (0: none), boost_range x100, protect_ev x10 */
     int16_t matrix[9];
     int16_t post[9];
     int16_t hue[LOOK_SECTORS][9];

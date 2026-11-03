@@ -662,10 +662,36 @@ SPRWORK_AT = 0xA4200000                        # the still path's scratch, mappe
 FX_FRAMES = {'3:2': (4928, 3264), '4:3': (4352, 3264), '1:1': (3264, 3264), '16:9': (4928, 2768),
              'crop': (3456, 2304)}
 HALO_E = (400, 800)                            # src/halation.c E_LO, E_HI: the source ramp (linear units)
-HX_OK, HX_MODE, HX_RAW, HX_CONTEXT, HX_BUSY = 0, 2, 3, 4, 5
-HX_NO_BUFFER, HX_NO_CHROMA, HX_BAD_SIZE, HX_OUTSIDE, HX_NO_SCRATCH = 6, 8, 9, 10, 12
+HALO_EBIG = 560                                # src/halation.c E_BIG: a bright area's cells (the boost's fade)
+HALO_MID = 100                                 # src/halation.c E_MID: mid grey (linear units), the boost's reference
+HALO_FLO = 960                                 # src/halation.c F_LO: the fade at the top of the brightest channel
+BIG_S = 8                                      # src/halation.c BIG_S: the bright share's window, 2 BIG_S + 1 cells
+HX_OK, HX_MODE, HX_RAW, HX_CONTEXT, HX_NONE, HX_BUSY = 0, 2, 3, 4, 5, 6
+HX_NO_BUFFER, HX_NO_CHROMA, HX_BAD_SIZE, HX_OUTSIDE, HX_NO_SCRATCH = 7, 9, 10, 11, 13
 REC_STATUS, REC_CELLS, REC_WORDS, REC_DEC = 28, 48, 60, 64   # src/halation.c hx_rec_t: status, cells (rows, groups),
-#                                                              words, estimate (decoded groups, cells with a halo)
+#                                                              words, estimate (decoded groups, halo, sources, boosted)
+EST = {k: int(v) for k, v in re.findall(r'#define (EST_\w+|NY1_DEC)\s+(\d+)u?\s',
+                                         (CFW / 'src' / 'halation.c').read_text())}
+CAM_NS, CAM_MS0 = 12.5, -34     # the camera's ms per emulator instruction (H2 shots vs their counts), intercept
+
+
+def est_ms(dec, nh, nb):
+    """src/halation.c over_budget()'s modelled camera time, ms."""
+    rows = 1 if dec > EST['NY1_DEC'] else 2
+    return (EST['EST_FIX'] + (EST['EST_DEC'] + rows * EST['EST_ROW']) * dec + EST['EST_CELL'] * nh +
+            EST['EST_BOOST'] * nb) / 1000
+
+
+TEST_HALO = 't_halo.txt'                       # a halation look without the boost (sc_halation)
+
+
+def halo_keys(path):
+    """The halation keys of a recipe file: strength x1000 (R, G, B), size um, boost (ev, range, protect_ev)."""
+    kv = dict(recipe_kv(pathlib.Path(path).read_bytes()))
+    boost = [float(x) for x in kv.get('halation_boost', '0').split(',')]
+    boost += [0.3, 2.0][len(boost) - 1:]
+    return dict(halo=tuple(int(x) for x in kv['halation'].split(',')), um=int(kv.get('halation_size', '65')),
+                boost=tuple(boost[:3]))
 
 
 def log_hex(m, label):
@@ -718,24 +744,91 @@ def gauss(img, sigma):
     return out
 
 
-def ref_halation(Y, Cb, Cr, tone, C, halo=(300, 100, 15), um=50):
+def boost_ref(E, boost):
+    """spektrafilm's boost_highlights (utils/numba_boost_hightlights.py) with the camera's white (1023) as np.max and
+    mid grey HALO_MID; boost = (boost_ev, boost_range, protect_ev)."""
+    import numpy as np
+    ev, rng, prot = boost
+    x0 = min(HALO_MID * 2.0 ** prot, 1023.0)
+    if ev <= 0 or x0 >= 1023:
+        return E
+    a = 28.0 ** (1.0 - rng)
+    L = 1.0 - x0 / 1023
+    k = (2.0 ** ev - 1.0) / (np.exp(a * L) - a * L - 1.0)
+    dx = np.maximum(E - x0, 0) / 1023
+    return np.where(E > x0, E + 1023 * k * (np.exp(a * dx) - a * dx - 1.0), E)
+
+
+def ref_halation(Y, Cb, Cr, tone, C, halo=(300, 100, 15), um=50, boost=(0, 0.3, 2.0)):
     """spektrafilm's halation (3 bounces, decay 0.5, renormalised) on the decoded frame, full resolution, float, exact
-    Gaussians: E + a' (G * S - S) wherever that adds at least 1/2 linear unit, S = the highlight source (E_LO..E_HI
-    ramp), E = the centre of each code's interval of the tone curve."""
+    Gaussians, as src/halation.c models it: S = E x gain per channel (the E_LO..E_HI ramp times spektrafilm's boost
+    over E, per channel), the boost faded by the share q of bright cells (both samples of row 8i + 2 at E >= E_BIG)
+    in the 17 x 17 cells around, a large bright area's source a quarter of its light; x = h - k A with h = a' G * S,
+    k = 1.4 a', A the hold of the 3 x 3 cells around (of each cell's max(mean E, mean S): their mean, at most twice
+    their least) interpolated between cell centres;
+    x H / (H + x) with H the headroom to 1023; faded to none at the top of the brightest channel; added where >= 1/2
+    linear unit, as t[E + x] - its code, or for a pixel below L (the cells' least mean E: a lit area's dark texture)
+    as L's own step t[L + x] - t[L]. E = the centre of each code's interval of the tone curve."""
     import numpy as np
     codes = np.clip(np.rint(ycc_decode(Y, Cb, Cr, C)), 0, 255).astype(int)
     ap = np.array(halo) / 1000 / (1 + np.array(halo) / 1000)
     d = np.zeros(codes.shape, int)
+    k = np.arange(256)
+    E = np.stack([np.clip((np.searchsorted(tone[c], k, 'left') + np.searchsorted(tone[c], k, 'right') - 1) / 2, 0,
+                          1023)[codes[..., c]] for c in range(3)], -1)
+    hh, ww = E.shape[:2]
+    H8, W8 = (hh + 7) // 8, ww // 8
+    em = E.max(-1)
+    smp = em[np.minimum(np.arange(H8) * 8 + 2, hh - 1)][:, :W8 * 8].reshape(H8, W8, 8)[:, :, [2, 6]]
+    bright = (smp >= HALO_EBIG).all(-1).astype(float)
+    pad = np.pad(bright, BIG_S, mode='edge')
+    n = 2 * BIG_S + 1
+    box = np.lib.stride_tricks.sliding_window_view(pad, (n, n)).mean((-1, -2))
+    q = np.floor(box * 64 + 0.5)[0::2, 0::2]
+    q = np.repeat(np.repeat(q, 16, 0), 16, 1)[:hh, :ww] / 64                  # per 2 x 2 cells, as in the CFW
+    q = np.pad(q, ((0, max(0, hh - q.shape[0])), (0, max(0, ww - q.shape[1]))), mode='edge')
+    w = lambda e: np.clip((e - HALO_E[0]) / (HALO_E[1] - HALO_E[0]), 0, 1)
+    fade = np.clip((1023 - em) / (1023 - HALO_FLO), 0, 1)
+    yc, xc = np.arange(hh) - 3.5, np.arange(ww) - 3.5                          # cell centres 3.5 px into the cell
+    fy, fx = np.clip(yc / 8, 0, H8 - 1), np.clip(xc / 8, 0, W8 - 1)
+    src_blk = np.repeat((smp > HALO_E[0]).any(-1)[:, :W8 // 4 * 4].reshape(H8, -1, 4).any(-1), 4, 1)
+    src_blk = np.pad(src_blk, ((0, 0), (0, W8 - src_blk.shape[1])))           # 32-px blocks the CFW decodes
+    bg = ap[1] > 0 and 4 * ap[2] <= ap[1]                                     # blue's halo from green's
+    hs = {}
     for c in range(3):
-        k = np.arange(256)
-        lo, hi = np.searchsorted(tone[c], k, 'left'), np.searchsorted(tone[c], k, 'right')
-        centre = np.clip((lo + hi - 1) / 2, 0, 1023)
-        E = centre[codes[..., c]]
-        S = E * np.clip((E - HALO_E[0]) / (HALO_E[1] - HALO_E[0]), 0, 1)
-        B = sum(w * gauss(S, um * np.sqrt(b) * 4928 / 35000) for b, w in ((1, 4 / 7), (2, 2 / 7), (3, 1 / 7)))
-        h = ap[c] * (B - S)
-        new = tone[c][np.clip(np.rint(E + h), 0, 1023).astype(int)]
-        d[..., c] = np.where(h >= 0.5, new - codes[..., c], 0)
+        e = E[..., c]
+        src_c = 1 if bg and c == 2 else c
+        if src_c not in hs:
+            es = E[..., src_c]
+            g = np.where(es > HALO_E[0], w(es) * (boost_ref(es, boost) * (1 - q) + es * q / 4) / np.maximum(es, 1), 0)
+            S = es * g
+            pd = ((0, H8 * 8 - hh), (0, 0))
+            ce = np.pad(es, pd, mode='edge')[:, :W8 * 8].reshape(H8, 8, W8, 8).mean((1, 3)) * src_blk
+            cs = np.pad(S, pd, mode='edge')[:, :W8 * 8].reshape(H8, 8, W8, 8).mean((1, 3)) * src_blk
+            win = lambda a: np.lib.stride_tricks.sliding_window_view(np.pad(a, 1, mode='edge'), (3, 3))
+            hc = np.maximum(ce, cs)
+            A = np.minimum(win(hc).mean((-1, -2)), 2 * win(hc).min((-1, -2)))
+            Lc = np.minimum(np.minimum(win(ce).mean((-1, -2)), 2 * win(ce).min((-1, -2))), 1023)
+            up = lambda a: np.array([np.interp(fx, np.arange(W8), r) for r in
+                                     np.array([np.interp(fy, np.arange(H8), a[:, j]) for j in range(W8)]).T])
+            B = sum(wk * gauss(S, um * np.sqrt(b) * 4928 / 35000) for b, wk in ((1, 4 / 7), (2, 2 / 7), (3, 1 / 7)))
+            hs[src_c] = (B, up(A), up(Lc))
+        B, A, L = hs[src_c]
+        if bg and c == 2:
+            L = np.zeros_like(L)                                              # blue: no level
+        x = ap[c] * B - 1.40625 * ap[c] * A
+        tex = (e < L) & (L >= 16)                                             # a lit area's dark texture under a
+        wl = np.clip(2 - np.maximum(x, 0) / np.maximum(L, 1), 0, 1)           # faint glow: L's step, back to its own
+        base = np.where(tex, e + (L - e) * wl, e)                             # as the glow grows from L to 2 L
+        hr = 1023 - base
+        x = np.where(x > 0, x * hr / np.maximum(hr + x, 1e-6), x)             # never past the top
+        h = x * fade
+        t0 = np.where(tex, tone[c][np.clip(np.rint(base), 0, 1023).astype(int)], codes[..., c])
+        new = tone[c][np.clip(np.rint(base + h), 0, 1023).astype(int)]
+        d[..., c] = np.where(h >= 0.5, new - t0, 0)
+    if ap[0] > 0:                                                             # red-orange: G's step <= R's >= B's
+        d[..., 1] = np.minimum(d[..., 1], d[..., 0])
+        d[..., 2] = np.minimum(d[..., 2], d[..., 1])
     dv = d @ C.T / 256
     q = lambda a: np.clip(np.rint(a), 0, 255).astype(np.uint8)
     pair = (dv[:, 0::2, 1:] + dv[:, 1::2, 1:]) / 2
@@ -856,18 +949,20 @@ def sc_halation(ctx):
     """Halation in final stills (src/halation.c), every variant: the effect veneer at 0xA001E6CE; the effect step's
     call is retargeted (one halfword) only while the shown look has `halation` (preview, slot look, also from the D:
     look cache) and restored otherwise. Through the patched BL in the still-processing task, the stock step first: a
-    bright disc gets a red-dominant halo that matches an independent float reference of spektrafilm's model; frames
-    without highlights, other colour modes, the DNG's own still, RAW development, interval composite / multiple
-    exposure, a busy scratch buffer and frame contexts that do not fit their buffer stay byte-identical; nothing
-    outside the frame is written in 3:2, 4:3, 1:1, 16:9 and the crop. Verify first: a foreign halfword at the call
-    refuses with no write. Debug: instruction counts of full 3:2 frames; one over the cost budget stays untouched."""
+    bright disc gets a red-dominant halo that matches an independent float reference of spektrafilm's model, without
+    the boost (a test recipe) and with it (800T); frames without highlights (status 5), other colour modes, the DNG's
+    own still, RAW development, interval composite / multiple exposure, a busy scratch buffer and frame contexts that
+    do not fit their buffer stay byte-identical; nothing outside the frame is written in 3:2, 4:3, 1:1, 16:9 and the
+    crop. Verify first: a foreign halfword at the call refuses with no write. The halation keys' parser. Debug:
+    instruction counts of full 3:2 frames; one over the cost budget (status 6) stays untouched."""
     import numpy as np
     from unicorn import UC_HOOK_BLOCK, UC_HOOK_MEM_WRITE
     from unicorn.arm_const import UC_ARM_REG_CPSR
     check = ctx.check
     rec = ctx.recipes
-    idx = {r['file']: i for i, r in enumerate(rec)}
-    s = Session(ctx, props={0x2D: 4})
+    data_t = test_recipe('~Test halo', 'halation=300,100,15\r\nhalation_size=50\r\n')
+    idx = idx_t = {r['file']: i for i, r in enumerate(by_name(list(rec) + [recipe_info(TEST_HALO, data_t)]))}
+    s = Session(ctx, files={'H:/cfw/recipes/' + TEST_HALO: data_t}, props={0x2D: 4})
     m = s.m
     stock = lambda mm: mm.u16(FX_SITE) == 0xF000 and mm.u16(FX_SITE + 2) == FX_SITE_LO
     routed = lambda mm: (mm.u16(FX_SITE) == 0xF56F and mm.u16(FX_SITE + 2) == FX_SITE_LO and
@@ -902,53 +997,169 @@ def sc_halation(ctx):
     fr = FxFrames(m)
     tone, C = still_model(m)
 
-    # A bright white disc and an orange lamp on a dark ground: the halo against the float reference.
-    W, H = 1200, 800
-    planes = scene(W, H, C, [(600, 400, 40, (255, 255, 255)), (250, 200, 20, (255, 170, 60))])
-    c = fr.ctx(W, H)
-    before = fr.shoot(ctx, c, (W, H, planes))
-    out = fr.get(W, H)
-    check(fr.status() == HX_OK and fr.outside_same(before, W, H) == 0, f'disc: status {fr.status()} / outside')
-    ref = ref_halation(*planes, tone, C)
-    din = ycc_decode(*planes, C)
-    dc, dr = ycc_decode(*out, C) - din, ycc_decode(*ref, C) - din
-    yy, xx = np.mgrid[0:H, 0:W]
-    rad = np.hypot(xx - 600, yy - 400)
-    prof = [(r0, dc[(rad >= r0) & (rad < r0 + 5)].mean(0), dr[(rad >= r0) & (rad < r0 + 5)].mean(0))
-            for r0 in (42, 47, 52, 57, 62, 80)]
-    for r0, a, b in prof:                                      # red ring means within 1.5 codes or 15 %
-        check(abs(a[0] - b[0]) <= max(1.5, 0.15 * b[0]), f'disc halo at r {r0}: red {a[0]:.1f}, reference {b[0]:.1f}')
-    r47 = prof[1][1]
-    check(r47[0] > 10 and r47[0] > 2 * r47[1] > 0 and r47[1] > r47[2], f'halo not red-dominant: {r47.round(1)}')
-    check(prof[0][1][0] > prof[1][1][0] > prof[2][1][0] > prof[3][1][0] > prof[4][1][0] >= 0 and
-          prof[5][1][0] == 0,
-          f'halo does not fall off with the radius: {[(r0, a.round(1).tolist(), b.round(1).tolist()) for r0, a, b in prof]}')
-    ring = (rad > 42) & (rad < 110)
-    diff = np.abs(dc - dr)
-    err = diff[ring]
-    bad = (diff > np.maximum(5, 0.25 * np.abs(dr))).any(-1) & ring   # per pixel: 5 codes or 25 % of the reference
-    wy_, wx_ = np.unravel_index((diff.max(-1) * ring).argmax(), ring.shape)
-    check(err.mean() <= 1.0 and bad.sum() <= 0.005 * ring.sum(),
-          f'disc ring vs reference: mean {err.mean():.2f} codes, {bad.sum()} of {ring.sum()} pixels off; worst '
-          f'({wx_}, {wy_}) r {rad[wy_, wx_]:.1f}: {dc[wy_, wx_].round(1)} vs {dr[wy_, wx_].round(1)}')
-    tot = dc[..., 0].sum() / dr[..., 0].sum()
-    check(0.95 <= tot <= 1.05, f'total red halo {tot:.3f} x the reference')
-    far = rad > 220
-    far &= np.hypot(xx - 250, yy - 200) > 160
-    check(all((o.astype(int) == i.astype(int))[far[:, ::k]].all() for o, i, k in zip(out, planes, (1, 2, 2), strict=False)),
-          'pixels far from the sources changed')
-    if ctx.renderer:
-        save_halation_png(ctx, f'{ctx.variant}_halation_disc', planes, out, C, (480, 280, 720, 520))
-        save_halation_png(ctx, f'{ctx.variant}_halation_disc_reference', planes, ref, C, (480, 280, 720, 520))
-        save_halation_png(ctx, f'{ctx.variant}_halation_lamp', planes, out, C, (170, 120, 330, 280))
-    halo_hook_stack = fr.stack
+    # A bright white disc and an orange lamp on a dark ground: the halo against the float reference, for a look
+    # without the boost (the test recipe ~Test halo, previewed) and for 800T (MY1, boosted and wider).
+    def disc(tag, halo, um, boost):
+        W, H = 1200, 800
+        tone, C = still_model(m)                               # the look shown now
+        planes = scene(W, H, C, [(600, 400, 40, (255, 255, 255)), (250, 200, 20, (255, 170, 60))])
+        c = fr.ctx(W, H)
+        before = fr.shoot(ctx, c, (W, H, planes))
+        out = fr.get(W, H)
+        check(fr.status() == HX_OK and fr.outside_same(before, W, H) == 0, f'{tag} disc: status {fr.status()} / outside')
+        ref = ref_halation(*planes, tone, C, halo, um, boost)
+        din = ycc_decode(*planes, C)
+        dc, dr = ycc_decode(*out, C) - din, ycc_decode(*ref, C) - din
+        check(dc.min() >= -0.5, f'{tag}: a channel lost light: {dc.min():.2f} codes at '
+                                f'{np.unravel_index(dc.min(-1).argmin(), dc.shape[:2])}')
+        yy, xx = np.mgrid[0:H, 0:W]
+        rad = np.hypot(xx - 600, yy - 400)
+        if boost[0]:                                           # no outline: the result's luma falls off from the core
+            ar = out[0].astype(float)                          # out, past its 1-px anti-aliased edge (whose chroma
+            pa = [ar[(rad >= r0) & (rad < r0 + 1)].mean() for r0 in range(41, 70)]   # pairs straddle the white)
+            dip = max(pa[i + 1] - pa[i] for i in range(len(pa) - 1))
+            check(dip <= 1, f'{tag}: the result rises by {dip:.1f} codes going out from the disc (an outline)')
+        prof = [(r0, dc[(rad >= r0) & (rad < r0 + 5)].mean(0), dr[(rad >= r0) & (rad < r0 + 5)].mean(0))
+                for r0 in (42, 47, 52, 57, 62)]
+        # Without the boost the halo next to the disc is about its cells' hold (their mean light, at most twice their
+        # least), so it is judged from 1.5 cells out.
+        i0 = 1 if boost[0] else 2
+        for r0, a, b in prof[0 if boost[0] else i0:]:          # red ring means within 1.5 codes or 15 %
+            check(abs(a[0] - b[0]) <= max(1.5, 0.15 * b[0]),
+                  f'{tag} disc halo at r {r0}: red {a[0]:.1f}, reference {b[0]:.1f}')
+        rr = prof[i0][1]
+        check(rr[0] > (10 if boost[0] else 2) and rr[0] > rr[1] > rr[2] and (boost[0] or rr[0] > 2 * rr[1] > 0),
+              f'{tag}: halo not red-dominant at r {prof[i0][0]}: {rr.round(1)}')
+        check(all(prof[i][1][0] > prof[i + 1][1][0] for i in range(1 if boost[0] else i0, 4)),
+              f'{tag}: halo does not fall off with the radius: {[(r0, a.round(1).tolist()) for r0, a, _ in prof]}')
+        reach = 6 * um * np.sqrt(3) * 4928 / 35000                # 6 sigma of the widest bounce, px
+        ring = (rad > prof[0 if boost[0] else i0][0]) & (rad < 40 + reach)
+        diff = np.abs(dc - dr)
+        err = diff[ring]
+        # per pixel: 5 codes or 25 % of the reference, but for 3 % of the ring: where the halo meets 1.4 x the ground's
+        # own light it turns off within a few px, and at the disc's anti-aliased edge a pair's fade and its cells'
+        # least sampled code decide here, each pixel there
+        bad = (diff > np.maximum(5, 0.25 * np.abs(dr))).any(-1) & ring
+        wy_, wx_ = np.unravel_index((diff.max(-1) * ring).argmax(), ring.shape)
+        check(err.mean() <= 1.2 and bad.sum() <= 0.03 * ring.sum(),
+              f'{tag} disc ring vs reference: mean {err.mean():.2f} codes, {bad.sum()} of {ring.sum()} pixels off; '
+              f'worst ({wx_}, {wy_}) r {rad[wy_, wx_]:.1f}: {dc[wy_, wx_].round(1)} vs {dr[wy_, wx_].round(1)}')
+        zone = np.ones_like(rad, bool) if boost[0] else (rad > prof[i0][0]) & (np.hypot(xx - 250, yy - 200) > 44)
+        tot = dc[..., 0][zone].sum() / dr[..., 0][zone].sum()
+        lo = 0.95 if boost[0] else 0.9                         # without the boost: halo and own light near equal
+        check(lo <= tot <= 2 - lo, f'{tag}: total red halo {tot:.3f} x the reference')
+        far = (rad > 40 + reach) & (np.hypot(xx - 250, yy - 200) > 20 + reach)
+        check(all((o.astype(int) == i.astype(int))[far[:, ::k]].all() for o, i, k in zip(out, planes, (1, 2, 2),
+                                                                                            strict=False)),
+              f'{tag}: pixels far from the sources changed')
+        if ctx.renderer:
+            save_halation_png(ctx, f'{ctx.variant}_halation_{tag}_disc', planes, out, C, (440, 240, 760, 560))
+            save_halation_png(ctx, f'{ctx.variant}_halation_{tag}_disc_reference', planes, ref, C,
+                              (440, 240, 760, 560))
+            save_halation_png(ctx, f'{ctx.variant}_halation_{tag}_lamp', planes, out, C, (130, 80, 370, 320))
+        return fr.stack
+
+    s.request(MENU_RECIPES)                                    # ~Test halo: spektrafilm's preset, no boost
+    goto(idx_t[TEST_HALO])
+    check(routed(m), 'preview of the test recipe: effect step not routed')
+    disc('noboost', (300, 100, 15), 50, (0, 0.3, 2.0))
+    s.keys(KEY_EFFECT)
+    m.call('recipes_poll')
+    c8 = halo_keys(CFW / 'recipes' / 'c800t.txt')               # MY1 = 800T again
+    check(c8['boost'][0] > 0, f'800T has no halation_boost: {c8}')
+    halo_hook_stack = disc('800t', c8['halo'], c8['um'], c8['boost'])
+
+    # 800T: a lit, noisy near-white surface (400 x 300 px) and a lamp (60 px) of the same white on one dark ground. The
+    # surface gets no speckles inside (its pixels' own light and their cells' cancel its halo) and, being large, loses
+    # part of the boost (its edge cells: about half their 17 x 17 cells bright): 20 .. 40 px beside it the glow is
+    # weaker than beside the lamp, though its light is far more. A warm clipped lamp keeps its colour inside (the fade
+    # at the top of its brightest channel), its glow outside. A warm patch beside the lamp, red near its top: the
+    # halo there adds less green than red (no green fringe). A cool lamp (cyan-white, green boosted far more than
+    # red) gets no green halo either.
+    rng_ = np.random.default_rng(5)
+    W2, H2 = 1280, 640
+    rgb = np.full((H2, W2, 3), 30.0)
+    rgb[170:470, 180:580] = 228 + rng_.uniform(-24, 24, (300, 400, 1))
+    pits = np.zeros((H2, W2), bool)                            # dark pits in it (1 %): below 1/8 of its light
+    pits[170:470, 180:580] = rng_.random((300, 400)) < 0.01
+    rgb[pits] = 60
+    yy_, xx_ = np.mgrid[0:H2, 0:W2]
+    rgb[(yy_ - 320) ** 2 + (xx_ - 900) ** 2 <= 30 ** 2] = 255
+    warm = (yy_ - 320) ** 2 + (xx_ - 1150) ** 2 <= 30 ** 2
+    rgb[warm] = (255, 170, 60)
+    rgb[300:340, 820:866] = (214, 175, 110)
+    rgb[(yy_ - 570) ** 2 + (xx_ - 720) ** 2 <= 25 ** 2] = (212, 255, 255)
+    planes = ycc_encode(np.clip(rgb, 0, 255), C)
+    fr.shoot(ctx, fr.ctx(W2, H2), (W2, H2, planes))
+    dlt = ycc_decode(*fr.get(W2, H2), C) - ycc_decode(*planes, C)
+    check(dlt.min() >= -0.5, f'surface scene: a channel lost light: {dlt.min():.2f} codes')
+    inner = np.abs(dlt[210:430, 220:540])
+    check(fr.status() == HX_OK and inner.mean() <= 1.0 and (inner > 6).any(-1).mean() <= 0.01,
+          f'speckles inside a bright surface: mean {inner.mean():.2f} codes, '
+          f'{(inner > 6).any(-1).mean() * 100:.1f} % of pixels over 6')
+    pin = pits & (yy_ >= 210) & (yy_ < 430) & (xx_ >= 220) & (xx_ < 540)
+    pit_hot = (np.abs(dlt[pin]) > 6).any(-1).mean()
+    check(pit_hot <= 0.05, f'dark pits inside a bright surface took its halo: {pit_hot * 100:.1f} % over 6 codes')
+    near_big = dlt[318:323, 600:620, 0].mean()                 # 20 .. 40 px right of the surface
+    near_lamp = dlt[318:323, 950:970, 0].mean()                # 20 .. 40 px right of the lamp's edge
+    check(near_lamp > 20 and near_big < 0.95 * near_lamp,
+          f'large bright area vs lamp: red {near_big:.1f} beside the surface, {near_lamp:.1f} beside the lamp')
+    wi = (yy_ - 320) ** 2 + (xx_ - 1150) ** 2 <= 24 ** 2
+    check(np.abs(dlt[wi]).max() <= 2 and dlt[318:323, 1190:1200, 0].mean() > 20,
+          f'clipped warm lamp: inside {np.abs(dlt[wi]).max(0)} codes, red beside {dlt[318:323, 1190:1200, 0].mean():.1f}')
+    wp = dlt[300:340, 820:866]
+    check(wp[..., 0].max() > 0 and (wp[..., 1] <= wp[..., 0] + 1).all(),
+          f'warm patch near its top beside a lamp: green over red by up to {(wp[..., 1] - wp[..., 0]).max():.1f} codes')
+    wr = np.rint(ycc_decode(*fr.get(W2, H2), C)[300:340, 820:866, 0])
+    check(wr.max() < tone[0][1023], f'warm patch: the halo took red to its top code {tone[0][1023]} (no headroom taper)')
+    cl = dlt[568:573, 755:765].mean((0, 1))                    # 10 .. 20 px right of the cool lamp
+    check(cl[0] > 5 and cl[1] <= cl[0] + 0.5, f'cool lamp: halo green: {cl.round(1)}')
+
+    # 800T: a lamp-lit, textured wall below the clip (E 680 in every channel, 2 % dark pits at code 120) beside a lamp
+    # on dark ground.
+    # A large bright area: little glow off it (20 .. 40 px left of it, against the lamp's at the same distance). Where
+    # the lamp's faint glow lands on it, its dark pits change about as much as the wall around (the texture keeps
+    # its contrast); far from the lamp the wall stays.
+    rng_ = np.random.default_rng(9)
+    W3, H3 = 1280, 640
+    rgb = np.full((H3, W3, 3), 30.0)
+    rgb[120:520, 200:900] = np.array([tone[c][680] for c in range(3)], float) + rng_.uniform(-2, 2, (400, 700, 1))
+    wpits = np.zeros((H3, W3), bool)
+    wpits[120:520, 200:900] = rng_.random((400, 700)) < 0.02
+    rgb[wpits] = 120
+    yy3, xx3 = np.mgrid[0:H3, 0:W3]
+    rgb[(yy3 - 320) ** 2 + (xx3 - 950) ** 2 <= 40 ** 2] = 255
+    planes = ycc_encode(np.clip(rgb, 0, 255), C)
+    fr.shoot(ctx, fr.ctx(W3, H3), (W3, H3, planes))
+    d3 = ycc_decode(*fr.get(W3, H3), C) - ycc_decode(*planes, C)
+    check(fr.status() == HX_OK and d3.min() >= -0.5, f'lit wall: status {fr.status()}, least change {d3.min():.2f}')
+    off_wall = d3[300:340, 160:180, 0].mean()                  # 20 .. 40 px left of the wall
+    off_lamp = d3[300:340, 1010:1030, 0].mean()                # 20 .. 40 px right of the lamp's edge
+    near = (xx3 >= 860) & (xx3 < 900) & (yy3 > 260) & (yy3 < 380)
+    pit_d, wall_d = d3[near & wpits, 0], d3[near & ~wpits, 0]
+    far = (xx3 > 300) & (xx3 < 600) & (yy3 > 220) & (yy3 < 420)   # the wall's inside, far from the lamp
+    check(off_lamp > 20 and off_wall < 0.2 * off_lamp,
+          f'lit wall: red {off_wall:.1f} beside it, {off_lamp:.1f} beside the lamp (a large bright area is not a lamp)')
+    check(np.percentile(pit_d, 90) <= 9, f'lit wall: its dark pits under the lamp\'s glow change by up to '
+                                          f'{np.percentile(pit_d, 90):.1f} codes (90 %), the wall {np.median(wall_d):.1f}')
+    check(((np.abs(d3[far]) > 0.5).any(-1)).mean() <= 0.01, 'lit wall: changed far from the lamp')
+    # A clipped window (120 x 80) on a lit facade (code 175): no outline next to it, the result's luma 2 px past its
+    # edge at most 4 codes under that 3 .. 16 px out (the window's cells hold a little within one cell: 8 px).
+    rgb = np.full((H3, W3, 3), 175.0) + rng_.uniform(-4, 4, (H3, W3, 1))
+    rgb[280:360, 580:700] = 255
+    planes = ycc_encode(np.clip(rgb, 0, 255), C)
+    fr.shoot(ctx, fr.ctx(W3, H3), (W3, H3, planes))
+    wy = fr.get(W3, H3)[0][300:340, 702:760].astype(float).mean(0)   # luma, 2 .. 60 px right of the window
+    rise = wy[1:15].max() - wy[0]
+    check(fr.status() == HX_OK and wy[0] > planes[0][300:340, 702].mean() + 5 and rise <= 4,
+          f'window on a facade: luma rises by {rise:.1f} going out (an outline): {wy[:16].round(1)}')
 
     # Frames the pass must leave byte-identical (each still runs the stock step once).
     sw, sh = 480, 320
     lamp = scene(sw, sh, C, [(240, 160, 30, (255, 255, 255))])
     dark = scene(sw, sh, C, base=20, texture=150)              # texture below the highlight ramp
     check(ycc_decode(*dark, C).max() < 200, 'harness: the "no highlights" frame has highlights')
-    same = [('no highlights', fr.ctx(sw, sh), dark, HX_OK, None),
+    same = [('no highlights', fr.ctx(sw, sh), dark, HX_NONE, None),
             ('Standard frame', fr.ctx(sw, sh, mode=0), lamp, HX_MODE, None),
             ('stock effect routing (ctx+0x357)', fr.ctx(sw, sh), lamp, HX_MODE, lambda cc: m.wr(cc + 0x357, b'\x10')),
             ("the DNG's own still (ctx+0x008 = 7)", fr.ctx(sw, sh, kind=7), lamp, HX_RAW, None),
@@ -1009,22 +1220,26 @@ def sc_halation(ctx):
         check((got[2][:200, :100].astype(int) >= planes_[2][:200, :100]).all() and
               (got[2][:200, :100] != planes_[2][:200, :100]).any(), f'{name}: no red halo at the corner source')
 
-    # Timing (debug): instructions per ARM/Thumb block at full 3:2; the cost estimate decides (src/halation.c
-    # HX_BUDGET), a frame over it stays byte-identical.
+    # Timing (debug, 800T): instructions per ARM/Thumb block at full 3:2; the cost estimate decides on the modelled
+    # camera time (src/halation.c HX_BUDGET, EST_*: fitted to the camera time of the emulator's instructions, CAM_NS
+    # from the H2 shots), a frame over it stays byte-identical; a frame it runs (also one with much to decode and no
+    # highlight: status 5) has an estimate within 25 % of its camera time.
     if ctx.variant == 'debug':
         lo, hi = m.main_base, m.main_end
         rng = np.random.default_rng(7)
-        disc = lambda n, r0, r1, col, edge=40: [(int(x), int(y), int(r), col) for x, y, r in zip(
+        lamps = lambda n, r0, r1, col, edge=40: [(int(x), int(y), int(r), col) for x, y, r in zip(
             rng.integers(edge, 4928 - edge, n), rng.integers(edge, 3264 - edge, n), rng.integers(r0, r1, n),
             strict=False)]
-        night, worst = disc(24, 6, 40, (255, 230, 180)), disc(160, 40, 160, (255, 255, 255), 0)
-        bright, city = disc(20, 40, 160, (255, 255, 255), 0), disc(120, 4, 30, (255, 220, 160))
+        night, worst = lamps(24, 6, 40, (255, 230, 180)), lamps(160, 40, 160, (255, 255, 255), 0)
+        bright, city = lamps(20, 40, 160, (255, 255, 255), 0), lamps(120, 4, 30, (255, 220, 160))
         for what, planes_, want in (('night, 24 lamps', scene(4928, 3264, C, night, base=18), HX_OK),
-                                    ('busy night, 120 lamps', scene(4928, 3264, C, city, base=18), HX_OK),
+                                    ('busy night, 120 lamps', scene(4928, 3264, C, city, base=18), None),
                                     ('bright, 20 large highlights on texture', scene(4928, 3264, C, bright, base=40,
-                                                                                     texture=40), HX_OK),
+                                                                                     texture=40), None),
                                     ('bright worst case, 160 large highlights', scene(4928, 3264, C, worst, base=60,
-                                                                                      texture=90), HX_BUSY)):
+                                                                                      texture=90), HX_BUSY),
+                                    ('texture without highlights', scene(4928, 3264, C, base=20, texture=150),
+                                     HX_NONE)):
             n = [0]
 
             def count(uc, a, size, _, n=n):                    # Thumb blocks: 2-byte, ARM blocks: 4-byte instructions
@@ -1033,18 +1248,22 @@ def sc_halation(ctx):
             m.uc.ctl_remove_cache(lo, hi)                      # translated blocks predate the hook
             before = fr.shoot(ctx, fr.ctx(4928, 3264), (4928, 3264, planes_))
             m.uc.hook_del(hk)
-            cells, rows, groups, words, dec, nh = (m.u32(m.syms['g_rec'] + o) for o in (
-                REC_CELLS, REC_CELLS + 4, REC_CELLS + 8, REC_WORDS, REC_DEC, REC_DEC + 4))
-            mb = (4928 + 2 * 2464) * (1632 + 408) / 1e6 + 16 * groups / 1e6   # sampled rows + add-back groups
-            h1, slow = n[0] / 146e6, mb / 137 + n[0] / 77e6
-            print(f'  halation timing, {what}: status {fr.status()}, {n[0] / 1e6:.1f} M instructions, {mb:.1f} MB '
-                  f'read, estimate {dec} decoded groups / {nh} halo cells, {cells} source cells, {rows} rows / '
-                  f'{groups} groups with a halo, {words} words written; {h1:.2f} s at H1\'s 146 MIPS (memory '
-                  f'included), {slow:.2f} s at 77 MIPS + 137 MB/s without overlap')
-            ctx.halo_timing = getattr(ctx, 'halo_timing', []) + [(what, n[0], mb, h1, slow)]
-            check(fr.status() == want, f'timing shot ({what}): status {fr.status()}, expected {want}')
-            check(want == HX_OK or np.array_equal(fr.mem, before), f'{what}: over budget but changed')
-            check(n[0] <= 205e6, f'{what}: {n[0] / 1e6:.0f} M instructions, over the budget')
+            cells, rows, groups, words, dec, nh, src, nb = (m.u32(m.syms['g_rec'] + o) for o in (
+                REC_CELLS, REC_CELLS + 4, REC_CELLS + 8, REC_WORDS, REC_DEC, REC_DEC + 4, REC_DEC + 8, REC_DEC + 12))
+            st = fr.status()
+            if st == HX_OK:
+                lost = (ycc_decode(*fr.get(4928, 3264), C) - ycc_decode(*planes_, C)).min()
+                check(lost >= -0.5, f'{what}: a channel lost light: {lost:.2f} codes')
+            est, cam = est_ms(dec, nh, nb), n[0] * CAM_NS / 1e6 + CAM_MS0
+            print(f'  halation timing, {what}: status {st}, {n[0] / 1e6:.1f} M instructions = {cam:.0f} ms on the '
+                  f'camera, estimate {dec} decoded groups / {src} source / {nh} halo / {nb} boosted cells = '
+                  f'{est:.0f} ms, {cells} source cells, {groups} groups with a halo, {words} words written')
+            ctx.halo_timing = getattr(ctx, 'halo_timing', []) + [(what, n[0], est, st)]
+            check(st in (HX_OK, HX_BUSY, HX_NONE) and (want is None or st == want),
+                  f'timing shot ({what}): status {st}, expected {want}')
+            check(st == HX_BUSY or est <= 3000, f'{what}: applied with an estimate of {est:.0f} ms (budget 3 s)')
+            check(st == HX_BUSY or abs(est - cam) <= 0.25 * cam, f'{what}: estimate {est:.0f} ms, {cam:.0f} ms')
+            check(st == HX_OK or np.array_equal(fr.mem, before), f'{what}: over budget but changed')
         print(f'  halation hook stack: {halo_hook_stack} B')
 
     finish(ctx, s)
@@ -1074,6 +1293,23 @@ def sc_halation(ctx):
           'halation: effect-step call not stock' in errs[0], f'foreign call site: writes {writes}, log {errs}')
     m3.files.pop('H:/CFW/CFW_LOG.TXT')                         # the expected ERROR line
     finish(ctx, s3)
+
+    # The keys' parser: a boost or size needs `halation`; values out of range are errors; decimals as documented.
+    bad = {'t_hb1.txt': 'halation_boost=2.0\r\n', 't_hb2.txt': 'halation=300,100,15\r\nhalation_boost=6.1\r\n',
+           't_hb3.txt': 'halation=300,100,15\r\nhalation_size=131\r\n',
+           't_hb4.txt': 'halation=300,100,15\r\nhalation_boost=2,1.01\r\n',
+           't_hb5.txt': 'halation=300,100,15\r\nhalation_boost=2,0.3,2,1\r\n'}
+    good = {'t_hb6.txt': 'halation=300,100,15\r\nhalation_size=130\r\nhalation_boost=6,0.5,4\r\n',
+            't_hb7.txt': 'halation=300,100,15\r\nhalation_boost=2.5\r\n'}
+    files = {'H:/cfw/recipes/' + f: test_recipe('~Test ' + f[:-4], b) for f, b in {**bad, **good}.items()}
+    s4 = Session(ctx, files=files, props={0x2D: 4})
+    names = s4.recipe_names()
+    check(all(('~Test ' + f[:-4]) in names for f in good) and not any(('~Test ' + f[:-4]) in names for f in bad),
+          f'halation key parsing: list {names}')
+    errs = [l for l in s4.m.log_lines() if 'ERROR' in l]
+    check(len(errs) == len(bad) and all(any(f.upper() in e for e in errs) for f in bad), f'halation key errors {errs}')
+    s4.m.files.pop('H:/CFW/CFW_LOG.TXT')
+    finish(ctx, s4)
 
 
 def lv_gradient_visible(bmp, m):
@@ -1357,7 +1593,7 @@ WB_VALUE = {'auto': 0, 'multi_auto': 1, 'daylight': 2, 'shade': 3, 'cloudy': 4, 
             'incandescent2': 6, 'fl_daylight': 7, 'fl_neutral': 8, 'fl_cool': 9, 'fl_warm': 10, 'cte': 12, 'kelvin': 13}
 PLAIN_KEYS = {'wb': 0xFE, 'wb_kelvin': 0x10F, 'exposure': 0xFD, 'dr': 0x130, 'nr': 0xEF, 'iso': 0x110,
               'auto_hi_max': 0x111, 'auto_hi_min': 0x112, 'auto_hi_shutter': 0x113}
-LOOK_KEY = re.compile(r'matrix|post_matrix|tone(_[rgb])?|hue\d+|halation(_size)?')
+LOOK_KEY = re.compile(r'matrix|post_matrix|tone(_[rgb])?|hue\d+|halation(_size|_boost)?')
 NAME_IDS = range(0x1A9, 0x1BA)
 
 
@@ -1427,7 +1663,7 @@ def sc_export(ctx):
     Clarity strength); nothing written at boot, no slot or property changed; (b) every file applied to MY3 sets each
     property its keys name to the source value and nothing else; (c) the slot linked to Portra exports Portra's look
     keys (also live with the dial on it), which parse to the same look, and MY1 linked to 800T (no slot change) its
-    look with halation=300,100,15 and halation_size=50, no other file a halation key; (d) no card: an error, nothing
+    look with the recipe's three halation keys, no other file a halation key; (d) no card: an error, nothing
     written;
     (e) the export runs in the CFW task within its stack, also for the console (CFWcon waits in Task_Delay)."""
     import machine
@@ -1518,7 +1754,8 @@ def sc_export(ctx):
     check(want_l and got == want_l, f'my1.txt on 800T: not 800T\'s look (keys differing: '
           f'{sorted(k for k in set(got) | set(want_l) if got.get(k) != want_l.get(k))})')
     halo = {k: v for k, v in recipe_kv(e800) if k.startswith('halation')}
-    check(halo == {'halation': '300,100,15', 'halation_size': '50'}, f'my1.txt on 800T: halation keys {halo}')
+    want_h = {k: v for k, v in c800t if k.startswith('halation')}
+    check(len(want_h) == 3 and halo == want_h, f'my1.txt on 800T: halation keys {halo}, recipe {want_h}')
     # (d) no card: an error on the row, nothing written anywhere.
     files, io1 = {k: bytes(v) for k, v in m.files.items()}, len(m.io)
     m.card = False

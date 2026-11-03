@@ -10,8 +10,9 @@
 # spektrafilm profiles kodak_vision3_500t / kodak_2383; fit CIEDE2000 mean/95th %: Standard 8.9/16.8, this recipe 2.6/4.7.
 # Tungsten film: spektrafilm lights white-balanced scenes with its reference illuminant (T).
 # Halation test recipe: the Kodak Vision3 500T look with the halo of that negative without its anti-halation
-# (rem-jet) layer: spektrafilm's halation preset for a cine film with antihalation='no'.
-# The CFW adds the halo to the final JPEG only (README, Recipes).
+# (rem-jet) layer: spektrafilm's halation preset for a cine film with antihalation='no';
+# its knobs halation_amount 1.0, halation_spatial_scale 2.0, boost_ev 4.5, boost_range 0.3, protect_ev 2.0.
+# The CFW adds the halo to the final JPEG only (README, Halation).
 
 name=800T
 base=setting2
@@ -41,6 +42,8 @@ hue9=120,6,2,10,109,9,-1,7,122
 hue10=118,7,3,9,110,9,-2,5,125
 hue11=116,8,4,7,114,7,0,4,124
 hue12=116,8,4,3,117,8,4,2,122
-# halation (spektrafilm halation_strength x1000 R,G,B; first-bounce sigma in um on 35 mm film)
+# halation (spektrafilm halation_strength x amount x1000 R,G,B; first-bounce sigma x spatial scale in um
+# on 35 mm film; highlight boost: boost_ev, boost_range, protect_ev above mid grey)
 halation=300,100,15
-halation_size=50
+halation_size=100
+halation_boost=4.5,0.30,2.0

@@ -72,19 +72,44 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   Standard and a slot without halation (Vision3 500T in MY2). Against
   synthetic YCC frames in the stock buffer layout (`FUN_a02AE7EA`, mapped exactly, guards patterned) run through
   the patched BL in a `ProcessStill` task (stock step first; scratch from a mapped SPRWORK buffer through the stub
-  allocator): a bright disc gets a red-dominant halo that matches an independent float model of spektrafilm's
-  halation (3 bounces, renormalised Gaussians, a' = a/(1+a), the same source ramp) decoded through the look's
-  tone curves and YCC record: ring means within max(1.5 codes, 15 %), mean |difference| at most 1 code, at most
-  0.5 % of pixels beyond max(5 codes, 25 %), total red 0.95–1.05 of the model; falloff monotone, far pixels
-  unchanged. Byte-identical (every byte of the region): a frame without highlights, another colour mode, ctx
-  +0x357 set, the DNG's own run (+0x008 = 7), RAW development (+0x1E0), interval composite and multiple exposure,
-  a busy scratch buffer, a frame wider than its pitch, planes outside the buffer, no "BUFF" handle, no chroma;
-  statuses and ERROR lines as expected. Every aspect (3:2, 4:3, 1:1, 16:9, 35 mm crop) writes only inside its
-  frame; the hook reached with halation off (stale I-cache) only calls the stock step; a foreign halfword at the
-  call refuses ("halation: effect-step call not stock, halation off", one ERROR) with no write. Debug: instructions
-  per ARM/Thumb block at full 3:2, printed with the time at H1's 146 MIPS and at 77 MIPS + 137 MB/s: a night scene
-  (24 lamps), a busy night (120 lamps) and a bright textured scene are applied within the budget (≤ 205 M), a
-  bright worst case (160 large highlights) is over it (status 5) and stays byte-identical; the hook's stack.
+  allocator): a bright disc and an orange lamp get a red-dominant halo that matches an independent float model of
+  spektrafilm's halation (3 bounces, renormalised Gaussians, a' = a/(1+a), the same source ramp, its
+  `boost_highlights` per channel with the camera's white as the image maximum, faded by the bright share of the
+  17 × 17 cells around to a quarter of the unboosted; x = h − 1.4a'·A, A the hold of the 3 × 3 cells (of each
+  cell's max(mean E, mean S): their mean, at most twice their least),
+  × H / (H + x) (H the headroom), faded at the top of the brightest channel, the code step from the pixel's E or,
+  for a pixel below the cells' level L under a faint glow, from L (back to its own by x = 2 L), green's code step at
+  most red's, blue's at most green's) decoded through the look's tone curves and YCC record, twice: for `~Test halo`
+  (spektrafilm's preset, 50 µm, no boost, previewed) and for 800T (its recipe keys: 100 µm, boost 4.5 EV): no
+  channel of any pixel loses light; the result's luma falls off from the disc's edge out (no outline); ring means
+  within max(1.5 codes, 15 %), mean |difference| at most 1.2 codes, at most 3 % of pixels beyond max(5 codes, 25 %)
+  within 6 σ of the widest bounce (where the halo fades into the ground it turns off within a few px, and at the
+  disc's anti-aliased edge a chroma pair decides: per pair there, per pixel here), total red 0.95–1.05 of the model;
+  falloff monotone from 7 px out, pixels beyond that reach unchanged. Without the boost the halo next to a source is
+  about its cells' hold, so `~Test halo` is judged from 1.5 cells out (total 0.9–1.1, the small lamp's near cells
+  left out). 800T on one dark ground (no channel loses light): a lit, noisy near-white surface (400 × 300 px) has no
+  speckles inside (mean change ≤ 1 code, ≤ 1 % of pixels over 6), at most 5 % of its dark pits (1 %, below 1/8 of
+  its light) change by more than 6 codes, and 20–40 px beside it the glow is weaker than beside a 60-px lamp (the
+  share fade); a warm clipped lamp keeps its colour inside (≤ 2 codes) and glows red outside; a warm patch beside
+  the lamp, red near its top, gets no more green than red and never reaches the top code (the headroom taper); a
+  cyan-white lamp gets no green halo. A lamp-lit textured wall below the clip (E 680 in every channel, 2 % dark pits)
+  beside a lamp: the glow beside the wall is under 1/5 of the lamp's (a large bright area is not a lamp), 90 % of its
+  pits under the lamp's faint glow change by ≤ 9 codes (the texture keeps its contrast), its inside far from the lamp
+  ≤ 1 % changes. A clipped window on a lit facade: 2 px past its edge the luma is at most 4 codes under that 3–16 px
+  out (no outline). Byte-identical
+  (every byte of the region): a frame without highlights (status 5), another colour mode, ctx +0x357 set, the
+  DNG's own run (+0x008 = 7), RAW development (+0x1E0), interval composite and multiple exposure, a busy scratch
+  buffer, a frame wider than its pitch, planes outside the buffer, no "BUFF" handle, no chroma; statuses and ERROR
+  lines as expected. Every aspect (3:2, 4:3, 1:1, 16:9, 35 mm crop) writes only inside its frame; the hook reached
+  with halation off (stale I-cache) only calls the stock step; a foreign halfword at the call refuses
+  ("halation: effect-step call not stock, halation off", one ERROR) with no write. The keys' parser: a boost or
+  size without `halation`, a boost over 6 EV or a range over 1, a fourth boost field and a size over 130 µm are
+  errors (named in the log), 130 µm and `6,0.5,4` / `2.5` load. Debug (800T): instructions per ARM/Thumb block at
+  full 3:2, their camera time (12.5 ns each, less 34 ms: the H2 shots) against the estimate's modelled time
+  (src/halation.c `EST_*`): a night scene (24 lamps) is applied and no channel loses light, a bright worst case (160
+  large highlights) is over the 3 s budget (status 6) and byte-identical, a busy night and a bright textured scene
+  follow the estimate, dark noisy texture without highlights (much to decode) is status 5; the estimate of a frame
+  that runs is within 25 % of its camera time; the hook's stack.
 - `recipe-files`: every file in `recipes/` and the look-stage test recipes built in `run.py` (matrix, `tone`,
   `tone_r`, hue sectors, post matrix) parse; list sorted by name, then Stock, also after card recipes named
   "zzz" and "Stock" (and the `~Test` ones); each entry previews its look stages in Setting2, the last none.
@@ -109,7 +134,7 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   replaced, no `fx16` because the camera's Clarity is the factory one), ASCII CRLF ≤ 4094 bytes, nothing at boot,
   no slot file or property changed, every file call in the CFW task within its stack; my1.txt carries Portra's look
   keys (same look as portra.txt), no other file any, and no file a halation key; with MY1 linked to 800T instead,
-  my1.txt has 800T's look with `halation=300,100,15` and `halation_size=50`. No card: "no card", nothing written.
+  my1.txt has 800T's look and its three halation keys as in c800t.txt. No card: "no card", nothing written.
   `export_run` on an 8 KB stack trips the stack check. Round trip: every file from `cfw/recipes` applied to MY3
   sets each property its keys name to the source value, its name, and nothing else; the CFW parses my1.txt to
   Portra's look and MY3 then holds `MY1.TXT`. Console `export` with the dial on MY1 (CFWcon waits in `Task_Delay`,
@@ -153,3 +178,11 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
 
 `--render DIR` writes `<variant>_<screen>.png` (menu tabs, the scrolled DEV page, recipes strip, apply prompt,
 screenshot, VIEW overlays) with the real palette and the full plane (layer 2) over a gradient backdrop.
+
+**Halation preview** (`halation_preview.py`, not part of the run): the same pass on real photos, for tuning
+recipes. `python3 tests/emu/halation_preview.py [--recipe recipes/c800t.txt] [--set halation_boost=4,0.3,2]
+[--night] [--no-budget] [--profile] [--out DIR] photo.JPG ...` takes each camera JPEG (4928×3264, 4352×3264 or
+3264×3264) as the developed still in the recipe's look, encodes it through the colour mode's YCbCr record into the
+stock buffer layout, runs the effect step through the patched call and writes `<name>_before.png` /
+`_after.png` (1600 px wide) and `_crops.png` (100 % crops where the halo is strongest) to DIR (default
+`/tmp/halation/preview`); `--night` adds a synthetic night street, `--profile` splits the instructions by stage.
