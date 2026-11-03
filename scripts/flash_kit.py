@@ -3,7 +3,7 @@
 
 Each step folder holds STEP.md (what to do, pass/fail, recovery) and card*/
 directories whose contents are exactly the root of the SD card for that step.
-Full rationale and risks: loader/flash/README.md; test record: the reverse-engineering notes finding 36. Nothing here touches a
+Full rationale and risks: loader/flash/README.md. Nothing here touches a
 card or the camera; the user copies the files.
 
 Inputs, all checked: fw/rg2_v003.frm (stock, SHA-256), dist/rg2_v003_loader.frm
@@ -43,7 +43,7 @@ ROM_SHA = manifest_sha()
 
 COMMON = """\
 Before every flash step (F1a, F1b, F2, F5, P1, P3, U):
-- `make check` printed `STATUS: ALL GATES PASSED` on the Mac.
+- The maintainer's pre-flight safety check passed (stock firmware and NAND backup verified) on the Mac.
 - Battery indicator **full**; a second charged battery at hand.
 - Card R (step F1b) prepared and checked, kept out of the camera.
 - Card formatted **in the camera** (the firmware refuses card layouts outside the SD specification; a Mac-formatted

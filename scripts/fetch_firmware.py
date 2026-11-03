@@ -7,8 +7,7 @@ Puts the factory rg2_v003.frm into fw/ and extracts it there with tools/gr2frm.p
     fw/b01firm6.bin   RES image
     fw/afs/           the A: drive files (isp/IQ.bin, fix/AE_F.bin, ...)
 
-Source, first match: --frm FILE, $GR2_STOCK_FRM, $GR2_STOCK_FRM,
-the maintainer's hardware data, else the official download from
+Source, first match: --frm FILE, $GR2_STOCK_FRM, else the official download from
 Ricoh (zip SHA-256 checked). The firmware is Ricoh's: fw/ is never committed and
 never uploaded as a build artifact.
 """
@@ -36,8 +35,7 @@ def sha256(data):
 
 
 def local_frm(explicit):
-    cands = [explicit, os.environ.get("GR2_STOCK_FRM"), REPO.parent / "rg2_v003.frm",
-             REPO.parent / "the reverse-engineering notes" / "recovery_kit" / "rg2_v003.frm"]
+    cands = [explicit, os.environ.get("GR2_STOCK_FRM")]
     for c in cands:
         if c and Path(c).is_file():
             data = Path(c).read_bytes()

@@ -2,7 +2,7 @@
 """Build dist/rg2_v003_loader.frm: stock rg2_v003.frm + the M10 flashed loader (`make loader`).
 
 Builds and checks only; flashing is a user step (the camera's menu update) and needs
-`make check` (pre-flight safety gates) first. The output contains Ricoh's
+the maintainer's pre-flight safety check first. The output contains Ricoh's
 firmware; it is published only as rg2_v003.frm in the debug zip (scripts/package_sd.py).
 
 Steps:

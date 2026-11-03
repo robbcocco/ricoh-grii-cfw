@@ -12,7 +12,7 @@ kodak_ultramax_400, kodak_vision3_50d / kodak_portra_endura; fujifilm_pro_400h /
 fujifilm_crystal_archive_typeii; kodak_vision3_250d, kodak_vision3_500t / kodak_2383; Cinema Green:
 kodak_vision3_500t / kodak_2383; Cinema Yellow: kodak_vision3_250d / kodak_2393.
 
-Method (gr2_cfw project, tool the maintainer's recipe tool): spektrafilm's own runtime
+Method (gr2_cfw project, its spektrafilm fitting tool): spektrafilm's own runtime
 (init_params, digest_params, simulation pipeline in its deterministic LUT mode: no grain, halation,
 blur or auto exposure; database neutral print filters) renders synthetic scene-linear sRGB samples
 at its nominal exposure: a dense neutral ramp, ColorChecker 24 patches and an sRGB grid at several

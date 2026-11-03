@@ -1,6 +1,6 @@
 # Flashed loader and release firmware: design and checks
 
-Two firmware builds, both stock 3.00 plus a 132-byte stub in the APP image that hands each section load to the CFW's stage 1. The **release firmware** (`rom_stub.S`, §5) loads stage 1 from the camera's internal `A:` drive, where the CFW files are flashed with it; it never loads code from the card. The **debug loader** (`ldr_stub.S`, §1–§4) loads stage 1 from the card's `cfw/` folder, so development builds need no reflash. The tools here never write to an SD card. The hardware test record (F0–F10, P1–P3, all passed) lives outside this repository (`the reverse-engineering notes` finding 36).
+Two firmware builds, both stock 3.00 plus a 132-byte stub in the APP image that hands each section load to the CFW's stage 1. The **release firmware** (`rom_stub.S`, §5) loads stage 1 from the camera's internal `A:` drive, where the CFW files are flashed with it; it never loads code from the card. The **debug loader** (`ldr_stub.S`, §1–§4) loads stage 1 from the card's `cfw/` folder, so development builds need no reflash. The tools here never write to an SD card. Every hardware test step (F0–F10, P1–P3) passed; the test record is kept outside this repository.
 
 | File | Purpose |
 |---|---|
@@ -12,7 +12,7 @@ Two firmware builds, both stock 3.00 plus a 132-byte stub in the APP image that 
 | `probe/Startup.ttl` + `../../scripts/loader_timing.py` | Data-only probe: boot timeline (the APP's own section-load profile) and the loader status word |
 | `rescue/backup.ttl` | Rescue-card script for BAK: runs `up`, then `forcedown` |
 
-Tags: [V] = read in code/data or observed in emulation; [H] = observed on hardware; [I] = inference. **[R 2026-11-01]** = re-verified on 2026-11-01 with an independent script (`scratch analysis`: own capstone disassembly, own checksum loop, own diff) against `fw/b01firm8.bin` and the stock `rg2_v003.frm`.
+Tags: [V] = read in code/data or observed in emulation; [H] = observed on hardware; [I] = inference. **[R 2026-11-01]** = re-verified on 2026-11-01 with an independent script (own capstone disassembly, own checksum loop, own diff) against the APP image `fw/b01firm8.bin` and the stock `rg2_v003.frm`.
 
 ## 1. What gets patched
 
@@ -27,7 +27,7 @@ Only APP (`b01firm8`, type 1) changes. RES (`b01firm6`) is byte-identical. The c
 136 bytes differ in the `.frm`, all inside the APP payload. `gr2frm.py verify` passes: round trip, header sizes and both checksums. Output SHA-256 (stub v2, 2026-11-02): `1914ac9069cb5e9803d348bea999258884d0d8199f7ff2e257161ec44c1f91f1`. Earlier builds: v1 `f8c4f9b6…a7d5` (flashed F2, 2026-11-01; reads the card before the lens starts, which makes the lens bounce, finding 33) and `497e5c98…b514` (mounted the card before section 1 was loaded, finding 28; must never be flashed). The full byte listing and disassembly are in `dist/rg2_v003_loader.diff.txt`.
 
 **[R 2026-11-01]** Everything in this table, re-checked (for the first stub; the fixed stub changes only the stub bytes and the checksum, both re-checked by `make loader`):
-- `fw/b01firm8.bin` is byte-identical to the APP image unpacked from the stock `.frm` (`.frm` SHA-256 `3643850f…8331`); RES is identical in the loader `.frm`.
+- `fw/b01firm8.bin` (`make fw`) is byte-identical to the APP image unpacked from the stock `.frm` (`.frm` SHA-256 `3643850f…8331`); RES is identical in the loader `.frm`.
 - Rebuilding from a clean copy reproduces the SHA-256 above, so the build is deterministic.
 - The APP diff is exactly the three ranges in the table.
 - Own checksum loop (finding 15 §7.1, load base = header `+0x20` = 0, `nUpdateTotalSize` `0x5D9054`): stock `0x826A5E33` and patched equal to the header word.

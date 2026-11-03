@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 /* Addresses verified statically against b01firm8 (rg2_v003, RAM = 0xA0020200 +
- * file offset); see finding 14 and 15. CPU: ARMv5TE, Thumb-1. */
+ * file offset); findings 14 and 15. CPU: ARMv5TE, Thumb-1. */
 
 /* ---- Memory ------------------------------------------------------------
  * DRAM 0xA0000000-0xBFFFFFFF (512 MiB, MPU region 5, cacheable write-through).

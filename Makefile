@@ -38,7 +38,7 @@ ELFS      := $(foreach v,$(VARIANTS),bin/$(v)/gr2_cfw.elf bin/$(v)/gr2_main.elf)
 objs = $(patsubst src/%.S,build/$(1)/%.o,$(filter %.S,$(2))) \
        $(patsubst src/%.c,build/$(1)/%.o,$(filter %.c,$(2)))
 
-.PHONY: all disasm audit dist fw emu loader rom flash-kit lint test check clean help
+.PHONY: all disasm audit dist fw emu loader rom flash-kit lint test clean help
 
 all: $(foreach v,$(VARIANTS),bin/$(v)/gr2_cfw.bin bin/$(v)/gr2_main.bin)
 
@@ -84,10 +84,6 @@ lint:
 
 test: lint audit emu loader rom
 
-# pre-flight safety gates (stock .frm, NAND backup): required before any flash, see AGENTS.md.
-check:
-	$(PYTHON) the maintainer's safety check
-
 clean:
 	rm -rf build bin dist/flash
 	rm -f dist/*.zip dist/*.frm dist/*.diff.txt dist/*.manifest.txt dist/SHA256SUMS.txt dist/RELEASE_NOTES.md
@@ -102,7 +98,6 @@ help:
 	@echo "make rom        build + check dist/rg2_v003_cfw.frm, the release firmware (in the official zip)"
 	@echo "make flash-kit  dist/flash/: one folder per flash step (F, P) with the card contents"
 	@echo "make test       lint + audit + emu + loader + rom (what CI runs)"
-	@echo "make check      pre-flight safety gates before flashing"
 	@echo "make disasm     bin/<variant>/*.asm"
 	@echo "WERROR=1        treat warnings as errors (CI)"
 

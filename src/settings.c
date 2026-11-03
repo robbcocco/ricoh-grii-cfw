@@ -12,7 +12,7 @@
  * RAM-patch settings (TAv ISO cap, Auto ISO slowest shutter / max ISO, Snap
  * distances) verify every original value first, write single aligned stores,
  * and are lost at power-off.
- * Evidence: finding 18 and 21. */
+ * Evidence: findings 18 and 21. */
 #include <stdint.h>
 #include "settings.h"
 #include "config.h"

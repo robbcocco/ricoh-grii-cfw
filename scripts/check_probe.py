@@ -56,5 +56,6 @@ def main(directory):
 
 
 if __name__ == "__main__":
-    default = Path(__file__).resolve().parents[2] / "the reverse-engineering notes" / "dumps" / "probe"
-    sys.exit(0 if main(sys.argv[1] if len(sys.argv) > 1 else default) else 1)
+    if len(sys.argv) != 2:
+        sys.exit("usage: check_probe.py <folder copied from H:/cfw/probe>")
+    sys.exit(0 if main(sys.argv[1]) else 1)
