@@ -28,6 +28,7 @@
   function setLut(l, name, desc) {
     lut = l; lutName = name;
     lutSize = l.kind === '1d' ? `1D ${l.size}` : `${l.size}^3 ${desc}`;
+    $('drop-file').textContent = `${name} \u00b7 ${l.kind === '1d' ? `1D, ${l.size} points` : `${l.size}\u00b3`}`;
     $('enc-in').value = guessInput(`${name} ${l.title || ''}`);
     if (!nameEdited) $('r-name').value = core.recipeName(l.title || stem(name));
     showFile();
@@ -69,16 +70,23 @@
     fit = { pending: true, opts, lutName, lutSize };
     $('download').disabled = true;
     $('result').hidden = true;
-    $('progress').hidden = false; $('progress').value = 0;
+    progress(0);
     status(`Fitting ${lutName}\u2026`);
     worker.postMessage({ type: 'fit', id: jobId, lut, opts });
+  }
+
+  function progress(frac) {
+    $('progress').hidden = frac === null;
+    if (frac === null) return;
+    $('bar').firstElementChild.style.width = `${Math.round(100 * frac)}%`;
+    $('bar').setAttribute('aria-valuenow', String(Math.round(100 * frac)));
   }
 
   worker.onmessage = e => {
     const m = e.data;
     if (m.id !== jobId) return;
-    if (m.type === 'progress') { $('progress').value = m.frac; status(`Fitting ${lutName}: ${m.stage}\u2026`); }
-    else if (m.type === 'error') { $('progress').hidden = true; status(`Could not convert ${lutName}: ${m.message}`, 'bad'); }
+    if (m.type === 'progress') { progress(m.frac); status(`Fitting ${lutName}: ${m.stage}\u2026`); }
+    else if (m.type === 'error') { progress(null); status(`Could not convert ${lutName}: ${m.message}`, 'bad'); }
     else if (m.type === 'result') onResult(m);
   };
 
@@ -94,12 +102,15 @@
     const look = { a: Float64Array.from(m.look.a), p: Float64Array.from(m.look.p), h: Float64Array.from(m.look.h), tone: Float64Array.from(m.look.tone) };
     const de = m.useHue ? m.de.full : m.de.plain;
     Object.assign(fit, { pending: false, look, useHue: m.useHue, de: m.de, stockLabel: m.stockLabel });
-    $('progress').hidden = true;
+    progress(null);
     status(`Converted ${lutName} (${lutSize}).`, 'ok');
     $('result-title').textContent = verdict(de.mean);
+    $('badge').replaceChildren(`\u0394E ${de.mean.toFixed(1)}`, Object.assign(document.createElement('small'), { textContent: 'mean' }));
     $('result-detail').textContent =
       `Average colour difference to the LUT: \u0394E ${de.mean.toFixed(1)} (95 % of colours within ${de.p95.toFixed(1)}). ` +
       `The camera without the recipe: \u0394E ${m.de.standard.mean.toFixed(1)}.`;
+    const pos = de.mean <= 2 ? 25 * de.mean : Math.min(100, 50 + 12.5 * (de.mean - 2));
+    $('meter-dot').style.left = `${pos}%`;
     const css = (lin, i) => `rgb(${[0, 1, 2].map(c => Math.round(255 * core.srgbEncode(lin[3 * i + c]))).join(',')})`;
     $('swatches').replaceChildren(...Array.from({ length: 24 }, (_, i) => {
       const d = document.createElement('div');

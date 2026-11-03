@@ -5,20 +5,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LUT to recipe converter · gr2_cfw</title>
 <meta name="description" content="Convert a 3D LUT (.cube, .3dl or Hald CLUT .png) into a gr2_cfw film recipe for the Ricoh GR II. Runs entirely in your browser.">
+<meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f0f10" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/BarlowCondensed-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5M7 10l5-5 5 5M5 20h14"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h7l4 4v13a1 1 0 0 1-1 1H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M10 6v3M13 6v3"/></symbol>
+  </defs>
+</svg>
 <a class="skip" href="#main">Skip to content</a>
 <header class="site-header">
   <div class="wrap">
-    <a class="brand" href="./"><img src="img/icon.svg" alt="" width="26" height="26"> gr2_cfw</a>
+    <a class="brand" href="./"><img src="img/icon.svg" alt="" width="28" height="28">gr2_cfw</a>
     <nav aria-label="Main">
       <ul>
-        <li><a href="./#features">Features</a></li>
+        <li class="nav-wide"><a href="./#features">Features</a></li>
         <li><a href="./#download">Download</a></li>
-        <li><a href="./#faq">FAQ</a></li>
-        <li><a href="convert.html" aria-current="page">LUT converter</a></li>
+        <li class="nav-wide"><a href="./#faq">FAQ</a></li>
+        <li><a href="convert.html" aria-current="page"><span class="nav-wide-inline">LUT c</span><span class="nav-narrow">C</span>onverter</a></li>
         <li><a href="https://github.com/robbcocco/ricoh-grii-cfw">GitHub</a></li>
       </ul>
     </nav>
@@ -26,50 +37,65 @@
 </header>
 
 <main id="main" class="wrap">
-  <h1>LUT to recipe</h1>
-  <p class="lead">Turn a colour LUT into a recipe file for the GR&nbsp;II. The camera has no 3D-LUT stage, so the converter fits the stages it has (colour matrix, hue sectors, tone curves) to your LUT and tells you how close it gets. Everything runs in this page; your file never leaves your computer.</p>
+  <div class="page-head">
+    <span class="eyebrow">LUT converter</span>
+    <h1>LUT <span>to recipe</span></h1>
+    <p class="lead">Turn a colour LUT into a recipe file for the GR&nbsp;II. The camera has no 3D-LUT stage, so the converter fits the stages it has (colour matrix, hue sectors, tone curves) to your LUT and tells you how close it gets. Everything runs in this page; your file never leaves your computer.</p>
+  </div>
 
   <div class="converter">
     <label class="drop" id="drop">
       <input type="file" id="lut-file" accept=".cube,.3dl,.png" aria-describedby="drop-hint">
+      <span class="drop-icon" aria-hidden="true"><svg><use href="#i-up"/></svg></span>
       <span class="big">Drop a LUT here or choose a file</span>
       <span class="muted" id="drop-hint"><code>.cube</code>, <code>.3dl</code> or Hald CLUT <code>.png</code></span>
+      <span class="file" id="drop-file"></span>
     </label>
 
     <div class="settings">
       <label class="field">
         <span>Recipe name</span>
         <input type="text" id="r-name" maxlength="23" placeholder="My Film" autocomplete="off" aria-describedby="r-file">
-        <small class="muted" id="r-file">Shown in the camera (up to 23 characters).</small>
+        <small id="r-file">Shown in the camera (up to 23 characters).</small>
       </label>
       <label class="field">
         <span>The LUT is a</span>
         <select id="enc-in" aria-describedby="enc-hint"></select>
-        <small class="muted" id="enc-hint">Most photo looks are sRGB in, sRGB out. Log LUTs are recognised from the file name.</small>
+        <small id="enc-hint">Most photo looks are sRGB in, sRGB out. Log LUTs are recognised from the file name.</small>
       </label>
     </div>
 
-    <p class="status muted" id="status" role="status" aria-live="polite">No LUT loaded.</p>
-    <progress id="progress" max="1" value="0" hidden></progress>
+    <div class="progress-wrap" id="progress" hidden>
+      <div class="bar" role="progressbar" aria-label="Fitting" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><div></div></div>
+    </div>
+    <p class="status" id="status" role="status" aria-live="polite">No LUT loaded.</p>
 
-    <section class="card" id="result" hidden aria-labelledby="result-title">
-      <h2 id="result-title" class="verdict"></h2>
-      <p id="result-detail"></p>
+    <section class="card result" id="result" hidden aria-labelledby="result-title">
+      <div class="verdict-row">
+        <h2 id="result-title" class="verdict"></h2>
+        <span class="badge" id="badge"></span>
+      </div>
+      <p id="result-detail" class="muted"></p>
+      <div class="meter" aria-hidden="true"><i id="meter-dot"></i></div>
+      <div class="meter-scale" aria-hidden="true"><span>0 · identical</span><span>2 · close</span><span>6+ · loose</span></div>
       <div class="swatches" id="swatches" aria-hidden="true"></div>
       <p class="small muted">ColorChecker colours: the LUT (top half of each patch) and the recipe on the GR&nbsp;II model (bottom half).</p>
       <ul class="small warn-text" id="warnings"></ul>
       <details>
         <summary>Credit and licence of the LUT (optional)</summary>
-        <label class="field">
+        <label class="field" style="margin-top:8px">
           <span class="small muted">Written into the recipe as comments. A converted recipe keeps the LUT's licence: share it only where that licence allows.</span>
           <textarea id="r-attr" rows="3" placeholder="e.g. LUT &quot;My Film&quot; by Jane Doe, https://example.com, CC BY 4.0"></textarea>
         </label>
       </details>
       <div class="actions">
-        <button type="button" class="btn" id="download" disabled>Download recipe</button>
+        <button type="button" class="btn" id="download" disabled><svg aria-hidden="true"><use href="#i-down"/></svg>Download recipe</button>
       </div>
       <p class="small" id="check"></p>
-      <p>Copy the file to <code>cfw/recipes/</code> on the card, choose DEV → <i>Reload recipes</i> (or restart), and pick it in <b>Recipes</b>.</p>
+      <div class="next">
+        <svg aria-hidden="true"><use href="#i-card"/></svg>
+        <p>Copy the file to <code>cfw/recipes/</code> on the card, choose DEV → <i>Reload recipes</i> (or restart), and pick it in <b>Recipes</b>.</p>
+      </div>
     </section>
 
     <details class="faq">
@@ -90,6 +116,7 @@
 <footer>
   <div class="wrap">
     <p><a href="./">gr2_cfw</a> · LUT converter, MIT licence · <a href="https://github.com/robbcocco/ricoh-grii-cfw/tree/main/site">Source</a></p>
+    <p>Runs in your browser; nothing is uploaded.</p>
   </div>
 </footer>
 

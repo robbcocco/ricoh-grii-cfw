@@ -49,18 +49,30 @@
     if (!zip) { fallback('no release zip in the latest release'); return; }
     for (const a of document.querySelectorAll('[data-release-link]')) {
       a.href = zip.browser_download_url;
-      a.textContent = `Download ${rel.tag_name}`;
+      const label = a.querySelector('[data-release-label]') || a;
+      label.textContent = `Download ${rel.tag_name}`;
     }
+    const date = (rel.published_at || '').slice(0, 10);
     for (const p of document.querySelectorAll('[data-release-version]'))
-      p.textContent = `${zip.name}, ${mb(zip.size)}, released ${(rel.published_at || '').slice(0, 10)}.`;
+      p.textContent = `${zip.name} · ${mb(zip.size)}${date ? ` · released ${date}` : ''}`;
     if (!$('release-facts')) return;
-    $('release-status').textContent = `Latest release: ${rel.name || rel.tag_name}.`;
-    $('release-version').textContent = `${rel.tag_name}${rel.published_at ? ` (${rel.published_at.slice(0, 10)})` : ''}`;
+    $('release-title').textContent = rel.name || `gr2_cfw ${rel.tag_name}`;
+    $('release-status').textContent = 'The latest release, straight from GitHub.';
+    $('release-version').textContent = `${rel.tag_name}${date ? ` (${date})` : ''}`;
     $('release-file').textContent = zip.name;
     $('release-size').textContent = `${mb(zip.size)} (${zip.size.toLocaleString('en')} bytes)`;
     const h = await sha256(rel, zip);
     $('release-sha').textContent = h || 'see SHA256SUMS.txt in the release';
     $('release-facts').hidden = false;
+    const copy = $('copy-sha');
+    if (h && copy && navigator.clipboard) {
+      copy.hidden = false;
+      copy.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(h); copy.textContent = 'Copied'; }
+        catch { copy.textContent = 'Copy failed'; }
+        setTimeout(() => { copy.textContent = 'Copy'; }, 1800);
+      });
+    }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', lookup);

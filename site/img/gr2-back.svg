@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" role="img" aria-labelledby="mk-t mk-d">
+<title id="mk-t">Back of a GR II with the Recipes filmstrip open</title>
+<desc id="mk-d">Stylised drawing of the camera's rear screen: live view of a landscape with the Recipes filmstrip at the bottom, Portra 400 selected between Superia X-TRA 400 and Cinema Green, each frame with four colour patches.</desc>
+<defs>
+<linearGradient id="body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#36363a"/><stop offset=".12" stop-color="#242427"/><stop offset="1" stop-color="#141416"/></linearGradient>
+<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8fa6bd"/><stop offset=".55" stop-color="#d9b9a2"/><stop offset=".72" stop-color="#efc79f"/></linearGradient>
+<linearGradient id="glass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".10"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<radialGradient id="sun" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff4dc"/><stop offset=".45" stop-color="#ffe2b3" stop-opacity=".9"/><stop offset="1" stop-color="#ffd29a" stop-opacity="0"/></radialGradient>
+<radialGradient id="dial" cx=".4" cy=".35" r=".8"><stop offset="0" stop-color="#3c3c40"/><stop offset="1" stop-color="#18181a"/></radialGradient>
+<clipPath id="scr"><rect x="46" y="64" width="368" height="245" rx="3"/></clipPath>
+</defs>
+<rect x="8" y="24" width="584" height="352" rx="36" fill="url(#body)"/>
+<rect x="8.5" y="24.5" width="583" height="351" rx="35.5" fill="none" stroke="#4a4a50" stroke-opacity=".7"/>
+<path d="M44 25.5h512" stroke="#5a5a60" stroke-opacity=".6"/>
+<rect x="32" y="50" width="396" height="273" rx="12" fill="#060607"/>
+<g clip-path="url(#scr)">
+<rect x="46" y="64" width="368" height="245" fill="url(#sky)"/>
+<circle cx="318" cy="168" r="46" fill="url(#sun)"/>
+<circle cx="318" cy="168" r="13" fill="#fff3da"/>
+<path d="M46 196 L96 170 L132 186 L184 150 L236 182 L276 166 L330 190 L372 172 L414 188 V309 H46Z" fill="#9aa0a6" opacity=".85"/>
+<path d="M46 214 Q110 190 168 208 T290 204 T414 210 V309 H46Z" fill="#76805f"/>
+<path d="M46 236 Q140 218 230 232 T414 228 V309 H46Z" fill="#4d5641"/>
+<path d="M150 309 Q214 262 236 236 L242 236 Q238 266 266 309Z" fill="#c9a98a" opacity=".55"/>
+<g font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-weight="700" fill="#fff">
+<rect x="56" y="74" width="62" height="20" rx="4" fill="#000" fill-opacity=".45"/>
+<text x="87" y="88.5" font-size="11" text-anchor="middle" letter-spacing=".6">RECIPES</text>
+<text x="402" y="88.5" font-size="11" text-anchor="end" opacity=".9">MY1</text>
+</g>
+<rect x="46" y="222" width="368" height="80" fill="#1d1d1d" fill-opacity=".82"/>
+<g opacity=".72">
+<rect x="59.0" y="229" width="106" height="66" rx="4" fill="#2a2a2a"/>
+<rect x="67.0" y="236" width="22.9" height="26" fill="#b493c5"/>
+<rect x="89.5" y="236" width="22.9" height="26" fill="#cb7e5d"/>
+<rect x="112.0" y="236" width="22.9" height="26" fill="#96b482"/>
+<rect x="134.5" y="236" width="22.9" height="26" fill="#75aecb"/>
+<text font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="9.5" font-weight="700" fill="#f2efe9" text-anchor="middle" letter-spacing=".4">
+<tspan x="112.0" y="273">SUPERIA X-TRA</tspan>
+<tspan x="112.0" y="284">400</tspan>
+</text></g>
+<g>
+<rect x="177.0" y="229" width="106" height="66" rx="4" fill="#2a2a2a" stroke="#ff8a5c" stroke-width="2.5"/>
+<rect x="185.0" y="236" width="22.9" height="26" fill="#b297bb"/>
+<rect x="207.5" y="236" width="22.9" height="26" fill="#bf7a6f"/>
+<rect x="230.0" y="236" width="22.9" height="26" fill="#8ea57e"/>
+<rect x="252.5" y="236" width="22.9" height="26" fill="#7aacc2"/>
+<text font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="9.5" font-weight="700" fill="#f2efe9" text-anchor="middle" letter-spacing=".4">
+<tspan x="230.0" y="276">PORTRA 400</tspan>
+</text></g>
+<g opacity=".72">
+<rect x="295.0" y="229" width="106" height="66" rx="4" fill="#2a2a2a"/>
+<rect x="303.0" y="236" width="22.9" height="26" fill="#98939d"/>
+<rect x="325.5" y="236" width="22.9" height="26" fill="#a2856a"/>
+<rect x="348.0" y="236" width="22.9" height="26" fill="#789270"/>
+<rect x="370.5" y="236" width="22.9" height="26" fill="#6e979e"/>
+<text font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="9.5" font-weight="700" fill="#f2efe9" text-anchor="middle" letter-spacing=".4">
+<tspan x="348.0" y="276">CINEMA GREEN</tspan>
+</text></g>
+</g>
+<rect x="46" y="64" width="368" height="245" rx="3" fill="url(#glass)"/>
+<g>
+<circle cx="478" cy="86" r="15" fill="#2c2c30" stroke="#46464c"/>
+<circle cx="538" cy="86" r="15" fill="#2c2c30" stroke="#46464c"/>
+<path d="M473 80 l11 6 -11 6z" fill="#9a9aa0"/>
+<path d="M532 83h12M532 86h12M532 89h12" stroke="#9a9aa0" stroke-width="1.6"/>
+<circle cx="508" cy="196" r="56" fill="url(#dial)" stroke="#4a4a50"/>
+<circle cx="508" cy="196" r="44" fill="none" stroke="#000" stroke-opacity=".35"/>
+<path d="M508 147 l-5 7h10z" fill="#a3a3a9"/>
+<path d="M508 245 l-5 -7h10z" fill="#a3a3a9"/>
+<path d="M459 196 l7 -5v10z" fill="#a3a3a9"/>
+<path d="M557 196 l-7 -5v10z" fill="#a3a3a9"/>
+<circle cx="508" cy="196" r="22" fill="#2a2a2e" stroke="#55555c"/>
+<text x="508" y="200.5" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12" font-weight="700" fill="#cfcfd4" text-anchor="middle">OK</text>
+<circle cx="478" cy="306" r="15" fill="#2c2c30" stroke="#46464c"/>
+<circle cx="538" cy="306" r="15" fill="#2c2c30" stroke="#46464c"/>
+<path d="M531 306h14M538 299v14" stroke="#9a9aa0" stroke-width="1.6"/>
+<rect x="471" y="300" width="14" height="12" rx="2" fill="none" stroke="#9a9aa0" stroke-width="1.6"/>
+<circle cx="560" cy="348" r="3" fill="#ff8a5c"/>
+</g>
+<g stroke="#000" stroke-opacity=".35"><path d="M450 352v12"/><path d="M458 352v12"/><path d="M466 352v12"/><path d="M474 352v12"/><path d="M482 352v12"/><path d="M490 352v12"/><path d="M498 352v12"/><path d="M506 352v12"/></g>
+</svg>
