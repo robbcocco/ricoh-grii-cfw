@@ -8,7 +8,7 @@ gr2_cfw adds the things the GR II never got: film recipes you can preview live a
 
 ## What you get
 - **Two new choices for the Effect button:** **CFW Menu** and **Recipes**, in every menu language.
-- **Recipes:** film looks (Portra, Gold, Ektar, Pro 400H, Superia, UltraMax, Vision3 …) in a filmstrip. Live view shows the look while you browse; one press saves it into MY1, MY2 or MY3, and the camera shows that look whenever the slot is active, from the very first frame after power-on. The last entry, **Stock**, puts a slot back to the camera's own rendering.
+- **Recipes:** film looks (Portra, Gold, Ektar, Pro 400H, Superia, UltraMax, Vision3, Cinema Green, Cinema Yellow …) in a filmstrip. Live view shows the look while you browse; one press saves it into MY1, MY2 or MY3, and the camera shows that look whenever the slot is active, from the very first frame after power-on. The last entry, **Stock**, puts a slot back to the camera's own rendering.
 - **CFW Menu:** Auto ISO slowest shutter, maximum ISO and *keep shutter*; Auto ISO in M; TAv fixes; Snap distances 0.7 m and 1.2 m; frame lines (XPan, 6×7, 4:5, 1:1, 16:9) and zebras; Clarity strength and custom high-ISO noise reduction; an INFO page with shutter count, battery, temperatures; developer tools.
 - **Fast:** the CFW lives inside the camera and starts with it; power-on is as quick as stock.
 - **Safe:** hold a key to start stock, automatic fallback to stock after failed starts, and a full uninstall with Ricoh's own file.
@@ -119,7 +119,7 @@ One ASCII text file per film in `cfw/recipes/`: an 8.3 file name (`myfilm.txt`),
 | `post_matrix` | 9 integers −511 … 511, ×128 | 3×3 on display RGB after the curves |
 | `hue1` … `hue12` | 9 integers −511 … 511, ×128 each | per hue-sector 3×3 in linear RGB; sectors by Cb/Cr angle: 1–3 magenta, 4–6 red/orange/yellow, 7–9 yellow-green/green, 10–12 cyan/blue |
 
-The shipped films are fitted to [spektrafilm](https://github.com/andreavolpato/spektrafilm) film simulations by Andrea Volpato: spektrafilm's own runtime renders each film and print pair, and the look keys above are fitted to its output (CC BY-SA 4.0; see `cfw/recipes/licenses/`).
+The shipped films are fitted to [spektrafilm](https://github.com/andreavolpato/spektrafilm) film simulations by Andrea Volpato: spektrafilm's own runtime renders each film and print pair, and the look keys above are fitted to its output (CC BY-SA 4.0; see `cfw/recipes/licenses/`). Cinema Green and Cinema Yellow are Vision3 negatives printed on Vision 2383 / 2393 and print-timed in spektrafilm itself (enlarger filters, print curves, interlayer effects; listed in each file's header).
 
 ## Developer console
 DEV → *Telnet console* starts a telnet server on port 23. Turn Wi-Fi on in the camera menu, join the camera's network, and `telnet 192.168.0.1`. Stock shell commands work, and their output is captured together with the CFW log.

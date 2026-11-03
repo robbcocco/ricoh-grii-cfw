@@ -1,0 +1,45 @@
+# gr2_cfw recipe: Cinema Green look (Ricoh GR II, firmware 3.00)
+# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# Approximates Kodak Vision3 500T printed on Kodak Vision 2383.
+# Not affiliated with Kodak or Fujifilm; film names are used descriptively.
+#
+# Film look derived from spektrafilm 0.3.4 (commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc)
+# by Andrea Volpato, https://github.com/andreavolpato/spektrafilm; profiles licensed CC BY-SA 4.0.
+# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the gr2_cfw project.
+# This recipe file is licensed CC BY-SA 4.0.
+# spektrafilm profiles kodak_vision3_500t / kodak_2383; fit CIEDE2000 mean/95th %: Standard 12.5/19.2, this recipe 2.6/4.9.
+# Tungsten film: spektrafilm lights white-balanced scenes with its reference illuminant (T).
+# Print timing: green (M +10 CC), soft magenta layer and shoulder, weak interlayer effects.
+# spektrafilm runtime parameters (all others at their defaults):
+#   enlarger: m_filter_shift=10, print_exposure=1.1
+#   print_render.density_curves_morph: gamma_factor_green=0.85, gamma_factor_slow=0.75
+#   film_render.dir_couplers: inhibition_interlayer=0.6
+
+name=Cinema Green
+base=setting2
+saturation=0
+contrast=0
+sharpness=0
+vignetting=off
+# look relative to Standard (README, section Recipes)
+# colour matrix, linear RGB, x128, rows R G B
+matrix=111,30,-13,-11,133,6,-5,-14,147
+# film tone curves: output code at Standard code 0, 8, 16, ..., 256
+tone_r=0,0,1,4,10,17,23,30,38,46,54,61,69,78,87,95,102,109,117,125,132,140,147,154,161,167,175,182,189,195,201,207,216
+tone_g=6,19,34,44,54,63,72,79,87,94,101,108,114,120,126,132,138,143,148,153,158,163,168,173,178,182,187,192,197,201,206,211,215
+tone_b=2,6,14,21,29,37,44,52,60,67,74,81,88,94,100,107,112,118,124,129,134,139,145,150,155,161,166,170,175,180,185,191,197
+# post matrix, display RGB, x128, rows R G B
+post_matrix=107,17,4,29,80,19,17,9,102
+# hue sectors 1-12 (linear RGB, x128; from +Cb towards +Cr: magenta, red, green, blue quadrants)
+hue1=117,9,2,-1,123,6,3,-6,131
+hue2=119,8,1,2,120,6,2,-10,136
+hue3=122,6,0,2,124,2,3,-10,135
+hue4=126,4,-2,8,117,3,-1,-7,136
+hue5=124,5,-1,5,116,7,2,-3,129
+hue6=123,5,0,4,113,11,6,2,120
+hue7=121,6,1,4,112,12,6,3,119
+hue8=119,6,3,2,115,11,5,4,119
+hue9=116,8,4,1,117,10,3,3,122
+hue10=114,9,5,0,119,9,1,1,126
+hue11=113,10,5,-2,122,8,2,0,126
+hue12=115,9,4,-4,124,8,4,-1,125

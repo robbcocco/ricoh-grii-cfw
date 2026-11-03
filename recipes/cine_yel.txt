@@ -1,0 +1,44 @@
+# gr2_cfw recipe: Cinema Yellow look (Ricoh GR II, firmware 3.00)
+# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# Approximates Kodak Vision3 250D printed on Kodak Vision Premier 2393.
+# Not affiliated with Kodak or Fujifilm; film names are used descriptively.
+#
+# Film look derived from spektrafilm 0.3.4 (commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc)
+# by Andrea Volpato, https://github.com/andreavolpato/spektrafilm; profiles licensed CC BY-SA 4.0.
+# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the gr2_cfw project.
+# This recipe file is licensed CC BY-SA 4.0.
+# spektrafilm profiles kodak_vision3_250d / kodak_2393; fit CIEDE2000 mean/95th %: Standard 9.4/17.6, this recipe 2.1/4.2.
+# Print timing: yellow (Y -12 CC), soft yellow layer and shoulder, weak interlayer effects.
+# spektrafilm runtime parameters (all others at their defaults):
+#   enlarger: y_filter_shift=-12
+#   print_render.density_curves_morph: gamma_factor_blue=0.8, gamma_factor_slow=0.7
+#   film_render.dir_couplers: inhibition_interlayer=0.65
+
+name=Cinema Yellow
+base=setting2
+saturation=0
+contrast=0
+sharpness=0
+vignetting=off
+# look relative to Standard (README, section Recipes)
+# colour matrix, linear RGB, x128, rows R G B
+matrix=109,19,0,-6,132,2,-6,-13,147
+# film tone curves: output code at Standard code 0, 8, 16, ..., 256
+tone_r=2,6,16,24,34,44,53,63,73,82,91,99,108,118,127,134,141,148,155,162,168,174,180,186,190,195,200,205,208,211,214,217,221
+tone_g=2,9,20,27,36,44,53,61,69,78,87,95,103,111,119,127,135,142,149,156,162,169,176,182,188,193,198,204,208,212,216,220,223
+tone_b=2,7,16,23,30,37,43,50,56,62,68,73,78,84,89,94,99,104,109,114,118,123,128,133,138,143,148,152,156,161,166,174,184
+# post matrix, display RGB, x128, rows R G B
+post_matrix=104,22,2,12,97,19,10,12,106
+# hue sectors 1-12 (linear RGB, x128; from +Cb towards +Cr: magenta, red, green, blue quadrants)
+hue1=133,3,-8,8,113,7,3,2,123
+hue2=132,3,-7,8,115,5,4,2,122
+hue3=132,2,-6,6,120,2,5,2,121
+hue4=131,2,-5,9,119,0,6,3,119
+hue5=131,1,-4,10,116,2,6,6,116
+hue6=131,0,-3,10,114,4,7,8,113
+hue7=132,-1,-3,11,111,6,8,9,111
+hue8=131,0,-3,11,110,7,6,9,113
+hue9=132,0,-4,11,110,7,4,8,116
+hue10=132,1,-5,12,108,8,2,7,119
+hue11=130,3,-5,11,109,8,1,5,122
+hue12=131,4,-7,9,109,10,2,4,122
