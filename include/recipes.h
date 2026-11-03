@@ -7,7 +7,7 @@
 /* Film recipes: text files in H:/cfw/recipes (rom: A:/cfw/recipes first; src/recipes.c), listed
  * by name, then "Stock" (always the last entry, not a file). CFW task only, except the two early
  * functions, which the flashed loader's boot-task hooks call (src/main.c). */
-#define RECIPES_MAX 24                    /* recipe files; the list holds one more: Stock */
+#define RECIPES_MAX 48                    /* recipe files; the list holds one more: Stock */
 #define RECIPE_NAME_LEN 24                /* name= up to 23 characters */
 #define RECIPE_FILE_MAX 4094              /* bytes a recipe file may have */
 

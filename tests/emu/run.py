@@ -1197,7 +1197,7 @@ def sc_export(ctx):
                   0xFF + 13: (-3 << 16) | 2, 0xFD: 32, 0x130: 3, 0xEF: 5, 0xF0: 0x150, 0xF1: 0x1B0, 0xF2: 0x2D0,
                   0x110: 0x150, 0x111: 0x210, 0x112: 0x120, 0x113: 0x60}, 'Portra Look')
     my2 = preset({0x15: 2, 0x2B: 8, 0x2C: 3, 0x2E + 8: 3, 0x46 + 8: 6, 0x5E + 8: 5, 0x76 + 8: 2, 0x8E + 8: 2,
-                  0xFE: 2, 0xFF + 2: (1 << 16) | (-4 & 0xFFFF), 0xFD: -48, 0x130: 6, 0xEF: 1, 0x110: 0x989813},
+                  0xFE: 2, 0xFF + 2: (8 << 16) | (-8 & 0xFFFF), 0xFD: -48, 0x130: 6, 0xEF: 1, 0x110: 0x989813},
                  'XPRO #2')
     box1 = preset({0x2B: 7, 0x46 + 7: -2, 0x5E + 7: 8, 0x76 + 7: 3, 0xFE: 11, 0x2BB: 0x1234, 0x2BC: 0x5678,
                    0xFD: 0x18, 0xEF: 0, 0x110: 0x1B0}, 'HICON')
@@ -1237,7 +1237,7 @@ def sc_export(ctx):
                     'nr_strong': 'off', 'iso': '400', 'auto_hi_max': '6400', 'auto_hi_min': '200',
                     'auto_hi_shutter': '1/4'},
         'my2.txt': {'name': 'XPRO _2', 'base': 'cross_process', 'saturation': '-2', 'contrast': '1', 'sharpness': '0',
-                    'vignetting': 'medium', 'hue': 'magenta', 'wb': 'daylight', 'wb_ab': '-4', 'wb_gm': '1',
+                    'vignetting': 'medium', 'hue': 'magenta', 'wb': 'daylight', 'wb_ab': '-8', 'wb_gm': '8',
                     'exposure': '-1.0', 'dr': 'auto', 'nr': 'weak', 'iso': 'auto_hi', **auto_hi},
         'box01.txt': {'name': 'HICON', 'base': 'hicontrast_bw', 'contrast': '-2', 'sharpness': '3',
                       'vignetting': 'strong', 'dr': 'off', 'nr': 'off', 'iso': '1600', **auto_hi},   # no wb, no exposure

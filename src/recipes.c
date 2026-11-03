@@ -340,8 +340,8 @@ static int set_key(recipe_t *r, const char *k, const char *v) {
         r->kelvin = (int16_t)x;
         return 0;
     }
-    if (str_eq(k, "wb_ab"))      return in_range(v, -7, 7, &r->ab);
-    if (str_eq(k, "wb_gm"))      return in_range(v, -7, 7, &r->gm);
+    if (str_eq(k, "wb_ab"))      return in_range(v, -8, 8, &r->ab);   /* stock grid ±8 [H: box exports] */
+    if (str_eq(k, "wb_gm"))      return in_range(v, -8, 8, &r->gm);
     if (str_eq(k, "exposure"))   return parse_ev(v, &r->ev_thirds);
     if (str_eq(k, "dr"))         return lookup(DRC_MODES, v, &r->drc);
     if (str_eq(k, "nr"))         return lookup(NR_MODES, v, &r->nr);
@@ -873,7 +873,7 @@ void recipes_init(void) {
 #else
     if (scan(DIR_PATH, 0))
 #endif
-        ERR("recipes: more than 24 files, ignoring the rest");
+        ERR("recipes: more than 48 files, ignoring the rest");
     sort_list();
     entry_t *stock = &g_list[g_n++];  /* Stock: always last, whatever the names sort to */
     memset(stock, 0, sizeof(*stock));
@@ -989,7 +989,7 @@ static void put_wb(text_t *t, recipe_get_t get, const void *src) {
     if (wb == WB_KELVIN) put_kd(t, "wb_kelvin", (int32_t)kel);
     uint32_t c = get(src, P_WB_SHIFT + wb);
     int ab = (int16_t)(c & 0xFFFF), gm = (int16_t)(c >> 16);
-    if (ab < -7 || ab > 7 || gm < -7 || gm > 7) { put_skip(t, "wb_ab / wb_gm", c); return; }
+    if (ab < -8 || ab > 8 || gm < -8 || gm > 8) { put_skip(t, "wb_ab / wb_gm", c); return; }
     put_kd(t, "wb_ab", ab);
     put_kd(t, "wb_gm", gm);
 }
