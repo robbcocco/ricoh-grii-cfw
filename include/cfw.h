@@ -38,7 +38,7 @@ void cfw_iq_ready_orig(void);          /* the stock call the IQ-ready hook repla
 uint32_t cfw_hook_requests(int menu);  /* requests for CFW_MENU_* seen so far */
 /* Thumb BL patching (verify first, one aligned halfword; veneers share the stock target's low 12 bits). */
 int cfw_bl_retarget(uint32_t site, uint32_t from, uint32_t to);  /* 0, or -1 (ERROR logged, nothing written) */
-int cfw_bl_calls(uint32_t site, uint32_t target);                 /* debug builds: 1 if the BL calls target */
+int cfw_bl_calls(uint32_t site, uint32_t target);                 /* 1 if the BL at site calls target */
 
 /* Overlay (src/ui.c), CFW task only */
 void cfw_ui_request(int menu);         /* open `menu`, or close if any menu is open */

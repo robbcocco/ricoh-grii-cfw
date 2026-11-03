@@ -194,6 +194,8 @@ typedef struct {
 #define GR2_PROPID_SNAP_FOCAL_LEN     0x029  /* snap distance, 1..6 = 1m,1.5m,2m,2.5m,5m,inf */
 #define GR2_PROPID_COLOR_MODE         0x02D  /* getter: EFFECT (0x2B) if set, else IMAGE_SETTINGS (0x2C) */
 #define GR2_PROPID_COLOR_MODE_CLARITY 0x0BE  /* array[24] by colour mode: element i is prop 0xBE+i */
+#define GR2_PROPID_COLOR_MODE_SAT     0x02E  /* array[24] by colour mode: saturation 1..9, 5 = 0 */
+#define GR2_PROPID_COLOR_MODE_CON     0x046  /* array[24] by colour mode: contrast 1..9, 5 = 0 */
 #define GR2_PROPID_CLARITY_16         0x0CE  /* Effect "Clarity" strength 1..9, 5 = none, default 7 */
 #define GR2_PROPID_NOISE_REDUCTION    0x0EF  /* 0 Off, 1 Weak, 2 Medium, 3 Strong, 4 Auto, 5 Manual */
 #define GR2_PROPID_NR_ISO             0x0F0  /* Manual NR: Sv where weak / medium / strong start (0xF0..0xF2) */
@@ -203,6 +205,8 @@ typedef struct {
 #define GR2_PROPID_EFX_BTN_CONT       0x1A7  /* Effect Button Hold Setting: 0 Wi-Fi, 1 Aperture Preview */
 #define GR2_PROPID_LANGUAGE           0x1E4  /* 0 = Japanese */
 #define GR2_PROPID_DEVEL_MODE         0x22D  /* Startup.ttl boot gate */
+#define GR2_PROPID_COLOR_SPACE        0x208  /* 0 sRGB, else AdobeRGB (YCbCr record class k10, finding 20 §B) */
+#define GR2_PROPID_SHOOTING_CONTEXT   0x2BE  /* 0 normal, 1 interval composite, 2 interval, 3 multi-exposure */
 
 /* Sv (ISO) encoding: 0xF0 + 16 per 1/3 stop (ISO 100 = 0xF0, 25600 = 0x270);
  * 0x2D0 = OFF in NR thresholds. Tv: 48 per stop, 0 = 1 s. */
@@ -226,19 +230,29 @@ typedef struct {
 /* ---- Still capture: effect step (finding 37 §3; StillRecord.c, APP section 8 0xA0296800..0xA03908BB) ----
  * FUN_a02AF6CE(ctx) runs the stock effect passes on the developed YCbCr 4:2:2 frame (planar, in place) before
  * the review image and the JPEG; void, both callers ignore r0. Called only while ctx+0x1F0 (YCC buffer handle)
- * is non-zero, from FUN_a02AED1C and FUN_a02AEECC (the ProcessStill message loop). */
+ * is non-zero, from FUN_a02AED1C (site A: every still, then its review image and JPEG files, FUN_a02AE71A) and
+ * FUN_a02AEECC (site B: RAW development's preview; it encodes no file, [H] H1: RAW development). In a RAW+JPEG
+ * shot site A runs twice [H]: first for a copy of the context that makes the JPEG file (FUN_a029E040), then for
+ * the context with ctx+0x008 = 7, which packs the RAW into the "DNG" buffer (type 0x15, FUN_a02AE4A4) and encodes
+ * the DNG's embedded images (JPEG slot 3 of 0xA072B7A4, FUN_a02ADC14; finding 37). */
 #define GR2_FX_STEP          0xA02AF6CEu    /* stock target (Thumb, bit 0 clear) */
 #define GR2_FX_SITE_A        0xA02AEDC0u    /* bl GR2_FX_STEP in FUN_a02AED1C: F000 FC85 */
-#define GR2_FX_SITE_B        0xA02AEF30u    /* bl GR2_FX_STEP in FUN_a02AEECC: F000 FBCD */
+#define GR2_FX_CTX_DNG       7u             /* ctx+0x008: the DNG's own still (its embedded previews) */
 /* Plane addresses as the step computes them: Y = buffer address in, Y/Cb/Cr out (pass -1, 3 like stock:
  * reads ctx only). Y = buf + (ctx+0x230 + ctx+0x240) * ctx+0x224 + ctx+0x234; Cb/Cr = buf + ctx+0x21C / +0x220
  * + (ctx+0x238 + ctx+0x244) * ctx+0x228 + ctx+0x23C; Cb = Cr = 0 when ctx+0x218 == 0. */
 #define GR2_FN_YCC_PLANES    ((void (*)(uint32_t *, uint32_t *, uint32_t *, uint32_t, int32_t, uint32_t))0xA02AD261)
-/* Image buffer handle {u32 magic "BUFF", u32 address} (ImageBuffer_GetAddress 0xA00E0714 asserts on both). */
+/* Image buffer handle {u32 magic "BUFF", u32 address} (ImageBuffer_GetAddress 0xA00E0714 asserts on both); the
+ * address is the uncached alias 0x2xxxxxxx of a DRAM block [H: H1] (FUN_a00DF48C). */
 #define GR2_IMGBUF_MAGIC     0x42554646u
 /* Image buffer type table, 0x2C B per type: +0 u8 type, +4 u32 size (type 0x17 "YCC": 0x01F0E020). */
 #define GR2_IMGBUF_TABLE     0xA0112048u
 #define GR2_IMGBUF_ENTRY     0x2Cu
 #define GR2_IMGBUF_YCC       0x17u
+#define GR2_IMGBUF_SPRWORK   0x20u          /* 940,032 B, one per memory map; the still path's scratch */
+/* StillRecord's buffer calls (FUN_a029A94E / FUN_a029AA1A): allocate type with a timeout (0 = poll; -1 = wait, as
+ * FUN_a029A93A) -> handle or 0; release by handle pointer (clears it). file/line are only logged by the firmware. */
+#define GR2_FN_IMGBUF_ALLOC  ((uint32_t (*)(uint32_t, int32_t, const char *, uint32_t))0xA029A94F)
+#define GR2_FN_IMGBUF_FREE   ((void (*)(uint32_t *, const char *, uint32_t))0xA029AA1B)
 
 #endif /* GR2_HW_H */

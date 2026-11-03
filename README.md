@@ -8,7 +8,7 @@ gr2_cfw adds the things the GR II never got: film recipes you can preview live a
 
 ## What you get
 - **Two new choices for the Effect button:** **CFW Menu** and **Recipes**, in every menu language.
-- **Recipes:** film looks (Portra, Gold, Ektar, Pro 400H, Superia, UltraMax, Vision3, Cinema Green, Cinema Yellow, Cinema Warm, Vivid Slide …), a rangefinder colour look and three black-and-white looks in a filmstrip. Live view shows the look while you browse; one press saves it into MY1, MY2 or MY3, and the camera shows that look whenever the slot is active, from the very first frame after power-on. The last entry, **Stock**, puts a slot back to the camera's own rendering. Your own presets (MY1–MY3, My Settings Box, Setting1/Setting2) export to recipe files with one press.
+- **Recipes:** film looks (Portra, Gold, Ektar, Pro 400H, Superia, UltraMax, Vision3, Cinema Green, Cinema Yellow, Cinema Warm, Vivid Slide …), a rangefinder colour look and three black-and-white looks in a filmstrip. Live view shows the look while you browse; one press saves it into MY1, MY2 or MY3, and the camera shows that look whenever the slot is active, from the very first frame after power-on. The last entry, **Stock**, puts a slot back to the camera's own rendering. Your own presets (MY1–MY3, My Settings Box, Setting1/Setting2) export to recipe files with one press. Two test recipes, **800T** and **800D**, add film halation to the photos: the red glow around bright lights of film without an anti-halation layer.
 - **CFW Menu:** Auto ISO slowest shutter, maximum ISO and *keep shutter*; Auto ISO in M; TAv fixes; Snap distances 0.7 m and 1.2 m; frame lines (XPan, 6×7, 4:5, 1:1, 16:9) and zebras; Clarity strength and custom high-ISO noise reduction; an INFO page with shutter count, battery, temperatures; developer tools.
 - **Fast:** the CFW lives inside the camera and starts with it; power-on is as quick as stock.
 - **Safe:** hold a key to start stock, automatic fallback to stock after failed starts, and a full uninstall with Ricoh's own file.
@@ -41,6 +41,15 @@ Press the Effect button you assigned to **Recipes**.
 Each frame of the strip shows four colour patches (magenta, red, green, cyan-blue) through the film's look, exaggerated so you can tell films apart at a glance.
 
 **Your recipe files** live in `cfw/recipes/` on the card: one small text file per film. Delete the ones you don't want, add your own (format below), and choose DEV → *Reload recipes* or restart. The looks of the films saved in MY1–MY3 are also kept inside the camera, so they still work without the card.
+
+### Halation (800T, 800D)
+**800T** and **800D** are Vision3 500T and 250D without the film's anti-halation layer, the way CineStill sells motion-picture film for stills: light that passes the emulsion reflects off the film base and comes back as a soft red-orange glow around street lamps, windows, car lights and along bright edges. The glow is added to the photo itself after the camera has developed it:
+- in the JPEG and its review image, also the JPEG of RAW+JPEG;
+- not in live view (browsing and shooting show the look without the glow), not in the DNG or the previews inside it, and not when you develop a DNG in the camera (RAW development);
+- only with the image settings Standard, Vivid, Setting1 or Setting2 (where film looks apply), not in interval composite or multiple exposure;
+- a photo without highlights is not changed at all.
+
+It costs time after each such photo: about half a second before the review image for a night scene with a few lights, up to about 1.4 s for many lights or large bright areas. A photo whose highlights would need longer is saved without halation (the debug log notes it). The other recipes and the camera's own settings are never slowed down. Halation is set by two recipe keys (see the look keys below), so you can make your own.
 
 ### Exporting your presets
 DEV → **Export settings to card** (or `export` in the developer console) writes the presets your camera holds as recipe files into `cfw/export/` on the card. The row then shows how many files it wrote, or why it could not ("no card").
@@ -90,7 +99,6 @@ Press the Effect button you assigned to **CFW Menu**.
 | DEV | Overlay state to log, Overlay test pattern | OK | Diagnostics for the drawing layer |
 | DEV | Boot stock once | OK | The next power-on starts stock; the one after runs the CFW again |
 | DEV | Wi-Fi network / password, Free memory pool | read-only | While Wi-Fi is on: its name and password |
-| DEV | Halation probe (**debug build only**, below the other rows) | **OFF** / ARMED | Developer diagnostics, not a feature: every photo then gets a red-tinted square in its centre, and the frame layout and timing are logged to `cfw/cfw_log.txt`. Off at every start |
 
 ## Recovery
 The CFW never changes the parts of the camera that do the recovery (its boot loader and Ricoh's rescue mode), so all of these always work:
@@ -142,8 +150,10 @@ One ASCII text file per film in `cfw/recipes/`: an 8.3 file name (`myfilm.txt`),
 | `tone`, `tone_r`, `tone_g`, `tone_b` | 33 integers 0 … 255: output at Standard tone codes 0, 8, …, 256 | tone curve per channel (`tone` = all three; 0,8,…,248,255 = Standard) |
 | `post_matrix` | 9 integers −511 … 511, ×128 | 3×3 on display RGB after the curves |
 | `hue1` … `hue12` | 9 integers −511 … 511, ×128 each | per hue-sector 3×3 in linear RGB; sectors by Cb/Cr angle: 1–3 magenta, 4–6 red/orange/yellow, 7–9 yellow-green/green, 10–12 cyan/blue |
+| `halation` | `off` or 3 integers 0 … 1000: R, G, B strength ×1000 (spektrafilm's halation strength: the share of light the film base sends back) | film halation, in the final photo only (see *Halation*) |
+| `halation_size` | 20 … 80 (µm on 35 mm film, default 65; only with `halation`) | spread of the glow (spektrafilm's halation size) |
 
-The shipped films are fitted to [spektrafilm](https://github.com/andreavolpato/spektrafilm) film simulations by Andrea Volpato: spektrafilm's own runtime renders each film and print pair, and the look keys above are fitted to its output (CC BY-SA 4.0; see `cfw/recipes/licenses/`). Cinema Green, Cinema Yellow and Cinema Warm are Vision3 negatives printed on Vision 2383 / 2393 and print-timed in spektrafilm itself (enlarger filters, print curves, interlayer effects; listed in each file's header); Vivid Slide is a reversal film, scanned. Rangefinder, Mono Hard, Mono Soft Sepia and Mono Pushed Street are the project's own designs (parametric targets listed in each file's header, CC BY 4.0). The black-and-white looks have no grain; the stock Hi-Contrast B&W effect adds its own.
+The shipped films are fitted to [spektrafilm](https://github.com/andreavolpato/spektrafilm) film simulations by Andrea Volpato: spektrafilm's own runtime renders each film and print pair, and the look keys above are fitted to its output (CC BY-SA 4.0; see `cfw/recipes/licenses/`). Cinema Green, Cinema Yellow and Cinema Warm are Vision3 negatives printed on Vision 2383 / 2393 and print-timed in spektrafilm itself (enlarger filters, print curves, interlayer effects; listed in each file's header); Vivid Slide is a reversal film, scanned. 800T and 800D have the looks of Vision3 500T and 250D on 2383 plus spektrafilm's own halation parameters for those films with the anti-halation layer off (strength 0.3 / 0.1 / 0.015, size 50 µm). 800D uses the daylight-balanced 250D rather than a filtered 500T, because spektrafilm's white balance already does what a daylight filter on 500T would do. Rangefinder, Mono Hard, Mono Soft Sepia and Mono Pushed Street are the project's own designs (parametric targets listed in each file's header, CC BY 4.0). The black-and-white looks have no grain; the stock Hi-Contrast B&W effect adds its own.
 
 ## Developer console
 DEV → *Telnet console* starts a telnet server on port 23. Turn Wi-Fi on in the camera menu, join the camera's network, and `telnet 192.168.0.1`. Stock shell commands work, and their output is captured together with the CFW log.

@@ -25,13 +25,15 @@ CFLAGS  := -mbig-endian -march=armv5te -mthumb -mthumb-interwork \
            -nostdlib -fno-builtin -ffreestanding -fno-tree-loop-distribute-patterns -fno-jump-tables \
            -Os -Wall -Wextra $(if $(WERROR),-Werror) \
            -Iinclude -DCFW_VERSION='"$(VERSION)"' -MMD -MP
+# src/halation.c, the per-shot pass: ARM state (ARMv5TE, 16 registers: Thumb-1 spills in its inner loops) and -O2.
+HOT_CFLAGS := -marm -O2 -fno-section-anchors
 LDFLAGS := -mbig-endian -nostdlib -Wl,--build-id=none -Wl,--no-warn-rwx-segments
 MAIN_HI := 0x10000000
 
 BOOT_SRCS := src/entry.S src/veneers.S src/boot.c src/log.c src/mem.c
 MAIN_SRCS := src/arm.S src/main.c src/log.c src/shell.c src/task.c src/menu.c src/hooks.c src/ui.c \
              src/osd.c src/input.c src/config.c src/settings.c src/recipes.c src/look.c src/info.c \
-             src/overlay.c src/console.c src/mem.c src/store.c src/export.c src/fxprobe.c
+             src/overlay.c src/console.c src/mem.c src/store.c src/export.c src/halation.c src/halation_arm.S
 VARIANTS  := release debug rom
 ELFS      := $(foreach v,$(VARIANTS),bin/$(v)/gr2_cfw.elf bin/$(v)/gr2_main.elf)
 
@@ -108,7 +110,7 @@ build/$(1)/%.o: src/%.S VERSION
 
 build/$(1)/%.o: src/%.c VERSION
 	@mkdir -p $$(@D)
-	$$(CC) $$(CFLAGS) -DCFW_DEBUG=$(2) -DCFW_ROM=$(3) -c $$< -o $$@
+	$$(CC) $$(CFLAGS) $$(if $$(filter halation.c,$$(<F)),$(HOT_CFLAGS)) -DCFW_DEBUG=$(2) -DCFW_ROM=$(3) -c $$< -o $$@
 
 bin/$(1)/gr2_cfw.elf: $(call objs,$(1),$(BOOT_SRCS)) gr2_boot.ld
 	@mkdir -p $$(@D)

@@ -34,12 +34,9 @@ void cfw_veneer_press(void);   /* src/veneers.S */
 void cfw_veneer_hold(void);
 void cfw_veneer_iq(void);
 void cfw_veneer_off(void);
-extern volatile uint32_t cfw_veneer_press_target, cfw_veneer_hold_target, cfw_veneer_iq_target,
-    cfw_veneer_off_target;
-#if CFW_DEBUG
 void cfw_veneer_fx(void);
-extern volatile uint32_t cfw_veneer_fx_target;
-#endif
+extern volatile uint32_t cfw_veneer_press_target, cfw_veneer_hold_target, cfw_veneer_iq_target,
+    cfw_veneer_off_target, cfw_veneer_fx_target;
 
 #define FILE_READ   0
 #define RELOC_CHUNK 64
@@ -214,10 +211,8 @@ static void make_boot(uint32_t base, uint32_t loader, uint32_t t_preload) {
     g_boot.iq_target = &cfw_veneer_iq_target;
     g_boot.veneer_off = (uint32_t)cfw_veneer_off;
     g_boot.off_target = &cfw_veneer_off_target;
-#if CFW_DEBUG
     g_boot.veneer_fx = (uint32_t)cfw_veneer_fx;
     g_boot.fx_target = &cfw_veneer_fx_target;
-#endif
 }
 
 int cfw_boot(void) {

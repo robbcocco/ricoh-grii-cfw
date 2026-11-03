@@ -63,10 +63,9 @@ cfw_veneer_hold_target:
     .word   0
     .size cfw_veneer_hold, . - cfw_veneer_hold
 
-#if CFW_DEBUG
-    @ Debug only (H1 halation probe, src/fxprobe.c): replaces bl 0xA02AF6CE (still effect step) at 0xA02AEDC0 and
-    @ 0xA02AEF30. Its address 0xA001E6CE is 2 mod 4, so the section is only halfword aligned and the literal
-    @ is placed by hand: pc reads as 0xA001E6D0 at the ldr, the target word is at 0xA001E6D4 (gr2_boot.ld asserts).
+    @ Halation (src/halation.c): replaces bl 0xA02AF6CE (still effect step) at 0xA02AEDC0. Its address 0xA001E6CE
+    @ is 2 mod 4, so the section is only halfword aligned and the literal is placed by hand: pc reads as 0xA001E6D0
+    @ at the ldr, the target word is at 0xA001E6D4 (gr2_boot.ld asserts).
     .section .veneer_fx, "ax"
     .balign 2
     .global cfw_veneer_fx
@@ -80,4 +79,3 @@ cfw_veneer_fx:
 cfw_veneer_fx_target:
     .hword  0, 0
     .size cfw_veneer_fx, . - cfw_veneer_fx
-#endif

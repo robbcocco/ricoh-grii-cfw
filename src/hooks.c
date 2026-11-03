@@ -18,15 +18,16 @@
  * Debug builds also retarget the power-off job's call that runs H:/Shutdown.ttl
  * (finding 26 §4, JOBID_POWER_OFF 0xA00E98B8): the session state is logged
  * there, in the FRM task, before the stock call runs a Shutdown.ttl if one
- * exists. Nothing on the card is needed for it. They also hand the still
- * effect-step veneer to the H1 probe (src/fxprobe.c), which patches its BLs
- * only when DEV "Halation probe" arms it. */
+ * exists. Nothing on the card is needed for it.
+ *
+ * The still effect-step veneer goes to src/halation.c, which patches its BL
+ * only while the shown recipe look has halation. */
 #include <stdint.h>
 #include "boot.h"
 #include "cfw.h"
 #include "cfw_log.h"
-#include "fxprobe.h"
 #include "gr2_hw.h"
+#include "halation.h"
 
 uint32_t cfw_cpsr(void);           /* src/arm.S */
 
@@ -71,14 +72,12 @@ static int encode_bl(uint32_t site, uint32_t target, uint32_t *hi, uint32_t *lo)
     return 0;
 }
 
-#if CFW_DEBUG
-/* The Thumb BL at `site` calls `target`: 1, else 0 (also when it cannot reach it). Debug: the H1 probe. */
+/* The Thumb BL at `site` calls `target`: 1, else 0 (also when it cannot reach it). */
 int cfw_bl_calls(uint32_t site, uint32_t target) {
     const volatile uint16_t *p = (const volatile uint16_t *)site;
     uint32_t hi, lo;
     return encode_bl(site, target, &hi, &lo) == 0 && p[0] == hi && p[1] == lo;
 }
-#endif
 
 /* Verify-first retarget of the BL at `site` from `from` to `to` (same low 12 bits): one halfword store. */
 int cfw_bl_retarget(uint32_t site, uint32_t from, uint32_t to) {
@@ -116,8 +115,8 @@ int cfw_hooks_install(const cfw_boot_t *boot) {
 #if CFW_DEBUG
     *boot->off_target = (uint32_t)cfw_off_hook;
     (void)cfw_bl_retarget(SITE_OFF, ORIG_OFF, boot->veneer_off);   /* diagnostics only: never fails the install */
-    fxprobe_init(boot);
 #endif
+    halation_init(boot);
     return rc;
 }
 

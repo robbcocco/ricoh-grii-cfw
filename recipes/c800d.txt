@@ -1,0 +1,45 @@
+# gr2_cfw recipe: 800D look (Ricoh GR II, firmware 3.00)
+# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# Approximates Kodak Vision3 250D printed on Kodak Vision 2383.
+# Not affiliated with Kodak or Fujifilm; film names are used descriptively.
+#
+# Film look derived from spektrafilm 0.3.4 (commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc)
+# by Andrea Volpato, https://github.com/andreavolpato/spektrafilm; profiles licensed CC BY-SA 4.0.
+# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the gr2_cfw project.
+# This recipe file is licensed CC BY-SA 4.0.
+# spektrafilm profiles kodak_vision3_250d / kodak_2383; fit CIEDE2000 mean/95th %: Standard 7.6/14.5, this recipe 2.7/4.9.
+# Halation test recipe: the Kodak Vision3 250D look with the halo of that negative without its anti-halation
+# (rem-jet) layer: spektrafilm's halation preset for a cine film with antihalation='no'.
+# The CFW adds the halo to the final JPEG only (README, Recipes).
+
+name=800D
+base=setting2
+saturation=0
+contrast=0
+sharpness=0
+vignetting=off
+# look relative to Standard (README, section Recipes)
+# colour matrix, linear RGB, x128, rows R G B
+matrix=136,11,-19,-29,142,15,-8,-31,167
+# film tone curves: output code at Standard code 0, 8, 16, ..., 256
+tone_r=1,1,3,6,13,21,29,39,50,60,71,80,90,103,113,122,129,137,146,153,160,167,174,179,184,190,195,200,204,208,211,215,219
+tone_g=1,3,8,16,25,34,44,53,62,72,81,90,98,106,114,122,130,136,143,149,155,161,168,174,179,184,189,195,200,204,209,213,217
+tone_b=1,2,5,11,20,30,40,50,61,72,81,90,98,107,114,121,128,134,140,145,151,155,160,165,170,175,178,182,185,189,192,196,200
+# post matrix, display RGB, x128, rows R G B
+post_matrix=107,21,0,16,101,11,10,22,96
+# hue sectors 1-12 (linear RGB, x128; from +Cb towards +Cr: magenta, red, green, blue quadrants)
+hue1=116,9,3,10,115,3,6,5,117
+hue2=118,8,2,13,112,3,7,2,119
+hue3=119,7,2,15,113,0,7,0,121
+hue4=121,6,1,20,109,-1,5,1,122
+hue5=121,6,1,19,108,1,6,5,117
+hue6=120,7,1,18,108,2,6,8,114
+hue7=118,8,2,17,108,3,4,11,113
+hue8=117,8,3,16,109,3,2,12,114
+hue9=114,10,4,14,112,2,1,13,114
+hue10=111,12,5,14,112,2,1,12,115
+hue11=109,13,6,10,117,1,3,10,115
+hue12=114,11,3,5,120,3,8,10,110
+# halation (spektrafilm halation_strength x1000 R,G,B; first-bounce sigma in um on 35 mm film)
+halation=300,100,15
+halation_size=50

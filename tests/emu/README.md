@@ -66,20 +66,25 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   `CFWcon` task; Wi-Fi name and password in one row; IQ dump (0x2FAA0 bytes), recipe reload, screenshot BMP (921654
   bytes, pixel-exact against LV + OSD).
 - `pattern`: DEV test pattern row OFF → RUNNING (menu closed, 1.5 s pending) → ON → OFF.
-- `halation-probe` (debug; release: no row, no effect veneer, BLs stock): DEV "Halation probe" is the 11th row, so
-  the page scrolls to it (DOWN past the last row wraps, UP scrolls back). OK arms: both still effect-step BLs
-  (`0xA02AEDC0`, `0xA02AEF30`, stock `F000 FC85`/`F000 FBCD`) become `F56F` + the same low halfword (veneer
-  `0xA001E6CE`, bytes checked; its target word = `fxprobe_hook`). Against a synthetic YCC frame in a 34 MB mapped
-  region (the stock buffer layout of `FUN_a02AE7EA`, 1 MiB guards, every byte patterned), each frame size of
-  3:2, 1:1, 16:9, a crop and one smaller than the square, run through the patched BL in a `ProcessStill` task
-  (both callers): the stock step is called once and paints the Cr frame first; afterwards exactly a 512x512 square
-  (clipped to 300x200 in the small frame) at the frame centre holds paint + 64 (saturating) and every other byte
-  of the region is unchanged (Y included); no file I/O in that task; the CFW task's log has the shot, caller,
-  geometry, buffer, plane addresses (= stock layout), square and a Y word sum equal to the frame's. Contexts with
-  the Cr plane across the buffer end, a frame wider than the Y pitch, more rows than the plane, a huge pitch, a
-  handle without "BUFF" or no chroma flag change nothing and log their status. OK disarms (BLs stock); the hook
-  reached anyway (stale I-cache) only calls the stock step. A foreign halfword at one site: arming refused
-  ("OFF: call sites not stock", one ERROR) with no write to either site (write hook); after the fix two writes.
+- `halation` (every variant): the effect veneer `0xA001E6CE` (bytes checked, target word = `halation_hook`); the
+  still effect-step call `0xA02AEDC0` (stock `F000 FC85`) becomes `F56F` only while the shown look has a
+  `halation` key (recipe preview, 800T in MY1, also after a reboot from the D: look cache) and is `F000` again for
+  Standard and a slot without halation (Vision3 500T in MY2). Against
+  synthetic YCC frames in the stock buffer layout (`FUN_a02AE7EA`, mapped exactly, guards patterned) run through
+  the patched BL in a `ProcessStill` task (stock step first; scratch from a mapped SPRWORK buffer through the stub
+  allocator): a bright disc gets a red-dominant halo that matches an independent float model of spektrafilm's
+  halation (3 bounces, renormalised Gaussians, a' = a/(1+a), the same source ramp) decoded through the look's
+  tone curves and YCC record: ring means within max(1.5 codes, 15 %), mean |difference| at most 1 code, at most
+  0.5 % of pixels beyond max(5 codes, 25 %), total red 0.95–1.05 of the model; falloff monotone, far pixels
+  unchanged. Byte-identical (every byte of the region): a frame without highlights, another colour mode, ctx
+  +0x357 set, the DNG's own run (+0x008 = 7), RAW development (+0x1E0), interval composite and multiple exposure,
+  a busy scratch buffer, a frame wider than its pitch, planes outside the buffer, no "BUFF" handle, no chroma;
+  statuses and ERROR lines as expected. Every aspect (3:2, 4:3, 1:1, 16:9, 35 mm crop) writes only inside its
+  frame; the hook reached with halation off (stale I-cache) only calls the stock step; a foreign halfword at the
+  call refuses ("halation: effect-step call not stock, halation off", one ERROR) with no write. Debug: instructions
+  per ARM/Thumb block at full 3:2, printed with the time at H1's 146 MIPS and at 77 MIPS + 137 MB/s: a night scene
+  (24 lamps), a busy night (120 lamps) and a bright textured scene are applied within the budget (≤ 205 M), a
+  bright worst case (160 large highlights) is over it (status 5) and stays byte-identical; the hook's stack.
 - `recipe-files`: every file in `recipes/` and the look-stage test recipes built in `run.py` (matrix, `tone`,
   `tone_r`, hue sectors, post matrix) parse; list sorted by name, then Stock, also after card recipes named
   "zzz" and "Stock" (and the `~Test` ones); each entry previews its look stages in Setting2, the last none.
@@ -103,10 +108,12 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   exactly my1/my2/box01/box03/live/set1/set2/fx09 with the expected keys (manual WB and the EV as comments, the `#`
   replaced, no `fx16` because the camera's Clarity is the factory one), ASCII CRLF ≤ 4094 bytes, nothing at boot,
   no slot file or property changed, every file call in the CFW task within its stack; my1.txt carries Portra's look
-  keys (same look as portra.txt), no other file any. No card: "no card", nothing written. `export_run` on an 8 KB
-  stack trips the stack check. Round trip: every file from `cfw/recipes` applied to MY3 sets each property its keys
-  name to the source value, its name, and nothing else; the CFW parses my1.txt to Portra's look and MY3 then holds
-  `MY1.TXT`. Console `export` with the dial on MY1 (CFWcon waits in `Task_Delay`, the CFW task runs it): 7 files,
+  keys (same look as portra.txt), no other file any, and no file a halation key; with MY1 linked to 800T instead,
+  my1.txt has 800T's look with `halation=300,100,15` and `halation_size=50`. No card: "no card", nothing written.
+  `export_run` on an 8 KB stack trips the stack check. Round trip: every file from `cfw/recipes` applied to MY3
+  sets each property its keys name to the source value, its name, and nothing else; the CFW parses my1.txt to
+  Portra's look and MY3 then holds `MY1.TXT`. Console `export` with the dial on MY1 (CFWcon waits in `Task_Delay`,
+  the CFW task runs it): 7 files,
   written by the CFW task, live.txt with Portra's look, set1.txt from `B:/P_COMMON.bin`; without the CFW task the
   console gives up after its wait.
 - `loader`: stage-1 loader ABI v1 header (`b`, "GRL1", hook entry); a full boot through `cfw_ldr_hook(n,

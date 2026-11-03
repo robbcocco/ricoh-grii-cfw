@@ -13,7 +13,8 @@ Source: spektrafilm 0.3.4 by Andrea Volpato, https://github.com/andreavolpato/sp
 kodak_ultramax_400, kodak_vision3_50d / kodak_portra_endura; fujifilm_pro_400h /
 fujifilm_crystal_archive_typeii; kodak_vision3_250d, kodak_vision3_500t / kodak_2383; Cinema Green:
 kodak_vision3_500t / kodak_2383; Cinema Yellow: kodak_vision3_250d / kodak_2393; Cinema Warm:
-kodak_vision3_250d / kodak_2383; Vivid Slide: fujifilm_velvia_100 (reversal film, scanned).
+kodak_vision3_250d / kodak_2383; Vivid Slide: fujifilm_velvia_100 (reversal film, scanned); 800T and
+800D (halation test recipes): kodak_vision3_500t / kodak_2383 and kodak_vision3_250d / kodak_2383.
 
 Method (gr2_cfw project, its spektrafilm fitting tool): spektrafilm's own runtime
 (init_params, digest_params, simulation pipeline in its deterministic LUT mode: no grain, halation,
@@ -32,4 +33,9 @@ exposure 1.04, print density-curve morph gamma 0.82 on all layers and 0.85 on th
 DIR interlayer inhibition 0.9.
 Vivid Slide renders the reversal film itself with spektrafilm's film scan (io.scan_film; no print
 stage, no scanner white/black correction in LUT mode), otherwise as above.
+800T and 800D carry the looks of the Vision3 500T and 250D recipes plus two halation keys:
+spektrafilm's back-reflection halation of the same film profile with its anti-halation class set to
+"no" (rem-jet removed), as spektrafilm's own parameter builder (digest_params) gives it: the strength
+per channel and the first-bounce size; the gr2_cfw firmware renders the halo with spektrafilm's
+halation model (three bounces, decay 0.5, renormalised) on the developed photo.
 Modified by the gr2_cfw project; the spektrafilm-derived recipe files are licensed CC BY-SA 4.0.

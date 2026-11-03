@@ -648,18 +648,24 @@ def sc_pattern(ctx):
     finish(ctx, s)
 
 
-# Still effect step (finding 37): its two BLs (stock: F000 + these low halfwords) and the frame layout FUN_a02AE7EA
-# gives the YCC buffer (pitches, rows, top/left margins, Cb/Cr plane offsets); the buffer size is the stock type table's.
-FX_SITES = {0xA02AEDC0: 0xFC85, 0xA02AEF30: 0xFBCD}
-FX_STEP, FX_VENEER, FX_TARGET = 0xA02AF6CE, 0xA001E6CE, 0xA001E6D4
+# ---- halation (src/halation.c, finding 37) ---------------------------------------------------------------------
+# The still effect step's call in FUN_a02AED1C (stock F000 FC85) and the frame layout FUN_a02AE7EA gives the YCC buffer
+# (pitches, rows, Cb/Cr plane offsets; top/left margins as H1 logged them); the buffer size is the stock type table's.
+FX_SITE, FX_SITE_LO = 0xA02AEDC0, 0xFC85
+FX_VENEER, FX_TARGET = 0xA001E6CE, 0xA001E6D4
 YCC_SIZE, YCC_PITCH_Y, YCC_PITCH_C, YCC_ROWS = 0x01F0E020, 4960, 2496, 0xCC0
-YCC_CB, YCC_CR, YCC_TOP, YCC_LEFT = 0xF7A320, 0x1744140, 8, 0x40
+YCC_CB, YCC_CR, YCC_TOP, YCC_LEFT = 0xF7A320, 0x1744140, 8, 0x20
 FX_MAP, FX_BUF = 0xA1F00000, 0xA2000000        # mapped DRAM: 1 MiB guard, the buffer, guard to the end
 FX_MAP_SIZE = 0x2200000
-# Frame sizes (ctx+0x258) the hook must place its square in: 3:2, 1:1, 16:9, a crop, and one smaller than the
-# square. Synthetic: the real sizes per aspect are what H1 logs.
-FX_FRAMES = {'3:2': (4928, 3264), '1:1': (3264, 3264), '16:9': (4928, 2768), 'crop': (3456, 2304), 'small': (300, 200)}
-FX_SQUARE, FX_LIFT = 512, 64
+SPRWORK_AT = 0xA4200000                        # the still path's scratch, mapped exactly: any overrun faults
+# Frame sizes (ctx+0x258): 3:2, 4:3, 1:1 as H1 logged them [H]; 16:9 and the 35 mm crop are synthetic.
+FX_FRAMES = {'3:2': (4928, 3264), '4:3': (4352, 3264), '1:1': (3264, 3264), '16:9': (4928, 2768),
+             'crop': (3456, 2304)}
+HALO_E = (400, 800)                            # src/halation.c E_LO, E_HI: the source ramp (linear units)
+HX_OK, HX_MODE, HX_RAW, HX_CONTEXT, HX_BUSY = 0, 2, 3, 4, 5
+HX_NO_BUFFER, HX_NO_CHROMA, HX_BAD_SIZE, HX_OUTSIDE, HX_NO_SCRATCH = 6, 8, 9, 10, 12
+REC_STATUS, REC_CELLS, REC_WORDS, REC_DEC = 28, 48, 60, 64   # src/halation.c hx_rec_t: status, cells (rows, groups),
+#                                                              words, estimate (decoded groups, cells with a halo)
 
 
 def log_hex(m, label):
@@ -668,169 +674,406 @@ def log_hex(m, label):
     return [int(v, 16) for v in re.findall(r' 0x([0-9A-F]{8})(?= |$)', lines[-1])] if lines else None
 
 
-def sc_halation_probe(ctx):
-    """DEV "Halation probe" (debug only, src/fxprobe.c, finding 37 H1): the row scrolls into view; arming verifies both
-    stock BLs of the still effect step and retargets them to the effect veneer (one halfword each), disarming restores
-    them. Through the patched BL, against a synthetic YCC frame: the stock step runs first, the frame context is
-    logged by the CFW task (nothing written by the hook's task), the Y read covers the frame, and Cr + 64 lands in a
-    512x512 square (clipped in a small frame) at the frame centre of each aspect with every other byte unchanged;
-    a context whose planes leave the buffer or exceed their pitch/rows changes nothing. A foreign halfword at a call
-    site refuses arming without any write to either site. Release: no row, no veneer."""
+def still_model(m, k5=3):
+    """Setting2's still rendering as its IQ lists give it (contrast and saturation 0, sRGB; finding 20 section B):
+    the R, G, B tone curves (10-bit linear -> code, made monotone) and the RGB'->YCbCr record (x256)."""
     import numpy as np
-    from numpy.lib.stride_tricks import as_strided
-    from unicorn import UC_HOOK_MEM_WRITE
-    check = ctx.check
-    s = Session(ctx)
-    m = s.m
-    stock = lambda: all(m.u16(a) == 0xF000 and m.u16(a + 2) == lo for a, lo in FX_SITES.items())
-    check(stock(), 'effect step BLs not stock after boot')
-    if ctx.variant != 'debug':
-        check(m.call('info_rows', 1) == 10 and 'fxprobe_hook' not in m.syms, 'probe in a non-debug build')
-        check(m.rd(FX_VENEER, 10) == bytes(10), 'effect veneer in a non-debug stage 1')
-        finish(ctx, s)
-        return
-    check(m.rd(FX_VENEER, 10) == bytes.fromhex('4b01471846c000000000'), f'effect veneer: {m.rd(FX_VENEER, 10).hex()}')
-    ROW = 10
-    check(m.call('info_rows', 1) == 11 and m.cstr(m.call('info_label', 1, ROW)) == 'Halation probe' and
-          s.info(1, ROW) == 'OFF', 'probe row missing')
+    import machine
+    lst = lambda d: machine.IQ_BASE + m.u16(machine.IQ_BASE + 0x90 + 2 * d)
+    sect = lambda s: m.u32(machine.IQ_BASE + 0x24 + 4 * s)
+    rec = sect(0xB) + m.u16(lst(0xC) + 4 * (18 * k5 + 342 * 3)) * 0x1400
+    tone = np.stack([np.frombuffer(m.rd(rec + 0x400 * (c + 1), 1024), np.uint8) for c in range(3)])
+    ycc = sect(0xC) + m.u16(lst(0xD) + 2 * (4 + 18 * k5)) * 0x14
+    return np.maximum.accumulate(tone.astype(np.int64), axis=1), np.array(struct.unpack('>9h', m.rd(ycc, 18)),
+                                                                         float).reshape(3, 3)
 
-    # Disarmed: the stock BL calls the stock step only.
-    host = m.map_dram(FX_MAP, FX_MAP_SIZE)
-    mem = np.frombuffer(host, dtype=np.uint8, count=FX_MAP_SIZE)
-    mem[:] = (np.arange(FX_MAP_SIZE) % 251).astype(np.uint8)
-    view = lambda arr, a, pitch, w, h: as_strided(arr[a - FX_MAP:], shape=(h, w), strides=(pitch, 1))
-    y_plane = FX_BUF + YCC_TOP * YCC_PITCH_Y + YCC_LEFT
-    cr_plane = FX_BUF + YCC_CR + YCC_TOP * YCC_PITCH_C + YCC_LEFT
 
-    def frame_ctx(w, h, magic=0x42554646, over=None, alias=True):
-        """alias: the handle holds the buffer's uncached alias 0x2xxxxxxx, as on the camera (H1 2026-11-03)."""
+def ycc_encode(rgb, C):
+    """Display RGB' codes (h, w, 3) -> full-range YCbCr 4:2:2 through the record C (x256)."""
+    import numpy as np
+    v = rgb @ C.T / 256
+    q = lambda a: np.clip(np.rint(a), 0, 255).astype(np.uint8)
+    pair = (v[:, 0::2, 1:] + v[:, 1::2, 1:]) / 2
+    return q(v[..., 0]), q(pair[..., 0] + 128), q(pair[..., 1] + 128)
+
+
+def ycc_decode(Y, Cb, Cr, C):
+    import numpy as np
+    up = lambda a: np.repeat(a.astype(float) - 128, 2, axis=1)
+    return np.stack([Y.astype(float), up(Cb), up(Cr)], -1) @ np.linalg.inv(C / 256).T
+
+
+def gauss(img, sigma):
+    """Separable Gaussian, edges replicated (an independent stand-in for spektrafilm's fast_gaussian_filter)."""
+    import numpy as np
+    r = int(4 * sigma) + 1
+    x = np.arange(-r, r + 1)
+    k = np.exp(-x * x / (2 * sigma * sigma))
+    k /= k.sum()
+    out = img
+    for ax in (0, 1):
+        a = np.moveaxis(out, ax, -1)
+        p = np.pad(a, [(0, 0), (r, r)], mode='edge')
+        out = np.moveaxis(np.stack([np.convolve(row, k, mode='valid') for row in p]), -1, ax)
+    return out
+
+
+def ref_halation(Y, Cb, Cr, tone, C, halo=(300, 100, 15), um=50):
+    """spektrafilm's halation (3 bounces, decay 0.5, renormalised) on the decoded frame, full resolution, float, exact
+    Gaussians: E + a' (G * S - S) wherever that adds at least 1/2 linear unit, S = the highlight source (E_LO..E_HI
+    ramp), E = the centre of each code's interval of the tone curve."""
+    import numpy as np
+    codes = np.clip(np.rint(ycc_decode(Y, Cb, Cr, C)), 0, 255).astype(int)
+    ap = np.array(halo) / 1000 / (1 + np.array(halo) / 1000)
+    d = np.zeros(codes.shape, int)
+    for c in range(3):
+        k = np.arange(256)
+        lo, hi = np.searchsorted(tone[c], k, 'left'), np.searchsorted(tone[c], k, 'right')
+        centre = np.clip((lo + hi - 1) / 2, 0, 1023)
+        E = centre[codes[..., c]]
+        S = E * np.clip((E - HALO_E[0]) / (HALO_E[1] - HALO_E[0]), 0, 1)
+        B = sum(w * gauss(S, um * np.sqrt(b) * 4928 / 35000) for b, w in ((1, 4 / 7), (2, 2 / 7), (3, 1 / 7)))
+        h = ap[c] * (B - S)
+        new = tone[c][np.clip(np.rint(E + h), 0, 1023).astype(int)]
+        d[..., c] = np.where(h >= 0.5, new - codes[..., c], 0)
+    dv = d @ C.T / 256
+    q = lambda a: np.clip(np.rint(a), 0, 255).astype(np.uint8)
+    pair = (dv[:, 0::2, 1:] + dv[:, 1::2, 1:]) / 2
+    return q(Y + dv[..., 0]), q(Cb + pair[..., 0]), q(Cr + pair[..., 1])
+
+
+class FxFrames:
+    """The YCC buffer in mapped DRAM, the still path's scratch, and the contexts the still path hands the effect
+    step; handles hold uncached aliases, as on the camera [H: H1]."""
+
+    def __init__(self, m):
+        import numpy as np
+        self.m = m
+        self.mem = np.frombuffer(m.map_dram(FX_MAP, FX_MAP_SIZE), np.uint8, count=FX_MAP_SIZE)
+        self.mem[:] = (np.arange(FX_MAP_SIZE) % 251).astype(np.uint8)
+        spr = np.frombuffer(m.map_sprwork(SPRWORK_AT), np.uint8)
+        spr[:] = 0xA5                                              # whatever the stock passes left there
+        self.y = FX_BUF + YCC_TOP * YCC_PITCH_Y + YCC_LEFT
+        self.cb = FX_BUF + YCC_CB + YCC_TOP * YCC_PITCH_C + YCC_LEFT
+        self.cr = FX_BUF + YCC_CR + YCC_TOP * YCC_PITCH_C + YCC_LEFT
+        self.paint = None
+        m.on_fx_step = self._stock_step
+
+    def view(self, a, pitch, w, h, arr=None):
+        from numpy.lib.stride_tricks import as_strided
+        arr = self.mem if arr is None else arr
+        return as_strided(arr[a - FX_MAP:], shape=(h, w), strides=(pitch, 1))
+
+    def planes(self, w, h, arr=None):
+        return (self.view(self.y, YCC_PITCH_Y, w, h, arr), self.view(self.cb, YCC_PITCH_C, w // 2, h, arr),
+                self.view(self.cr, YCC_PITCH_C, w // 2, h, arr))
+
+    def get(self, w, h):
+        return tuple(p.copy() for p in self.planes(w, h))
+
+    def _stock_step(self, mm, c):
+        """The stock passes develop the frame: a hook that ran before them would see its work overwritten."""
+        if self.paint:
+            for dst, src in zip(self.planes(*self.paint[0]), self.paint[1], strict=False):
+                dst[:] = src
+
+    def ctx(self, w, h, over=None, mode=4, kind=0, alias=True, magic=0x42554646):
+        m = self.m
         handle = m.obj_alloc(8)
         m.w32(handle, magic)
         m.w32(handle + 4, (FX_BUF & 0x1FFFFFFF) | 0x20000000 if alias else FX_BUF)
         c = m.obj_alloc(0x600)
-        f = {0x1E0: 0x1234, 0x1F0: handle, 0x218: 1, 0x21C: YCC_CB, 0x220: YCC_CR, 0x224: YCC_PITCH_Y,
+        f = {0x1E0: 0, 0x1F0: handle, 0x218: 1, 0x21C: YCC_CB, 0x220: YCC_CR, 0x224: YCC_PITCH_Y,
              0x228: YCC_PITCH_C, 0x22C: YCC_ROWS, 0x230: YCC_TOP, 0x234: YCC_LEFT, 0x238: YCC_TOP, 0x23C: YCC_LEFT,
              0x258: w | h << 16}
         f.update(over or {})
         for o, v in f.items():
             m.w32(c + o, v)
-        m.wr(c + 0x408, b'\x04')                               # colour mode byte (Setting2)
+        m.wr(c + 0x408, bytes([mode]))                         # colour mode (prop 0x2D at capture)
+        m.wr(c + 0x008, bytes([kind]))                         # 7: the DNG's own still
         return c
 
-    paint = {}                                                  # the stock step's stand-in: Cr frame := (x + y) & 255
-    pattern = lambda w, h: ((np.arange(h)[:, None] + np.arange(w // 2)[None, :]) & 0xFF).astype(np.uint8)
-    m.on_fx_step = lambda mm, c: paint and view(mem, cr_plane, YCC_PITCH_C, paint['w'] // 2, paint['h']).__setitem__(
-        slice(None), pattern(paint['w'], paint['h']))
-
-    def shoot(site, c, w=0, h=0, how=None):
-        """Run the still path's BL at `site` with ctx `c` in the still-processing task; returns (expected, changed)."""
-        paint.clear()
-        exp = mem.copy()
-        if w:
-            paint.update(w=w, h=h)
-            view(exp, cr_plane, YCC_PITCH_C, w // 2, h)[:] = pattern(w, h)
+    def shoot(self, ctx, c, frame=None, check_stack=True):
+        """The still path's BL at FX_SITE with context c in the still-processing task; frame = (w, h, (Y, Cb, Cr))
+        is what the stock step develops. Returns a copy of the whole mapped region before the shot (with the
+        developed frame in it)."""
+        import machine
+        m, check = self.m, ctx.check
+        self.paint = ((frame[0], frame[1]), frame[2]) if frame else None
+        before = self.mem.copy()
+        if frame:
+            for dst, src in zip(self.planes(frame[0], frame[1], before), frame[2], strict=False):
+                dst[:] = src
         n_io, n_calls = len(m.io), len(m.stock_calls)
-        if how:
-            how(c)
-        else:
-            m.run_range(site | 1, site + 4, c, stack=0x1000, task='ProcessStill')
+        top = machine.STACK_TOP
+        m.wr(top - 0x2000, b'\xcd' * 0x2000)
+        m.run_range(FX_SITE | 1, FX_SITE + 4, c, stack=0x2000, task='ProcessStill', timeout_s=900)
+        used = 0x2000 - next((i for i, b in enumerate(m.rd(top - 0x2000, 0x2000)) if b != 0xCD), 0x2000)
         check(m.stock_calls[n_calls:] == [('fx_step', c)], f'stock step not called once: {m.stock_calls[n_calls:]}')
         check(m.io[n_io:] == [], f'file I/O from the still-processing task: {m.io[n_io:]}')
-        return exp
+        check(not m.sprwork_handle, 'scratch buffer not released')
+        check(not check_stack or used <= 1024, f'hook stack {used} B (budget 1 KB: the task stack is unknown)')
+        self.stack = used
+        return before
 
-    def same(exp, what):
-        bad = np.flatnonzero(mem != exp)
-        if bad.size:
-            out = int(np.count_nonzero((bad < FX_BUF - FX_MAP) | (bad >= FX_BUF + YCC_SIZE - FX_MAP)))
-            check(False, f'{what}: {bad.size} bytes differ ({out} outside the YCC buffer), first at '
-                         f'{FX_MAP + int(bad[0]):#x}')
+    def status(self):
+        return self.m.u32(self.m.syms['g_rec'] + REC_STATUS)
 
-    c0 = frame_ctx(4928, 3264)
-    exp = shoot(0xA02AEDC0, c0, 4928, 3264)
-    same(exp, 'disarmed shot')
+    def outside_same(self, before, w, h):
+        """Nothing outside the three frame rectangles changed."""
+        exp = before.copy()
+        for dst, src in zip(self.planes(w, h, exp), self.planes(w, h), strict=False):
+            dst[:] = src
+        return int((self.mem != exp).sum())
 
-    # Arm from the DEV page: the probe row is past the 10 shown rows, so the page scrolls.
-    s.request(MENU_SETTINGS)
-    s.keys(KEY_LEFT, KEY_DOWN, *[KEY_DOWN] * 10)
-    check(m.u32(m.syms['g_first']) == 1 and m.u32(m.syms['g_row']) == 9, 'DEV page did not scroll to the probe row')
-    s.render('menu_dev_probe')
-    s.keys(KEY_OK)
-    check(s.info(1, ROW) == 'ARMED', f'probe row after OK: {s.info(1, ROW)!r}')
-    check(all(m.u16(a) == 0xF56F and m.u16(a + 2) == lo for a, lo in FX_SITES.items()),
-          f'BLs not retargeted: {[hex(m.u32(a)) for a in FX_SITES]}')
-    check(all(encode_bl(a, FX_VENEER) == (0xF56F, lo) for a, lo in FX_SITES.items()), 'veneer BL encoding')
-    check(m.u32(FX_TARGET) & 1 and (m.u32(FX_TARGET) | 1) == (m.syms['fxprobe_hook'] | 1), 'veneer target word')
 
-    # One shot per frame size, alternating the two callers.
-    for k, (name, (w, h)) in enumerate(FX_FRAMES.items()):
-        site = list(FX_SITES)[k & 1]
-        c = frame_ctx(w, h, alias=k != 0)                      # first frame: a cached-address handle, then aliases
-        yv = np.ascontiguousarray(view(mem, y_plane, YCC_PITCH_Y, w & ~3, h))
-        ysum = int(yv.view('>u4').sum(dtype=np.uint64)) & 0xFFFFFFFF
-        exp = shoot(site, c, w, h)
-        sx, sy = min(FX_SQUARE, w & ~1), min(FX_SQUARE, h)
-        x0, y0 = ((w - sx) // 2) & ~1, (h - sy) // 2
-        check(abs(2 * x0 + sx - w) <= 2 and abs(2 * y0 + sy - h) <= 1 and x0 + sx <= w and y0 + sy <= h, 'centre')
-        sq = view(exp, cr_plane, YCC_PITCH_C, w // 2, h)[y0:y0 + sy, x0 // 2:(x0 + sx) // 2]
-        sq[:] = np.minimum(255, sq.astype(np.int32) + FX_LIFT).astype(np.uint8)
-        same(exp, f'{name} shot')
+def scene(w, h, C, sources=(), base=24, texture=0, seed=1):
+    """Display-RGB' scene: a flat (or textured) dark ground and discs (x, y, radius, (r, g, b)), encoded."""
+    import numpy as np
+    rgb = np.full((h, w, 3), float(base))
+    if texture:
+        rng = np.random.default_rng(seed)
+        rgb += rng.uniform(0, texture, (h, w, 1)) + rng.uniform(-10, 10, (h, w, 3))
+    yy, xx = np.mgrid[0:h, 0:w]
+    for x, y, r, col in sources:
+        rgb[(xx - x) ** 2 + (yy - y) ** 2 <= r * r] = col
+    return ycc_encode(np.clip(rgb, 0, 255), C)
+
+
+def save_halation_png(ctx, name, before, after, C, box):
+    """Before | after crop as sRGB codes (the frame decoded through C)."""
+    import numpy as np
+    from PIL import Image
+    x0, y0, x1, y1 = box
+    half = lambda p, ax0, ax1: p[y0:y1, ax0:ax1]
+    tiles = [np.clip(ycc_decode(half(Y, x0, x1), half(Cb, x0 // 2, x1 // 2), half(Cr, x0 // 2, x1 // 2), C), 0, 255)
+             for Y, Cb, Cr in (before, after)]
+    img = np.concatenate([tiles[0], np.full((y1 - y0, 8, 3), 255.0), tiles[1]], axis=1).astype(np.uint8)
+    ctx.renderer._save(Image.fromarray(img), name)
+
+
+def sc_halation(ctx):
+    """Halation in final stills (src/halation.c), every variant: the effect veneer at 0xA001E6CE; the effect step's
+    call is retargeted (one halfword) only while the shown look has `halation` (preview, slot look, also from the D:
+    look cache) and restored otherwise. Through the patched BL in the still-processing task, the stock step first: a
+    bright disc gets a red-dominant halo that matches an independent float reference of spektrafilm's model; frames
+    without highlights, other colour modes, the DNG's own still, RAW development, interval composite / multiple
+    exposure, a busy scratch buffer and frame contexts that do not fit their buffer stay byte-identical; nothing
+    outside the frame is written in 3:2, 4:3, 1:1, 16:9 and the crop. Verify first: a foreign halfword at the call
+    refuses with no write. Debug: instruction counts of full 3:2 frames; one over the cost budget stays untouched."""
+    import numpy as np
+    from unicorn import UC_HOOK_BLOCK, UC_HOOK_MEM_WRITE
+    from unicorn.arm_const import UC_ARM_REG_CPSR
+    check = ctx.check
+    rec = ctx.recipes
+    idx = {r['file']: i for i, r in enumerate(rec)}
+    s = Session(ctx, props={0x2D: 4})
+    m = s.m
+    stock = lambda mm: mm.u16(FX_SITE) == 0xF000 and mm.u16(FX_SITE + 2) == FX_SITE_LO
+    routed = lambda mm: (mm.u16(FX_SITE) == 0xF56F and mm.u16(FX_SITE + 2) == FX_SITE_LO and
+                         mm.u32(FX_TARGET) == mm.syms['halation_hook'])   # ARM state: bit 0 clear
+    check(m.rd(FX_VENEER, 10) == bytes.fromhex('4b01471846c000000000'), f'effect veneer: {m.rd(FX_VENEER, 10).hex()}')
+    check(encode_bl(FX_SITE, FX_VENEER) == (0xF56F, FX_SITE_LO), 'veneer BL encoding')
+    check(stock(m) and m.u32(FX_TARGET) == 0, 'effect-step call not stock after boot')
+
+    def goto(i):
+        d = i - s.recipe_sel()
+        s.keys(*[KEY_RIGHT if d > 0 else KEY_LEFT] * abs(d))
+
+    # Routed only while a halation look is shown: the preview, then MY1 = 800T (Setting2), MY2 = Vision3 500T.
+    s.request(MENU_RECIPES)
+    for f, want in (('c800d.txt', True), ('v3_500t.txt', False), ('c800t.txt', True)):
+        goto(idx[f])
+        check(routed(m) if want else stock(m), f'preview of {f}: effect step {"not " if want else ""}routed')
+    s.keys(KEY_EFFECT)
+    check(stock(m), 'call not restored after the preview')
+    for f, k in (('c800t.txt', 0), ('v3_500t.txt', 1)):
+        s.request(MENU_RECIPES)
+        goto(idx[f])
+        s.keys(KEY_OK, *[KEY_RIGHT] * k, KEY_OK)
+        s.keys(KEY_EFFECT)
+    for props, want, what in (({6: 1}, True, 'MY1 800T'), ({0x2D: 0}, False, 'MY1 in Standard'),
+                              ({0x2D: 4}, True, 'MY1 back in Setting2'), ({6: 2}, False, 'MY2 Vision3 500T'),
+                              ({6: 0}, False, 'no slot'), ({6: 1}, True, 'MY1 again')):
+        m.props.update(props)
+        m.call('recipes_poll')
+        check(routed(m) if want else stock(m), f'{what}: effect step {"not " if want else ""}routed')
+
+    fr = FxFrames(m)
+    tone, C = still_model(m)
+
+    # A bright white disc and an orange lamp on a dark ground: the halo against the float reference.
+    W, H = 1200, 800
+    planes = scene(W, H, C, [(600, 400, 40, (255, 255, 255)), (250, 200, 20, (255, 170, 60))])
+    c = fr.ctx(W, H)
+    before = fr.shoot(ctx, c, (W, H, planes))
+    out = fr.get(W, H)
+    check(fr.status() == HX_OK and fr.outside_same(before, W, H) == 0, f'disc: status {fr.status()} / outside')
+    ref = ref_halation(*planes, tone, C)
+    din = ycc_decode(*planes, C)
+    dc, dr = ycc_decode(*out, C) - din, ycc_decode(*ref, C) - din
+    yy, xx = np.mgrid[0:H, 0:W]
+    rad = np.hypot(xx - 600, yy - 400)
+    prof = [(r0, dc[(rad >= r0) & (rad < r0 + 5)].mean(0), dr[(rad >= r0) & (rad < r0 + 5)].mean(0))
+            for r0 in (42, 47, 52, 57, 62, 80)]
+    for r0, a, b in prof:                                      # red ring means within 1.5 codes or 15 %
+        check(abs(a[0] - b[0]) <= max(1.5, 0.15 * b[0]), f'disc halo at r {r0}: red {a[0]:.1f}, reference {b[0]:.1f}')
+    r47 = prof[1][1]
+    check(r47[0] > 10 and r47[0] > 2 * r47[1] > 0 and r47[1] > r47[2], f'halo not red-dominant: {r47.round(1)}')
+    check(prof[0][1][0] > prof[1][1][0] > prof[2][1][0] > prof[3][1][0] > prof[4][1][0] >= 0 and
+          prof[5][1][0] == 0,
+          f'halo does not fall off with the radius: {[(r0, a.round(1).tolist(), b.round(1).tolist()) for r0, a, b in prof]}')
+    ring = (rad > 42) & (rad < 110)
+    diff = np.abs(dc - dr)
+    err = diff[ring]
+    bad = (diff > np.maximum(5, 0.25 * np.abs(dr))).any(-1) & ring   # per pixel: 5 codes or 25 % of the reference
+    wy_, wx_ = np.unravel_index((diff.max(-1) * ring).argmax(), ring.shape)
+    check(err.mean() <= 1.0 and bad.sum() <= 0.005 * ring.sum(),
+          f'disc ring vs reference: mean {err.mean():.2f} codes, {bad.sum()} of {ring.sum()} pixels off; worst '
+          f'({wx_}, {wy_}) r {rad[wy_, wx_]:.1f}: {dc[wy_, wx_].round(1)} vs {dr[wy_, wx_].round(1)}')
+    tot = dc[..., 0].sum() / dr[..., 0].sum()
+    check(0.95 <= tot <= 1.05, f'total red halo {tot:.3f} x the reference')
+    far = rad > 220
+    far &= np.hypot(xx - 250, yy - 200) > 160
+    check(all((o.astype(int) == i.astype(int))[far[:, ::k]].all() for o, i, k in zip(out, planes, (1, 2, 2), strict=False)),
+          'pixels far from the sources changed')
+    if ctx.renderer:
+        save_halation_png(ctx, f'{ctx.variant}_halation_disc', planes, out, C, (480, 280, 720, 520))
+        save_halation_png(ctx, f'{ctx.variant}_halation_disc_reference', planes, ref, C, (480, 280, 720, 520))
+        save_halation_png(ctx, f'{ctx.variant}_halation_lamp', planes, out, C, (170, 120, 330, 280))
+    halo_hook_stack = fr.stack
+
+    # Frames the pass must leave byte-identical (each still runs the stock step once).
+    sw, sh = 480, 320
+    lamp = scene(sw, sh, C, [(240, 160, 30, (255, 255, 255))])
+    dark = scene(sw, sh, C, base=20, texture=150)              # texture below the highlight ramp
+    check(ycc_decode(*dark, C).max() < 200, 'harness: the "no highlights" frame has highlights')
+    same = [('no highlights', fr.ctx(sw, sh), dark, HX_OK, None),
+            ('Standard frame', fr.ctx(sw, sh, mode=0), lamp, HX_MODE, None),
+            ('stock effect routing (ctx+0x357)', fr.ctx(sw, sh), lamp, HX_MODE, lambda cc: m.wr(cc + 0x357, b'\x10')),
+            ("the DNG's own still (ctx+0x008 = 7)", fr.ctx(sw, sh, kind=7), lamp, HX_RAW, None),
+            ('RAW development (RAW handle)', fr.ctx(sw, sh, over={0x1E0: m.obj_alloc(8)}), lamp, HX_RAW, None),
+            ('interval composite', fr.ctx(sw, sh), lamp, HX_CONTEXT, lambda cc: m.props.update({0x2BE: 1})),
+            ('multiple exposure', fr.ctx(sw, sh), lamp, HX_CONTEXT, lambda cc: m.props.update({0x2BE: 3})),
+            ('scratch busy', fr.ctx(sw, sh), lamp, HX_NO_SCRATCH, lambda cc: setattr(m, 'sprwork_busy', True)),
+            ('Cr plane past the buffer end', fr.ctx(4928, 3264, over={0x220: YCC_SIZE - 1000 * YCC_PITCH_C}), lamp,
+             HX_OUTSIDE, None),
+            ('frame wider than the Y pitch', fr.ctx(5000, 3264), lamp, HX_BAD_SIZE, None),
+            ('width not a multiple of 8', fr.ctx(sw + 4, sh), lamp, HX_BAD_SIZE, None),
+            ('more rows than the plane', fr.ctx(4928, YCC_ROWS + 1), lamp, HX_BAD_SIZE, None),
+            ('huge pitch', fr.ctx(sw, sh, over={0x224: 0x10000}), lamp, HX_BAD_SIZE, None),
+            ('handle without the BUFF magic', fr.ctx(sw, sh, magic=0), lamp, HX_NO_BUFFER, None),
+            ('no chroma planes', fr.ctx(sw, sh, over={0x218: 0}), lamp, HX_NO_CHROMA, None)]
+    for name, cc, planes_, status, setup in same:
+        if setup:
+            setup(cc)
+        before = fr.shoot(ctx, cc, (sw, sh, planes_))
+        m.props[0x2BE], m.sprwork_busy = 0, False
+        check(fr.status() == status, f'{name}: status {fr.status()}, expected {status}')
+        check(np.array_equal(fr.mem, before), f'{name}: {int((fr.mem != before).sum())} bytes changed')
         m.call('cfw_task_poll')
-        check(log_hex(m, 'fx: shot (n, caller)') == [k + 1, site + 5], f'{name}: shot line')
-        check(log_hex(m, 'fx: (Cr plane, status') == [cr_plane, 0], f'{name}: Cr plane / status')
-        check(log_hex(m, 'fx: planes (Y, Cb)') == [y_plane, FX_BUF + YCC_CB + YCC_TOP * YCC_PITCH_C + YCC_LEFT],
-              f'{name}: Y/Cb planes')
-        check(log_hex(m, 'fx: YCC buffer (address, size)') == [FX_BUF, YCC_SIZE], f'{name}: buffer')
-        check(log_hex(m, 'fx: square (x0 | y0 << 16, w | h << 16)') == [x0 | y0 << 16, sx | sy << 16],
-              f'{name}: square {log_hex(m, "fx: square (x0 | y0 << 16, w | h << 16)")}')
-        check(log_hex(m, 'fx: Y sums (cached, uncached)') == [ysum, ysum] and
-              log_hex(m, 'fx: Y read (bytes, ms cached | ms uncached << 16)')[0] == (w & ~3) * h,
-              f'{name}: Y read does not cover the frame')
-        check(log_hex(m, 'fx: (+0x22C rows, +0x258 w | h << 16)') == [YCC_ROWS, w | h << 16], f'{name}: geometry')
-    check(s.info(1, ROW) == f'ARMED  {DOT}  {len(FX_FRAMES)} shots', f'shots row: {s.info(1, ROW)!r}')
+        errs = [l for l in m.log_lines() if 'ERROR' in l]
+        check(bool(errs) == (status >= HX_NO_BUFFER), f'{name}: ERROR lines {errs}')
+        if status >= HX_NO_BUFFER:
+            m.files.pop('H:/CFW/CFW_LOG.TXT')                  # the expected ERROR line
+    m.props[0x2BE] = 2                                         # interval shooting (not composite): applied
+    fr.shoot(ctx, fr.ctx(sw, sh), (sw, sh, lamp))
+    m.props[0x2BE] = 0
+    check(fr.status() == HX_OK and m.u32(m.syms['g_rec'] + REC_WORDS) > 0, 'interval shot: no halo')
 
-    # Contexts the hook must not trust: nothing written, the stock step still called, the reason logged. The first
-    # puts the Cr plane so that the middle of the centred square would cross the buffer end into the mapped guard.
-    cr_cross = YCC_SIZE - (YCC_TOP + (3264 - FX_SQUARE) // 2 + FX_SQUARE // 2) * YCC_PITCH_C
-    bad = {'Cr plane past the buffer end': (frame_ctx(4928, 3264, over={0x220: cr_cross}), 5),
-           'frame wider than the Y pitch': (frame_ctx(5000, 3264), 4),
-           'more rows than the plane': (frame_ctx(4928, YCC_ROWS + 1), 4),
-           'huge pitch': (frame_ctx(4928, 3264, over={0x224: 0x10000}), 4),
-           'handle without the BUFF magic': (frame_ctx(4928, 3264, magic=0), 1),
-           'no chroma planes': (frame_ctx(4928, 3264, over={0x218: 0}), 3)}
-    for name, (c, status) in bad.items():
-        same(shoot(0xA02AEDC0, c), name)
-        m.call('cfw_task_poll')
-        check(log_hex(m, 'fx: (Cr plane, status')[1] == status, f'{name}: status {log_hex(m, "fx: (Cr plane, status")}')
+    # Off the slot the call is stock again; the hook still reached through a stale I-cache line only passes through.
+    m.props[6] = 0
+    m.call('recipes_poll')
+    check(stock(m), 'not restored off the slot')
+    fr.paint = ((sw, sh), lamp)
+    before = fr.mem.copy()
+    for dst, src in zip(fr.planes(sw, sh, before), lamp, strict=False):
+        dst[:] = src
+    n_calls = len(m.stock_calls)
+    m.call_addr(m.syms['halation_hook'], fr.ctx(sw, sh), stack=0x2000, task='ProcessStill')
+    check(len(m.stock_calls) == n_calls + 1 and np.array_equal(fr.mem, before), 'restored: the hook did not pass through')
+    m.props[6] = 1
+    m.call('recipes_poll')
 
-    # Disarm: both BLs stock again; a hook still reached (stale I-cache line) only passes through.
-    s.keys(KEY_OK)
-    check(s.info(1, ROW) == 'OFF' and stock(), f'disarm: {s.info(1, ROW)!r} {[hex(m.u32(a)) for a in FX_SITES]}')
-    same(shoot(0, c0, 4928, 3264, how=lambda c: m.call_addr(m.syms['fxprobe_hook'] | 1, c, stack=0x1000,
-                                                             task='ProcessStill')), 'disarmed hook')
-    s.keys(KEY_DOWN)
-    check(m.u32(m.syms['g_first']) == 0 and m.u32(m.syms['g_row']) == 0, 'DOWN past the last row does not wrap')
-    s.keys(*[KEY_DOWN] * 10, *[KEY_UP] * 10)
-    check(m.u32(m.syms['g_first']) == 0 and m.u32(m.syms['g_row']) == 0, 'UP does not scroll back')
+    # Every aspect at full size, sources on the frame's edges and corners: the halo is clipped at the frame.
+    edge = lambda w, h: [(0, 0, 60, (255, 255, 255)), (w - 1, h // 2, 50, (255, 200, 120)), (w // 2, h - 1, 50,
+                         (255, 255, 255)), (w - 30, 20, 25, (255, 255, 255))]
+    for name, (w, h) in FX_FRAMES.items():
+        planes_ = scene(w, h, C, edge(w, h), base=30)
+        before = fr.shoot(ctx, fr.ctx(w, h), (w, h, planes_))
+        outside = fr.outside_same(before, w, h)
+        got = fr.get(w, h)
+        changed = int((got[0] != planes_[0]).sum())
+        check(fr.status() == HX_OK and outside == 0 and changed > 1000,
+              f'{name}: status {fr.status()}, {outside} bytes outside the frame, {changed} Y changed')
+        check((got[2][:200, :100].astype(int) >= planes_[2][:200, :100]).all() and
+              (got[2][:200, :100] != planes_[2][:200, :100]).any(), f'{name}: no red halo at the corner source')
+
+    # Timing (debug): instructions per ARM/Thumb block at full 3:2; the cost estimate decides (src/halation.c
+    # HX_BUDGET), a frame over it stays byte-identical.
+    if ctx.variant == 'debug':
+        lo, hi = m.main_base, m.main_end
+        rng = np.random.default_rng(7)
+        disc = lambda n, r0, r1, col, edge=40: [(int(x), int(y), int(r), col) for x, y, r in zip(
+            rng.integers(edge, 4928 - edge, n), rng.integers(edge, 3264 - edge, n), rng.integers(r0, r1, n),
+            strict=False)]
+        night, worst = disc(24, 6, 40, (255, 230, 180)), disc(160, 40, 160, (255, 255, 255), 0)
+        bright, city = disc(20, 40, 160, (255, 255, 255), 0), disc(120, 4, 30, (255, 220, 160))
+        for what, planes_, want in (('night, 24 lamps', scene(4928, 3264, C, night, base=18), HX_OK),
+                                    ('busy night, 120 lamps', scene(4928, 3264, C, city, base=18), HX_OK),
+                                    ('bright, 20 large highlights on texture', scene(4928, 3264, C, bright, base=40,
+                                                                                     texture=40), HX_OK),
+                                    ('bright worst case, 160 large highlights', scene(4928, 3264, C, worst, base=60,
+                                                                                      texture=90), HX_BUSY)):
+            n = [0]
+
+            def count(uc, a, size, _, n=n):                    # Thumb blocks: 2-byte, ARM blocks: 4-byte instructions
+                n[0] += size >> (1 if uc.reg_read(UC_ARM_REG_CPSR) & 0x20 else 2)
+            hk = m.uc.hook_add(UC_HOOK_BLOCK, count, begin=lo, end=hi)
+            m.uc.ctl_remove_cache(lo, hi)                      # translated blocks predate the hook
+            before = fr.shoot(ctx, fr.ctx(4928, 3264), (4928, 3264, planes_))
+            m.uc.hook_del(hk)
+            cells, rows, groups, words, dec, nh = (m.u32(m.syms['g_rec'] + o) for o in (
+                REC_CELLS, REC_CELLS + 4, REC_CELLS + 8, REC_WORDS, REC_DEC, REC_DEC + 4))
+            mb = (4928 + 2 * 2464) * (1632 + 408) / 1e6 + 16 * groups / 1e6   # sampled rows + add-back groups
+            h1, slow = n[0] / 146e6, mb / 137 + n[0] / 77e6
+            print(f'  halation timing, {what}: status {fr.status()}, {n[0] / 1e6:.1f} M instructions, {mb:.1f} MB '
+                  f'read, estimate {dec} decoded groups / {nh} halo cells, {cells} source cells, {rows} rows / '
+                  f'{groups} groups with a halo, {words} words written; {h1:.2f} s at H1\'s 146 MIPS (memory '
+                  f'included), {slow:.2f} s at 77 MIPS + 137 MB/s without overlap')
+            ctx.halo_timing = getattr(ctx, 'halo_timing', []) + [(what, n[0], mb, h1, slow)]
+            check(fr.status() == want, f'timing shot ({what}): status {fr.status()}, expected {want}')
+            check(want == HX_OK or np.array_equal(fr.mem, before), f'{what}: over budget but changed')
+            check(n[0] <= 205e6, f'{what}: {n[0] / 1e6:.0f} M instructions, over the budget')
+        print(f'  halation hook stack: {halo_hook_stack} B')
+
     finish(ctx, s)
 
-    # Verify first: a foreign halfword at one site refuses arming with no write to either site.
-    s2 = Session(ctx)
-    m2 = s2.m
-    m2.w16(0xA02AEF30, 0xF001)
+    # After a reboot: MY1's halation from the config and the D: look cache, also without the recipe file.
+    d = m.d_files()
+    for drop in ((), ('H:/cfw/recipes/c800t.txt',)):
+        s2 = Session(ctx, files=d, slots=m.slots, props={0x2D: 4, 6: 1}, drop=drop)
+        check(routed(s2.m), f'after a reboot{" without c800t.txt" if drop else ""}: effect step not routed')
+        s2.m.props[6] = 0
+        s2.m.call('recipes_poll')
+        check(stock(s2.m), 'after a reboot: not restored off the slot')
+        finish(ctx, s2)
+
+    # Verify first: a foreign halfword at the call refuses with no write, one ERROR line, and stays refused.
+    s3 = Session(ctx, files=d, slots=m.slots, props={0x2D: 4, 6: 0})
+    m3 = s3.m
+    m3.w16(FX_SITE, 0xF001)
     writes = []
-    m2.uc.hook_add(UC_HOOK_MEM_WRITE, lambda uc, acc, a, size, val, _: writes.append((a, size, val)),
-                   begin=0xA02AEDC0, end=0xA02AEF33)
-    m2.call('info_action', 1, ROW)
-    check(s2.info(1, ROW) == 'OFF: call sites not stock' and not writes and m2.u32(FX_TARGET) == 0 and
-          m2.u16(0xA02AEDC0) == 0xF000 and m2.u16(0xA02AEF30) == 0xF001,
-          f'armed over a foreign site: row {s2.info(1, ROW)!r}, writes {[(hex(a), hex(v)) for a, _, v in writes]}')
-    errs = [l for l in m2.log_lines() if 'ERROR' in l]
-    check(len(errs) == 1 and 'fx: call sites not stock' in errs[0], f'refusal not logged: {errs}')
-    m2.files.pop('H:/CFW/CFW_LOG.TXT')                         # the expected ERROR line
-    m2.w16(0xA02AEF30, 0xF000)
-    m2.call('info_action', 1, ROW)
-    check(s2.info(1, ROW) == 'ARMED' and len(writes) == 2, f'arming after the fix: {s2.info(1, ROW)!r} {writes}')
-    finish(ctx, s2)
+    m3.uc.hook_add(UC_HOOK_MEM_WRITE, lambda uc, acc, a, size, val, _: writes.append((a, size, val)),
+                   begin=FX_SITE, end=FX_SITE + 3)
+    m3.props[6] = 1
+    for _ in range(3):
+        m3.call('recipes_poll')
+    errs = [l for l in m3.log_lines() if 'ERROR' in l]
+    check(not writes and m3.u16(FX_SITE) == 0xF001 and m3.u32(FX_TARGET) == 0 and len(errs) == 1 and
+          'halation: effect-step call not stock' in errs[0], f'foreign call site: writes {writes}, log {errs}')
+    m3.files.pop('H:/CFW/CFW_LOG.TXT')                         # the expected ERROR line
+    finish(ctx, s3)
 
 
 def lv_gradient_visible(bmp, m):
@@ -1114,7 +1357,7 @@ WB_VALUE = {'auto': 0, 'multi_auto': 1, 'daylight': 2, 'shade': 3, 'cloudy': 4, 
             'incandescent2': 6, 'fl_daylight': 7, 'fl_neutral': 8, 'fl_cool': 9, 'fl_warm': 10, 'cte': 12, 'kelvin': 13}
 PLAIN_KEYS = {'wb': 0xFE, 'wb_kelvin': 0x10F, 'exposure': 0xFD, 'dr': 0x130, 'nr': 0xEF, 'iso': 0x110,
               'auto_hi_max': 0x111, 'auto_hi_min': 0x112, 'auto_hi_shutter': 0x113}
-LOOK_KEY = re.compile(r'matrix|post_matrix|tone(_[rgb])?|hue\d+')
+LOOK_KEY = re.compile(r'matrix|post_matrix|tone(_[rgb])?|hue\d+|halation(_size)?')
 NAME_IDS = range(0x1A9, 0x1BA)
 
 
@@ -1148,6 +1391,9 @@ def look_of(kv):
     for k, v in kv:
         if not LOOK_KEY.fullmatch(k):
             continue
+        if k.startswith('halation'):
+            look[k] = v
+            continue
         n = [int(x) for x in v.split(',')]
         if k in ('matrix', 'post_matrix'):
             look[k] = n
@@ -1180,7 +1426,9 @@ def sc_export(ctx):
     AUTO-HI, comments for manual WB and a 1/2-step EV; a name with '#' changed; the camera's Clarity value under a CFW
     Clarity strength); nothing written at boot, no slot or property changed; (b) every file applied to MY3 sets each
     property its keys name to the source value and nothing else; (c) the slot linked to Portra exports Portra's look
-    keys (also live with the dial on it), which parse to the same look; (d) no card: an error, nothing written;
+    keys (also live with the dial on it), which parse to the same look, and MY1 linked to 800T (no slot change) its
+    look with halation=300,100,15 and halation_size=50, no other file a halation key; (d) no card: an error, nothing
+    written;
     (e) the export runs in the CFW task within its stack, also for the console (CFWcon waits in Task_Delay)."""
     import machine
     check = ctx.check
@@ -1207,7 +1455,9 @@ def sc_export(ctx):
     live = {i: dflt[i] for i in range(1, 899) if i not in machine.DEFAULT_PROPS and not 0x1BA <= i <= 0x1C2}
     live.update({5: 2, 6: 0, 0x2B: 0, 0x2C: 3, 0x2D: 3, 0x2E + 3: 6, 0x46 + 3: 4, 0x76 + 3: 0, 0x2E + 9: 8, 0xFE: 4})
     cfg = b'rc1.0=504F5254\r\nrc1.1=52412E54\r\nrc1.2=58540000\r\nclarity=00000009\r\n'   # MY1 = PORTRA.TXT
+    cfg800 = b'rc1.0=43383030\r\nrc1.1=542E5458\r\nrc1.2=54000000\r\nclarity=00000009\r\n'   # MY1 = C800T.TXT
     portra = recipe_kv((CFW / 'recipes' / 'portra.txt').read_bytes())
+    c800t = recipe_kv((CFW / 'recipes' / 'c800t.txt').read_bytes())
 
     s = Session(ctx, files={'H:/cfw/config.txt': cfg}, props=dict(live), slots=slots)
     m = s.m
@@ -1257,6 +1507,18 @@ def sc_export(ctx):
     # (c) MY1 holds Portra: its look keys parse to Portra's look; MY2 and the rest have none.
     check(look_of(portra) and look_of(recipe_kv(out['my1.txt'])) == look_of(portra), 'my1.txt: not Portra\'s look')
     check(not any(look_of(recipe_kv(d)) for f, d in out.items() if f != 'my1.txt'), 'look keys in another file')
+    check(not any(k.startswith('halation') for d in out.values() for k, _ in recipe_kv(d)), 'halation keys')
+    # ... and with MY1 on 800T (same base) its look with the halation keys.
+    s8 = Session(ctx, files={'H:/cfw/config.txt': cfg800}, props=dict(live), slots=slots)
+    s8.m.stack_margin = 1 << 30
+    s8.request(MENU_SETTINGS)
+    s8.keys(KEY_LEFT, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_OK)
+    e800 = next((s8.m.file(k) for k in s8.m.files if k.upper() == 'H:/CFW/EXPORT/MY1.TXT'), b'')
+    got, want_l = look_of(recipe_kv(e800)), look_of(c800t)
+    check(want_l and got == want_l, f'my1.txt on 800T: not 800T\'s look (keys differing: '
+          f'{sorted(k for k in set(got) | set(want_l) if got.get(k) != want_l.get(k))})')
+    halo = {k: v for k, v in recipe_kv(e800) if k.startswith('halation')}
+    check(halo == {'halation': '300,100,15', 'halation_size': '50'}, f'my1.txt on 800T: halation keys {halo}')
     # (d) no card: an error on the row, nothing written anywhere.
     files, io1 = {k: bytes(v) for k, v in m.files.items()}, len(m.io)
     m.card = False
@@ -1686,19 +1948,21 @@ def sc_rom(ctx):
 SCENARIOS = [('boot', sc_boot), ('menu', sc_menu), ('snap', sc_snap), ('recipes', sc_recipes),
              ('palette', sc_palette), ('dev', sc_dev), ('recipe-files', sc_recipe_files), ('view', sc_view),
              ('ae-hooks', sc_ae_hooks), ('console', sc_console), ('export', sc_export), ('loader', sc_loader),
-             ('pattern', sc_pattern), ('halation-probe', sc_halation_probe),
+             ('pattern', sc_pattern), ('halation', sc_halation),
              ('store', sc_store), ('safeboot', sc_safeboot)]
 ROM_SCENARIOS = [('rom', sc_rom)]          # the rom variant boots only through the release stub
 
 
 # ---- main -----------------------------------------------------------------------------------------------
 
-def run_variant(variant, inputs, renderer):
+def run_variant(variant, inputs, renderer, only=None):
     import machine
     ctx = types.SimpleNamespace(variant=variant, inputs=inputs, renderer=renderer, check=Checks(),
                                 machines=[], recipes=shipped_recipes())
     ok = True
     for name, fn in (ROM_SCENARIOS if variant == 'rom' else SCENARIOS):
+        if only and name not in only:
+            continue
         ctx.check.scenario = f'{variant}/{name}'
         try:
             fn(ctx)
@@ -1727,6 +1991,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--variant', choices=['release', 'debug', 'rom'], help='default: all')
     ap.add_argument('--render', metavar='OUT_DIR', help='write PNGs of key screens')
+    ap.add_argument('--scenario', action='append', metavar='NAME', help='run only these scenarios (repeatable)')
     args = ap.parse_args()
     inputs, missing = load_inputs()
     if inputs is None:
@@ -1742,7 +2007,7 @@ def main():
     if args.render:
         import render
         renderer = render.Renderer(args.render)
-    ok = all([run_variant(v, inputs, renderer) for v in variants])
+    ok = all([run_variant(v, inputs, renderer, args.scenario) for v in variants])
     if renderer:
         print(f'rendered {len(renderer.written)} PNGs to {args.render}')
     print('emulator tests ' + ('passed' if ok else 'FAILED'))

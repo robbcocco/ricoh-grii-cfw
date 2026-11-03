@@ -32,6 +32,7 @@
 #include "config.h"
 #include "gr2_fmt.h"
 #include "gr2_hw.h"
+#include "halation.h"
 #include "store.h"
 
 void *memset(void *dst, int c, size_t n);              /* src/mem.c */
@@ -156,6 +157,7 @@ typedef struct {
     int16_t kelvin;
     uint32_t nr_sv[3];     /* custom NR thresholds (Sv or GR2_SV_OFF), 0 = unset */
     uint32_t sv, ah_max, ah_min, ah_tv;   /* ISO, AUTO-HI max / min / slowest shutter, 0 = unset */
+    int8_t halo_key, halo_size;           /* `halation` / `halation_size` given */
     look_t look;
 } recipe_t;
 
@@ -398,6 +400,20 @@ static int set_key(recipe_t *r, const char *k, const char *v) {
         l->flags |= LOOK_HUE;
         return 0;
     }
+    if (str_eq(k, "halation")) {                         /* off, or strength x1000 R,G,B */
+        int16_t h[3] = { 0, 0, 0 };
+        if (!str_eq(v, "off") && parse_list(v, 3, 0, LOOK_HALO_MAX, h)) return -1;
+        for (int c = 0; c < 3; c++) l->halo[c] = (uint16_t)h[c];
+        r->halo_key = 1;
+        return 0;
+    }
+    if (str_eq(k, "halation_size")) {                    /* first-bounce sigma, um on 35 mm film */
+        int x;
+        if (parse_int(v, &x) || x < LOOK_HALO_UM_MIN || x > LOOK_HALO_UM_MAX) return -1;
+        l->halo_um = (uint8_t)x;
+        r->halo_size = 1;
+        return 0;
+    }
     return -1;   /* unknown key */
 }
 
@@ -440,6 +456,14 @@ static int parse(recipe_t *r) {
         if (r->nr_sv[0] > r->nr_sv[1] || r->nr_sv[1] > r->nr_sv[2]) return line + 1;
     }
     if (r->ah_min && r->ah_max && r->ah_min >= r->ah_max) return line + 1;
+    if (r->halo_size && !r->halo_key) return line + 1;                         /* a size needs `halation` */
+    look_t *l = &r->look;
+    if (l->halo[0] | l->halo[1] | l->halo[2]) {
+        l->flags |= LOOK_HALO;
+        if (!l->halo_um) l->halo_um = LOOK_HALO_UM_DEF;
+    } else {
+        l->halo_um = 0;                                  /* off: no halation fields, like a recipe without the key */
+    }
     return 0;
 }
 
@@ -503,6 +527,8 @@ static void fill_early(early_t *e, const char *sfn, int mode, const look_t *l) {
     e->ok = l->flags != 0;
     e->mode = (int8_t)mode;
     e->look.flags = l->flags;
+    e->look.halo_um = l->halo_um;
+    memcpy(e->look.halo, l->halo, sizeof(l->halo));
     memcpy(e->look.matrix, l->matrix, sizeof(l->matrix));
     memcpy(e->look.post, l->post, sizeof(l->post));
     memcpy(e->look.hue, l->hue, sizeof(l->hue));
@@ -516,6 +542,7 @@ static int8_t g_slot_recipe[N_SLOTS] = { -1, -1, -1 };   /* g_list index per MY 
 static int g_preview = -1;             /* recipe previewed while the Recipes overlay is open */
 static int g_shown = -1;               /* -1 stock, 0..2 slot, PREVIEW + i; -2 = re-apply */
 static int g_shown_mode = -1;          /* IQ mode the look is shown in */
+static uint32_t g_look_gen;            /* looks applied: src/halation.c rebuilds its tables on a change */
 
 /* Slot k's look and base mode: from its recipe file, else from the cache (file not on the card). */
 static const look_t *slot_look(int k, int *mode) {
@@ -547,13 +574,17 @@ static int wanted(uint32_t cm, int *k5) {
 }
 
 void recipes_poll(void) {
-    int k5, mode, want = wanted(GR2_FN_PROP_GET(GR2_PROPID_COLOR_MODE), &k5);
-    if (want == g_shown && (want < 0 || k5 == g_shown_mode)) return;
+    uint32_t cm = GR2_FN_PROP_GET(GR2_PROPID_COLOR_MODE);
+    int k5, mode, want = wanted(cm, &k5);
     const look_t *l = want < 0 ? 0 : want >= PREVIEW ? &g_list[want - PREVIEW].look : slot_look(want, &mode);
-    if (look_apply(l, k5) != 0) return;   /* IQ data not ready yet: retry at the next poll */
-    g_shown = want;
-    g_shown_mode = k5;
-    DBG_HEX2("recipes: look now for (-1 stock, 0-2 slot, 100+ preview; IQ mode)", (uint32_t)want, (uint32_t)k5);
+    if (want != g_shown || (want >= 0 && k5 != g_shown_mode)) {
+        if (look_apply(l, k5) != 0) return;   /* IQ data not ready yet: retry at the next poll */
+        g_shown = want;
+        g_shown_mode = k5;
+        g_look_gen++;
+        DBG_HEX2("recipes: look now for (-1 stock, 0-2 slot, 100+ preview; IQ mode)", (uint32_t)want, (uint32_t)k5);
+    }
+    halation_sync(l, want < 0 ? -1 : (int)cm, g_look_gen);   /* also follows contrast / saturation changes */
 }
 
 void recipes_preview(int i) {
@@ -1069,6 +1100,15 @@ static void put_look(text_t *t, int k, const base_t *b) {
             else key[3] = (char)('1' + q);
             put_list(t, key, l->hue[q], 9);
         }
+    if (l->flags & LOOK_HALO) {
+        t_s(t, "halation=");
+        for (int c = 0; c < 3; c++) {
+            if (c) t_c(t, ',');
+            t_d(t, l->halo[c]);
+        }
+        t_nl(t);
+        put_kd(t, "halation_size", l->halo_um);
+    }
 }
 
 static const base_t *base_of(uint32_t mode, int effect) {
