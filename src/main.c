@@ -2,15 +2,15 @@
  *   cfw_hook(n)  flashed loader only: after every APP section load n, in the boot task, before
  *                section n has run (M10c, findings 32, 35). First hook (stub v2: section 3): read the
  *                config and the MY slots' looks; hook(5): hook the IQ-ready call in section 5, where
- *                the CFW settings and the slot's look are applied after IQ.bin, AE_F, AF_F are loaded
+ *                the TTY settings and the slot's look are applied after IQ.bin, AE_F, AF_F are loaded
  *                and before live view starts; hook(10): install the menus, Effect hooks and input
- *                capture into section 10 before it first runs, then start the CFW task; every hook:
+ *                capture into section 10 before it first runs, then start the TTY task; every hook:
  *                settings and look if the IQ-ready call missed them. Log lines are held in RAM (the
  *                card is remounted after section 9) and written by cfw_main. The rom build (CFW_ROM, release
  *                firmware) reads only D: and A: in the hooks, never the card.
  *   cfw_main     once per power cycle: after JobSystem step 13 (loader) or from Startup.ttl:
- *                register the `cfw` shell command, install whatever the hooks did not, start the
- *                resident CFW task unless the hooks did. */
+ *                register the `tty` shell command, install whatever the hooks did not, start the
+ *                resident TTY task unless the hooks did. */
 #include "boot.h"
 #include "cfw.h"
 #include "cfw_log.h"
@@ -30,14 +30,14 @@ static int g_look_done, g_set_done;
 static int g_cfg_early;                /* settings_early may run: a config was loaded at the first hook (rom) */
 static int g_iq_seen, g_seen5, g_seen9;
 static volatile int g_card_ready, g_main_done;
-static int g_task;                     /* CFW task id once created */
+static int g_task;                     /* TTY task id once created */
 
 int cfw_phase_card(void) {
     return !g_early || g_card_ready;
 }
 
 /* cfw_main (CFWldr, after JobSystem step 13) has written the held log and the timeline: from then on the task owns
- * settings, looks and file writes, and nothing runs CFW code in parallel any more. */
+ * settings, looks and file writes, and nothing runs TTY code in parallel any more. */
 int cfw_phase_late(void) {
     return !g_early || g_main_done;
 }
@@ -101,7 +101,7 @@ void cfw_hook(uint32_t n, const cfw_boot_t *boot) {
     if (!g_early) {
         g_early = 1;
         cfw_log_hold();
-        DBG("=== gr2_cfw " CFW_VERSION " debug ===");
+        DBG("=== GR II TTY " CFW_VERSION " debug ===");
         DBG_HEX("main: loaded at", boot->base);
         info_set_main_base(boot->base);
         /* Reads only, files closed before the hook returns. debug/release: D:, else the card copy (the stub mounted
@@ -136,7 +136,7 @@ int cfw_main(const cfw_boot_t *boot) {
     if (g_early) {
         cfw_log_release();
     } else {
-        DBG("=== gr2_cfw " CFW_VERSION " debug ===");
+        DBG("=== GR II TTY " CFW_VERSION " debug ===");
         DBG_HEX("main: loaded at", boot->base);
         info_set_main_base(boot->base);
     }
@@ -146,7 +146,7 @@ int cfw_main(const cfw_boot_t *boot) {
 #if CFW_DEBUG
     trace_log();
 #endif
-    /* The shell command only serves `cfw status` (and logs its own refusal): menus and
+    /* The shell command only serves `tty status` (and logs its own refusal): menus and
      * hooks may already be live, so the task must start even without it. */
     (void)cfw_shell_register();
     if (g_installed == 1) g_installed = install(boot);

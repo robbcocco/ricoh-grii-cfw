@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build gr2_main.bin (stage 2, include/boot.h) from two links of the same objects.
+"""Build tty_main.bin (stage 2, include/boot.h) from two links of the same objects.
 
     mkmain.py <main.elf linked at 0> <main_hi.elf linked at DELTA> <DELTA> <out.bin>
 

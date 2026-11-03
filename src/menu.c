@@ -1,4 +1,4 @@
-/* Add the choices "CFW Menu" and "Recipes" to "Effect Button Setting"
+/* Add the choices "TTY Menu" and "Recipes" to "Effect Button Setting"
  * (prop 0x1A6) and "Effect Button Hold Setting" (prop 0x1A7). RAM-only,
  * verify-first (finding 16).
  *
@@ -12,7 +12,7 @@
  * Stock handling of the new values (static RE, M2 report): the press dispatch
  * bounds the value (`cmp #0x20; bhs` -> return 0), so 0x20/0x21 on 0x1A6 are a
  * no-op like "Off"; on 0x1A7 any value other than 1 behaves like Wi-Fi.
- * Without the CFW loaded the menus show the first choice.
+ * Without TTY loaded the menus show the first choice.
  *
  * Labels (finding 16 §6): string IDs are bounded by `movs rN,#0x35; lsls rN,#4`
  * (< 0x350) in six accessors, and every ID below 0x350 is in use in some
@@ -20,9 +20,9 @@
  * (array 0xA05909EC), an 8-byte attribute table (word 0 read by
  * FUN_a03a4ede; 0xFFFFFFFF when out of range -> double-height rows) and a
  * 21-byte per-language font table (FUN_a03a4f18; 0 when out of range -> label
- * not drawn). The CFW copies all three to the heap with IDs up to 0x35F
+ * not drawn). TTY copies all three to the heap with IDs up to 0x35F
  * (0x350..0x35F behave as stock: empty string, attribute 0xFFFFFFFF; the two
- * labels take the attributes/fonts of ID 0x1A3, the former "Open CFW" slot),
+ * labels take the attributes/fonts of ID 0x1A3, the former "Open" menu slot),
  * repoints the table array and the two literal-pool base pointers, then raises
  * the six bounds to 0x360 (movs #0x35 -> #0x36, one halfword each).
  *
@@ -51,13 +51,13 @@
 /* String tables */
 #define N_LANGS         21
 #define STR_IDS_STOCK   0x34F          /* IDs 1..0x34F per stock table */
-#define STR_IDS_CFW     0x35F          /* IDs 1..0x35F per CFW copy */
+#define STR_IDS_CFW     0x35F          /* IDs 1..0x35F per TTY copy */
 #define LANG_TABLE_MIN  0xA04E0000u    /* stock tables: 0xA04EF040..0xA0589CBC */
 #define LANG_TABLE_MAX  0xA05A0000u
 #define STRID_CFW_MENU  0x354          /* no stock data or code literal holds 0x354 */
 #define STRID_RECIPES   0x35E          /* stock uses 0x35E only as PROPID_KEY_OK (0xA0397690) */
 #define STOCK_EMPTY_STR 0xA043A354u    /* what the accessors return for IDs >= 0x350 */
-#define STRID_TEMPLATE  0x1A3          /* attributes/fonts for the labels (worked for "Open CFW") */
+#define STRID_TEMPLATE  0x1A3          /* attributes/fonts for the labels (worked for the former "Open" label) */
 
 #define ATTR_LIT        ((volatile uint32_t *)0xA03A50A4)   /* literal: 8-byte attribute table base */
 #define ATTR_STOCK      0xA058EF74u
@@ -95,7 +95,7 @@ typedef struct { uint32_t str, zero, flags, zero2, enabled, one; } row_t;      /
 #define EFX_STOCK  32
 #define HOLD_STOCK 2
 
-/* RAM copies of the stock lists (heap: the CFW window is small). */
+/* RAM copies of the stock lists (heap: the TTY window is small). */
 typedef struct {
     choice_t efx1[EFX_STOCK + CFW_MENU_COUNT];
     row_t    efx2[EFX_STOCK + CFW_MENU_COUNT];
@@ -111,7 +111,7 @@ static lists_t *L;
 #define g_hold_list2 (L->hold2)
 
 /* UTF-16 BE (big-endian CPU: plain uint16_t) */
-static const uint16_t LABEL_CFW_MENU[] = { 'C','F','W',' ','M','e','n','u', 0 };
+static const uint16_t LABEL_CFW_MENU[] = { 'T','T','Y',' ','M','e','n','u', 0 };
 static const uint16_t LABEL_RECIPES[]  = { 'R','e','c','i','p','e','s', 0 };
 static const uint32_t MENU_STRID[CFW_MENU_COUNT] = { STRID_CFW_MENU, STRID_RECIPES };
 
@@ -136,7 +136,7 @@ static void copy_words(void *dst, const void *src, uint32_t bytes) {
     for (uint32_t i = 0; i < bytes / 4; i++) d[i] = s[i];
 }
 
-/* Copy a record's lists, append the CFW choices, then publish: pointers first,
+/* Copy a record's lists, append the TTY choices, then publish: pointers first,
  * counts last, so a menu opening meanwhile sees either stock or complete data. */
 static void extend(const stock_rec_t *s, uint16_t count, uint32_t value,
                    choice_t *list1, row_t *list2) {
@@ -251,6 +251,6 @@ int cfw_menu_install(void) {
 
     extend(&STOCK_EFX, EFX_STOCK, CFW_EFX_VALUE, g_efx_list1, g_efx_list2);
     extend(&STOCK_HOLD, HOLD_STOCK, CFW_HOLD_VALUE, g_hold_list1, g_hold_list2);
-    DBG("menu: CFW Menu / Recipes added (Effect 0x20/0x21, Hold 0x2/0x3)");
+    DBG("menu: TTY Menu / Recipes added (Effect 0x20/0x21, Hold 0x2/0x3)");
     return 0;
 }

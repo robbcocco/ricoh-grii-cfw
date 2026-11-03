@@ -10,7 +10,7 @@
  * DRAM 0xA0000000-0xBFFFFFFF (512 MiB, MPU region 5, cacheable write-through).
  * 0xA0000000-0xA001FFFF: IPL copy loaded from NAND block 0 (incl. its erased
  *   0xFF tail); referenced by the APP only through the RAM-map getter.
- * CFW window 0xA0017000-0xA001EFFF (32 KiB): erased-flash 0xFF in the live
+ * TTY window 0xA0017000-0xA001EFFF (32 KiB): erased-flash 0xFF in the live
  *   dump of a running APP (DUMP_IPL_256K) -> unused in that session. Confirm
  *   with loader/probe before loading code.
  * RTOS: code 0xA0020400..0xA05F9454, zero-init to ~0xA0797DFF, C heap
@@ -41,7 +41,7 @@
 #define GR2_FN_MEMORY_ALLOC  ((void *(*)(uint32_t))0xA0024D6F)              /* GlobalHeap block */
 
 /* Directory listing (File.c over PrFILE2; static RE, finding 19 §3).
- * FindFirst takes a directory ("H:/cfw/recipes", upper-case drive) and appends
+ * FindFirst takes a directory ("H:/tty/recipes", upper-case drive) and appends
  * the match-all wildcard itself (it cannot filter); returns a handle or 0.
  * FindNext returns 1 per entry, 0 at the end. Every non-zero handle must be
  * closed. "." and ".." are returned.

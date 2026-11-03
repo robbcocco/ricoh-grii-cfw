@@ -1,7 +1,7 @@
 # Emulator tests
 
 `make emu` (or `python3 tests/emu/run.py [--variant release|debug|rom] [--render OUT_DIR]` after `make fw`) runs
-the built CFW (`bin/<variant>/`, all three by default) in Unicorn against the stock APP image and checks the
+the built GR II TTY (`bin/<variant>/`, all three by default) in Unicorn against the stock APP image and checks the
 scenarios below: release and debug run every scenario except `rom`, the rom variant (release firmware, M11) runs
 only `rom`. It
 takes a few seconds; `make test` (and CI) runs it. Exit 0 = pass, 1 = failure or missing inputs.
@@ -21,7 +21,7 @@ uncached alias `0x20000000` (same bytes). Image at `0xA0020200`, AE_F at `0xA070
 with stock values, IQ.bin at a pool address with absolute section pointers (`*0xA015A430` = ctx, bank 0),
 640x480 grey-ramp live-view frame, stock OSD double buffer (front: top and bottom bars using every palette
 index), palette with two
-hardware banks. Firmware entry points the CFW calls are Python stubs (`FN`): properties, H: and D: files
+hardware banks. Firmware entry points TTY calls are Python stubs (`FN`): properties, H: and D: files
 (D: subdirectories via `File_Mkdir`; on H: a parent must exist and no card fails) and directory listing, the B:
 property files `P_COMMON.bin`, `P_MY0k.bin`, `P_BOX0b.bin` (`File_Open` read-only tells whether one exists; a missing
 one loads the firmware's property defaults, setup table `0xA0122A7C`; load and save need the file API's stack),
@@ -35,15 +35,15 @@ file-system call is logged as (API, path, task) in `Machine.io`; `card=False` mo
 H: open and listing fails). With `on_delay` set, a `Task_Delay` stops the call, runs other tasks' code
 (`call_in_task`: its own stack area, the caller's registers restored) and resumes it. Firmware code in `REAL_CODE`
 runs for real (the
-string resolver, the patched Effect, IQ-ready and power-off BL sites); executing anything else outside the CFW
+string resolver, the patched Effect, IQ-ready and power-off BL sites); executing anything else outside TTY
 raises with the address.
 
-**Scenarios** (`run.py`), each on a fresh boot (`_start` from the window, stage 2 from `H:/cfw/gr2_main.bin`,
+**Scenarios** (`run.py`), each on a fresh boot (`_start` from the window, stage 2 from `H:/tty/tty_main.bin`,
 then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fonts):
 
 - `boot`: rc 0; both stock BLs retargeted to the veneers, veneer targets = hooks; Effect press/hold through
-  the patched sites (CFW values counted, others reach the stock function); "CFW Menu"/"Recipes" via the stock
-  string resolver; shell record; key hook pass-through vs. capture.
+  the patched sites (TTY values counted, others reach the stock function); "TTY Menu"/"Recipes" via the stock
+  string resolver; shell record `tty`; key hook pass-through vs. capture.
 - `menu`: all tabs; Auto ISO writes AE_F +0xBE/+0xC4/+0xC2/+0x2C8/+0xCA (crop, Movie) and restores stock;
   Auto-Hi shutter and Clarity props restored; INFO values and the 1 s cell refresh.
 - `snap`: 1m -> 0.7 m, 1.5m -> 1.2 m (tables, literals, code halfwords, labels), back to STOCK.
@@ -61,7 +61,7 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   scroll reprograms at most 12 entries; ISP mutex balanced.
 - `dev`: console OFF → ON with Wi-Fi off → ON reachable (listening socket, Wi-Fi on) → OFF (socket closed, printf hook
   removed) → on again, never touching Wi-Fi (no `Msg_Post`, prop `0x1E8` unchanged), no stock telnetd, one
-  `CFWcon` task; Wi-Fi name and password in one row; IQ dump (0x2FAA0 bytes), recipe reload, screenshot BMP (921654
+  `TTYcon` task; Wi-Fi name and password in one row; IQ dump (0x2FAA0 bytes), recipe reload, screenshot BMP (921654
   bytes, pixel-exact against LV + OSD).
 - `pattern`: DEV test pattern row OFF → RUNNING (menu closed, 1.5 s pending) → ON → OFF.
 - `recipe-files`: every file in `recipes/` and the look-stage test recipes built in `run.py` (matrix, `tone`,
@@ -75,7 +75,7 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
 - `ae-hooks`: "TAv: Auto-Hi minimum too" and "Auto ISO in M" write exactly their code halfwords and restore
   them (the EV-comp getter stays stock); config keys; re-applied from the config at boot; a foreign guard
   halfword blocks the patch with one logged ERROR (the hook code itself is not executed).
-- `console`: the DEV row starts the `CFWcon` task once and installs the printf hook (off/on reinstalls it); captured printf and CFW
+- `console`: the DEV row starts the `TTYcon` task once and installs the printf hook (off/on reinstalls it); captured printf and TTY
   log lines in `log`; `sh` output + result text; unknown words run as stock commands; `wifi`; `tasks` names
   from the TSK table; `heap` walk bounded; `mem` bytes and DRAM bounds; `status`; truncation; one telnet
   session through `session()` with scripted `recv` (option bytes skipped, DEL, empty lines, `exit`).
@@ -83,25 +83,25 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
 - `export`: MY1 (Setting2, Kelvin WB with compensation, +0.7 EV, custom NR, ISO, AUTO-HI; linked to Portra by the
   config), MY2 (Cross Process, a name with `#`), Box 1 (Hi-Contrast B&W contrast −2, manual WB, a 1/2-step EV) and
   Box 3 (Shift Crop, no name) as slot files, MY3 and the other boxes never saved, live Setting1 with changed
-  sliders, a changed Positive Film and the CFW Clarity strength 9 in force. DEV "Export settings to card" writes
+  sliders, a changed Positive Film and the TTY Clarity strength 9 in force. DEV "Export settings to card" writes
   exactly my1/my2/box01/box03/live/set1/set2/fx09 with the expected keys (manual WB and the EV as comments, the `#`
   replaced, no `fx16` because the camera's Clarity is the factory one), ASCII CRLF ≤ 4094 bytes, nothing at boot,
-  no slot file or property changed, every file call in the CFW task within its stack; my1.txt carries Portra's look
+  no slot file or property changed, every file call in the TTY task within its stack; my1.txt carries Portra's look
   keys (same look as portra.txt), no other file any; with MY1 linked to Vision3 500T instead, my1.txt has its look.
   No card: "no card", nothing written. `export_run` on an 8 KB stack trips the stack check. Round trip: every file
-  from `cfw/recipes` applied to MY3 sets each property its keys name to the source value, its name, and nothing
-  else; the CFW parses my1.txt to Portra's look and MY3 then holds `MY1.TXT`. Console `export` with the dial on MY1
-  (CFWcon waits in `Task_Delay`, the CFW task runs it): 7 files, written by the CFW task, live.txt with Portra's
-  look, set1.txt from `B:/P_COMMON.bin`; without the CFW task the console gives up after its wait.
+  from `tty/recipes` applied to MY3 sets each property its keys name to the source value, its name, and nothing
+  else; TTY parses my1.txt to Portra's look and MY3 then holds `MY1.TXT`. Console `export` with the dial on MY1
+  (TTYcon waits in `Task_Delay`, the TTY task runs it): 7 files, written by the TTY task, live.txt with Portra's
+  look, set1.txt from `B:/P_COMMON.bin`; without the TTY task the console gives up after its wait.
 - `loader`: stage-1 loader ABI v1 header (`b`, "GRL1", hook entry); a full boot through `cfw_ldr_hook(n,
   &ldr_state)` over the shooting section order with Portra remembered for MY2, Clarity 9 configured and the dial
   on MY2 (slot Clarity 5): AE_F is zero until CapInit(5); the IQ-ready BL is patched at hook(5) and the patched
   stock BL applies the settings (Clarity 9) and the MY2 look, not before; the Effect BL is patched at hook(10);
-  the CFW task is created once at hook(10) and polled between hooks: nothing before JobSystem step 10, fonts
+  the TTY task is created once at hook(10) and polled between hooks: nothing before JobSystem step 10, fonts
   only after the hook after hook(9), the late phase (settings_init, saves) only after `cfw_main`, which then
   records MY2's Clarity 5 as the stock value; nothing is written to H: before step 13; `cfw_main` installs and
   starts nothing twice; the debug log starts with the held banner and has the hook timeline. USB boot (section
-  1 only) starts and writes nothing; missing `gr2_main.bin` stays off the card until the task logs it; `ex`
+  1 only) starts and writes nothing; missing `tty_main.bin` stays off the card until the task logs it; `ex`
   refused while the loader is active; no step-13 flag gives the 60 s timeout and the task never reaches its
   late phase. The stub itself is checked by `scripts/emu_loader.py`.
 - `store`: config on D: in two generations with the card copy (finding 34): import, alternation, a torn newest
@@ -110,7 +110,7 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   through a model of the release stub (`loader/flash/rom_stub.S`: at section 3 `LoadFile(A:/cfw/gr2_cfw.bin)` into
   the window, ABI magic, then the hook after every section load; the stub itself runs for real in
   `scripts/emu_release.py`) with the shooting order and the CapInit(5) world of `loader`. Every boot: stage 1 from A:
-  by the stub, stage 2 by two `LoadFile` calls of stage 1, fonts from `A:/cfw/fonts` by the early CFW task, and no
+  by the stub, stage 2 by two `LoadFile` calls of stage 1, fonts from `A:/cfw/fonts` by the early TTY task, and no
   H: access at all before JobSystem step 13 (hooks and the early task). First boot, D: empty, no A: recipes, card
   with a config (Clarity 9, MY2 = Portra), a card `portra.txt` with another name, an own recipe and a broken one:
   Clarity stays 5 and no look at the IQ-ready call (`settings_early` skipped); after the late phase Clarity 9,
@@ -121,11 +121,11 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   (both read). Stage 1 with one flipped bit (in its zero padding) or truncated to 0x7000 bytes: only the first hook runs,
   `ldr_state` 6, no allocation, no task, no file access besides the stub's, the ERROR line in stage 1's RAM log
   buffer.
-- Task stacks: every call runs on the stack of the task it belongs to (CFW 0x3000, Script 0x4000, boot task
-  0x4000, `CFWldr` as created); the stock file API stubs fail when the remaining stack is below the stock
+- Task stacks: every call runs on the stack of the task it belongs to (TTY 0x3000, Script 0x4000, boot task
+  0x4000, `TTYldr` as created); the stock file API stubs fail when the remaining stack is below the stock
   worst case (finding 31).
 - After every scenario: no open file/directory handles, property lock and mutexes balanced, no `Prop_Set`
-  outside the lock, no `ERROR` in the debug log; release and rom write no `cfw_log.txt` at all (`rom` removes
+  outside the lock, no `ERROR` in the debug log; release and rom write no `tty_log.txt` at all (`rom` removes
   its one expected ERROR log after checking it).
 
 `--render DIR` writes `<variant>_<screen>.png` (menu tabs, recipes strip, apply prompt, screenshot, VIEW

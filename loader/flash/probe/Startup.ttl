@@ -1,5 +1,5 @@
 ; M10 boot-timing + loader-state probe (copy to H:/Startup.ttl in place of the
-; CFW's loader/Startup.ttl). Data only: no code is loaded or run.
+; loader/Startup.ttl of GR II TTY). Data only: no code is loaded or run.
 ; ASCII, CRLF, uppercase drive letters. Decode with scripts/loader_timing.py.
 ;
 ; BOOT_PROF.BIN: the APP's own section-load profile, 15 records of 0x18 B at
@@ -8,16 +8,16 @@
 ; LDR_STATE.BIN: the flashed loader's status word 0xA00AFD70 (0 never ran,
 ;   1 skip key, 2 no mount, 3 no file, 4 no loader ABI, 5 armed, 6 disarmed).
 ;   A stock APP holds 0xFFFFFFFF there.
-; Reference: the CFW task start ("task: running, systime" in the debug log of a
+; Reference: the TTY task start ("task: running, systime" in the debug log of a
 ; normal Startup.ttl boot; 2.0 s in M1).
 
-foldercreate 'H:/cfw'
-foldercreate 'H:/cfw/probe'
+foldercreate 'H:/tty'
+foldercreate 'H:/tty/probe'
 
-sprintf "fsave H:/cfw/probe/BOOT_PROF.BIN A00C22E4 168"
+sprintf "fsave H:/tty/probe/BOOT_PROF.BIN A00C22E4 168"
 sendln inputstr
-sprintf "fsave H:/cfw/probe/LDR_STATE.BIN A00AFD70 4"
+sprintf "fsave H:/tty/probe/LDR_STATE.BIN A00AFD70 4"
 sendln inputstr
 
-foldercreate 'H:/cfw/probe/PROF_DONE'
+foldercreate 'H:/tty/probe/PROF_DONE'
 end

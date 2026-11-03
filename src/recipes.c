@@ -1,6 +1,6 @@
-/* Film recipes (findings 18, 19, 20). CFW task only.
+/* Film recipes (findings 18, 19, 20). TTY task only.
  *
- * A recipe is an ASCII text file in H:/cfw/recipes with `key=value` lines
+ * A recipe is an ASCII text file in H:/tty/recipes with `key=value` lines
  * (# comments, CRLF). The rom build (release firmware) lists the recipes in
  * A:/cfw/recipes (none shipped there; an absent folder is normal) plus the card's:
  * a card file with the same 8.3 name replaces an A: one. README "Recipes" documents
@@ -37,7 +37,7 @@
 void *memset(void *dst, int c, size_t n);              /* src/mem.c */
 void *memcpy(void *dst, const void *src, size_t n);
 
-#define DIR_PATH  "H:/cfw/recipes"
+#define DIR_PATH  "H:/tty/recipes"
 #define ROM_DIR   "A:/cfw/recipes/"      /* rom: FindFirst on A: matches a raw path prefix (finding 29 §3) */
 #define PATH_LEN  32                     /* A: full paths are at most 31 characters (finding 29 §2) */
 #define NAME_LEN  RECIPE_NAME_LEN
@@ -90,7 +90,7 @@ void *memcpy(void *dst, const void *src, size_t n);
 #define K_TONE  0x020
 #define K_CLAR  0x040
 #define K_GLOSS 0x080
-#define K_LOOK  0x100   /* modes whose IQ stages the CFW can replace (include/look.h) */
+#define K_LOOK  0x100   /* modes whose IQ stages TTY can replace (include/look.h) */
 #define K_SCHV  (K_SAT | K_CON | K_SHARP | K_VIG)
 
 typedef struct {
@@ -161,7 +161,7 @@ typedef struct {
 
 typedef struct {
     char sfn[13];          /* 8.3 name, upper case: the recipe's identity (config rcK.*, card overrides) */
-    char path[PATH_LEN];   /* where it is read from: H:/cfw/recipes/<sfn> or (rom) A:/cfw/recipes/<name>; "" Stock */
+    char path[PATH_LEN];   /* where it is read from: H:/tty/recipes/<sfn> or (rom) A:/cfw/recipes/<name>; "" Stock */
     char name[NAME_LEN];
     const base_t *base;
     look_t look;
@@ -177,7 +177,7 @@ typedef struct {
 
 static const char *g_names[RECIPES_MAX + 1];
 static int g_n;                        /* list entries: the recipe files, then Stock */
-/* Large buffers live in one GlobalHeap block (the CFW window is small). */
+/* Large buffers live in one GlobalHeap block (the TTY window is small). */
 typedef struct {
     entry_t list[RECIPES_MAX + 1];
     char buf[4096];        /* one recipe file */
@@ -270,7 +270,7 @@ static int parse_iso(const char *v, uint32_t lo, uint32_t hi, int off_ok, uint32
 
 /* ---- parsing ----------------------------------------------------------------------- */
 
-/* H:/cfw/recipes/<sfn> */
+/* H:/tty/recipes/<sfn> */
 static void card_path(char *path, const char *sfn) {
     const char *d = DIR_PATH "/";
     while (*d) *path++ = *d++;
@@ -532,7 +532,7 @@ static const look_t *slot_look(int k, int *mode) {
 }
 
 /* What to show: stock while Stock is previewed, the previewed recipe (overlay
- * open, in the current colour mode if the CFW can change it), else the recipe
+ * open, in the current colour mode if TTY can change it), else the recipe
  * of the active MY slot while its base mode is active, else stock. */
 static int wanted(uint32_t cm, int *k5) {
     *k5 = look_mode(cm);

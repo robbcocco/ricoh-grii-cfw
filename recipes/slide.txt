@@ -1,5 +1,5 @@
-# gr2_cfw recipe: Vivid Slide look (Ricoh GR II, firmware 3.00)
-# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# GR II TTY recipe: Vivid Slide look (Ricoh GR II, firmware 3.00)
+# Keys: GR II TTY README, section Recipes. ASCII, CRLF.
 # Our version of the colour positive preset (Positive Film, saturation +4): a slide film.
 # Source: spektrafilm's reversal profile fujifilm_velvia_100, scanned (io.scan_film; the print
 # profile is unused): a measured slide film (saturated, slide contrast, dense shadows)
@@ -8,7 +8,7 @@
 #
 # Film look derived from spektrafilm 0.3.4 (commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc)
 # by Andrea Volpato, https://github.com/andreavolpato/spektrafilm; profiles licensed CC BY-SA 4.0.
-# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the gr2_cfw project.
+# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the GR II TTY project.
 # This recipe file is licensed CC BY-SA 4.0.
 # fit CIEDE2000 mean/95th % vs this target: Standard 5.8/12.0, this recipe 3.0/5.8.
 

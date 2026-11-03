@@ -4,8 +4,8 @@
 #include "gr2_fmt.h"
 #include "look.h"
 
-/* Film recipes: text files in H:/cfw/recipes (rom: A:/cfw/recipes first; src/recipes.c), listed
- * by name, then "Stock" (always the last entry, not a file). CFW task only, except the two early
+/* Film recipes: text files in H:/tty/recipes (rom: A:/cfw/recipes first; src/recipes.c), listed
+ * by name, then "Stock" (always the last entry, not a file). TTY task only, except the two early
  * functions, which the flashed loader's boot-task hooks call (src/main.c). */
 #define RECIPES_MAX 48                    /* recipe files; the list holds one more: Stock */
 #define RECIPE_NAME_LEN 24                /* name= up to 23 characters */
@@ -39,7 +39,7 @@ int recipes_apply(int i, int k);
  * get(src, id) returns the stored (raw) value of property id. recipes_format writes `name=`, `base=`
  * and every key that holds the preset's value exactly (applying the file sets those properties to
  * these values), and `#` comments for values a recipe cannot hold. mode < 0: a whole preset (slot,
- * box, live) with the base from EFFECT / IMAGE_SETTINGS; slot 0..2 also writes that MY slot's CFW
+ * box, live) with the base from EFFECT / IMAGE_SETTINGS; slot 0..2 also writes that MY slot's TTY
  * look keys when its recipe's look shows with this base. mode >= 0: the image preset of that colour
  * mode (base and its sliders only). Returns 0, or -1 if the base is none a recipe has. */
 typedef uint32_t (*recipe_get_t)(const void *src, uint32_t id);

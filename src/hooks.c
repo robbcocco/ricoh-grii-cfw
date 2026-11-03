@@ -1,4 +1,4 @@
-/* Route the Effect button to the CFW when "CFW Menu" or "Recipes" is selected.
+/* Route the Effect button to TTY when "TTY Menu" or "Recipes" is selected.
  * Two stock Thumb BLs are retargeted in RAM (finding 16 §4):
  *   press  0xA03A1F92  bl 0xA039607C (availability(value), r0 = assigned value)
  *   hold   0xA03A5790  bl 0xA0396EA0 (Wi-Fi toggle, no arguments)
@@ -12,7 +12,7 @@
  * store reaches memory immediately.
  *
  * The hooks run in the camera's UI task: they only count requests per menu;
- * the CFW task does the work. Any other value falls through to the stock
+ * the TTY task does the work. Any other value falls through to the stock
  * function.
  *
  * Debug builds also retarget the power-off job's call that runs H:/Shutdown.ttl

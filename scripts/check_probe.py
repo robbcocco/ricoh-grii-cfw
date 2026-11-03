@@ -2,7 +2,7 @@
 """Check M0 probe dumps (copied off the card by hand) before enabling the loader.
 
 Expects BOOT_/SHUT_A0000000.BIN (0x20000 B each) and BOOT_/SHUT_POOL.BIN
-(16 B from 0xA00C2BA0) in DIR. Passes when the CFW window 0xA0017000-0xA001EFFF
+(16 B from 0xA00C2BA0) in DIR. Passes when the TTY window 0xA0017000-0xA001EFFF
 holds only 0xFF in both the boot and the shutdown dump.
 """
 import struct
@@ -57,5 +57,5 @@ def main(directory):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        sys.exit("usage: check_probe.py <folder copied from H:/cfw/probe>")
+        sys.exit("usage: check_probe.py <folder copied from H:/tty/probe>")
     sys.exit(0 if main(sys.argv[1]) else 1)

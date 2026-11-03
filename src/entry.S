@@ -1,4 +1,4 @@
-/* Stage-1 Thumb entrypoint for Ricoh GR II Custom Firmware.
+/* Stage-1 Thumb entrypoint of GR II TTY (custom firmware for the Ricoh GR II).
  * Two ways in (link base gr2_boot.ld, window 0xA0017000):
  *  - `ex 0xA0017001` from H:/Startup.ttl (Thumb-1 via blx): _start zeroes stage
  *    1's .bss and calls cfw_boot (src/boot.c).

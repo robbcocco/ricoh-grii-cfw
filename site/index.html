@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gr2_cfw: custom firmware for the Ricoh GR II</title>
-<meta name="description" content="gr2_cfw adds film recipes, smarter Auto ISO, closer Snap distances, frame lines and zebras to the Ricoh GR II (firmware 3.00). It installs like an official update and keeps a stock fallback.">
+<title>GR II TTY · Gritty: custom firmware for the Ricoh GR II</title>
+<meta name="description" content="GR II TTY (Gritty) adds film recipes, smarter Auto ISO, closer Snap distances, frame lines and zebras to the Ricoh GR II (firmware 3.00). It installs like an official update and keeps a stock fallback.">
 <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0f0f10" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
@@ -32,14 +32,14 @@
 <a class="skip" href="#main">Skip to content</a>
 <header class="site-header">
   <div class="wrap">
-    <a class="brand" href="./"><img src="img/icon.svg" alt="" width="28" height="28">gr2_cfw</a>
+    <a class="brand" href="./"><img src="img/icon.svg" alt="" width="28" height="28">GR II TTY</a>
     <nav aria-label="Main">
       <ul>
         <li class="nav-wide"><a href="#features">Features</a></li>
         <li><a href="#download">Download</a></li>
         <li class="nav-wide"><a href="#faq">FAQ</a></li>
         <li><a href="convert.html"><span class="nav-wide-inline">LUT c</span><span class="nav-narrow">C</span>onverter</a></li>
-        <li><a href="https://github.com/robbcocco/ricoh-grii-cfw">GitHub</a></li>
+        <li><a href="https://github.com/robbcocco/gritty">GitHub</a></li>
       </ul>
     </nav>
   </div>
@@ -51,10 +51,10 @@
     <div>
       <span class="eyebrow">Custom firmware · Ricoh GR&nbsp;II · firmware 3.00</span>
       <h1 id="hero-title">Your GR&nbsp;II, <span>with film recipes</span></h1>
-      <p class="lead">gr2_cfw adds the things the GR&nbsp;II never got: film recipes you can preview live and save into the MY slots, smarter Auto ISO, closer Snap distances, frame lines and zebras, and a few tools for tinkerers.</p>
+      <p class="lead">GR&nbsp;II TTY (say “Gritty”) adds the things the GR&nbsp;II never got: film recipes you can preview live and save into the MY slots, smarter Auto ISO, closer Snap distances, frame lines and zebras, and a few tools for tinkerers.</p>
       <p class="sub">It installs like an official Ricoh update, through the camera's own menu, and it is Ricoh's firmware 3.00 underneath: everything stock keeps working, and power-on is as quick as stock.</p>
       <div class="actions">
-        <a class="btn" href="https://github.com/robbcocco/ricoh-grii-cfw/releases/latest" data-release-link><svg aria-hidden="true"><use href="#i-down"/></svg><span data-release-label>Download latest release</span></a>
+        <a class="btn" href="https://github.com/robbcocco/gritty/releases/latest" data-release-link><svg aria-hidden="true"><use href="#i-down"/></svg><span data-release-label>Download latest release</span></a>
         <a class="btn secondary" href="convert.html">Convert a LUT</a>
       </div>
       <p class="release-line" data-release-version>Release zip from GitHub · read <a href="#install">Install</a> before you start.</p>
@@ -75,7 +75,7 @@
     <div class="section-head reveal">
       <span class="eyebrow">What you get</span>
       <h2 id="features-title">Everything stock, plus more</h2>
-      <p>Two new choices for the Effect button, <b>CFW Menu</b> and <b>Recipes</b>, in every menu language.</p>
+      <p>Two new choices for the Effect button, <b>TTY Menu</b> and <b>Recipes</b>, in every menu language.</p>
     </div>
     <div class="features">
       <article class="card highlight reveal">
@@ -83,7 +83,7 @@
           <span class="icon"><svg aria-hidden="true"><use href="#i-film"/></svg></span>
           <h3>Film recipes</h3>
           <p>Film looks (Portra, Gold, Ektar, Pro 400H, Superia, UltraMax, Vision3, Cinema Green, Yellow and Warm, Vivid Slide …), a rangefinder colour look and three black-and-white looks in a filmstrip. Live view shows the look while you browse; one press saves it into MY1, MY2 or MY3, and the camera shows that look from the very first frame after power-on. <b>Stock</b> puts a slot back.</p>
-          <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#recipes">More</a>
+          <a class="more" href="https://github.com/robbcocco/gritty#recipes">More</a>
         </div>
         <div>
           <ul class="recipe-grid" aria-label="Some of the shipped recipes">
@@ -102,38 +102,38 @@
       <article class="card reveal">
         <span class="icon"><svg aria-hidden="true"><use href="#i-file"/></svg></span>
         <h3>Recipe files you can write</h3>
-        <p>One small text file per film in <code>cfw/recipes/</code>: image settings, white balance, exposure, DR, NR and ISO keys, plus look keys (colour matrix, tone curves, hue sectors) on the Standard rendering. Recipe updates never need a reflash.</p>
-        <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#recipe-file-format">More</a>
+        <p>One small text file per film in <code>tty/recipes/</code>: image settings, white balance, exposure, DR, NR and ISO keys, plus look keys (colour matrix, tone curves, hue sectors) on the Standard rendering. Recipe updates never need a reflash.</p>
+        <a class="more" href="https://github.com/robbcocco/gritty#recipe-file-format">More</a>
       </article>
       <article class="card reveal">
         <span class="icon"><svg aria-hidden="true"><use href="#i-export"/></svg></span>
         <h3>Your presets as recipes</h3>
-        <p>DEV → <i>Export settings to card</i> writes MY1–MY3, the My Settings Box, Setting1/Setting2 and the live settings as recipe files into <code>cfw/export/</code>. Nothing in the camera changes.</p>
-        <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#exporting-your-presets">More</a>
+        <p>DEV → <i>Export settings to card</i> writes MY1–MY3, the My Settings Box, Setting1/Setting2 and the live settings as recipe files into <code>tty/export/</code>. Nothing in the camera changes.</p>
+        <a class="more" href="https://github.com/robbcocco/gritty#exporting-your-presets">More</a>
       </article>
       <article class="card reveal">
         <span class="icon"><svg aria-hidden="true"><use href="#i-gauge"/></svg></span>
         <h3>Auto ISO and exposure</h3>
         <p>Auto ISO maximum and slowest shutter (also “1/60 + crop”), <i>keep shutter</i> at the ISO limit, Auto ISO in M, ISO Auto-High slowest shutter, and TAv fixes for the Auto-High limits.</p>
-        <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#cfw-menu">More</a>
+        <a class="more" href="https://github.com/robbcocco/gritty#tty-menu">More</a>
       </article>
       <article class="card reveal">
         <span class="icon"><svg aria-hidden="true"><use href="#i-frame"/></svg></span>
         <h3>Focus, view and image</h3>
         <p>Snap distances 0.7&nbsp;m and 1.2&nbsp;m; frame lines (XPan, 6×7, 4:5, 1:1, 16:9) and zebras that are never recorded; Clarity strength and custom high-ISO noise reduction.</p>
-        <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#cfw-menu">More</a>
+        <a class="more" href="https://github.com/robbcocco/gritty#tty-menu">More</a>
       </article>
       <article class="card reveal">
         <span class="icon"><svg aria-hidden="true"><use href="#i-term"/></svg></span>
         <h3>INFO and tools for tinkerers</h3>
         <p>An INFO page with shutter count, battery and temperatures; screenshots to the card; a developer console over the camera's Wi-Fi (off at every start).</p>
-        <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#developer-console">More</a>
+        <a class="more" href="https://github.com/robbcocco/gritty#developer-console">More</a>
       </article>
       <article class="card reveal">
         <span class="icon"><svg aria-hidden="true"><use href="#i-shield"/></svg></span>
         <h3>Safe by design</h3>
         <p>Hold the shutter half-pressed to start stock; after two failed starts in a row the camera starts stock by itself. Ricoh's own file uninstalls it, and the boot loader and rescue mode are never touched.</p>
-        <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#recovery">More</a>
+        <a class="more" href="https://github.com/robbcocco/gritty#recovery">More</a>
       </article>
       <article class="card wide reveal">
         <span class="icon"><svg aria-hidden="true"><use href="#i-cube"/></svg></span>
@@ -156,8 +156,8 @@
     </div>
     <div class="dl-grid">
       <div class="card release release-card reveal" aria-live="polite">
-        <h3 id="release-title">gr2_cfw</h3>
-        <p id="release-status" class="muted">The release zip <code>gr2_cfw-v&lt;VERSION&gt;.zip</code> is on GitHub.</p>
+        <h3 id="release-title">GR II TTY</h3>
+        <p id="release-status" class="muted">The release zip <code>gritty-v&lt;VERSION&gt;.zip</code> is on GitHub.</p>
         <dl id="release-facts" hidden>
           <dt>Version</dt><dd id="release-version"></dd>
           <dt>File</dt><dd id="release-file"></dd>
@@ -165,16 +165,16 @@
           <dt>SHA-256</dt><dd><span class="sha-row"><code id="release-sha"></code><button type="button" class="btn secondary btn-sm" id="copy-sha" hidden>Copy</button></span></dd>
         </dl>
         <div class="actions">
-          <a class="btn" href="https://github.com/robbcocco/ricoh-grii-cfw/releases/latest" data-release-link><svg aria-hidden="true"><use href="#i-down"/></svg><span data-release-label>Download latest release</span></a>
-          <a class="btn secondary" href="https://github.com/robbcocco/ricoh-grii-cfw/releases/latest">Release notes</a>
+          <a class="btn" href="https://github.com/robbcocco/gritty/releases/latest" data-release-link><svg aria-hidden="true"><use href="#i-down"/></svg><span data-release-label>Download latest release</span></a>
+          <a class="btn secondary" href="https://github.com/robbcocco/gritty/releases/latest">Release notes</a>
         </div>
-        <p class="small muted" style="margin:1rem 0 0">Take <code>gr2_cfw-v&lt;VERSION&gt;.zip</code>, not the <code>-debug</code> zip (that one is for development, see the FAQ).</p>
+        <p class="small muted" style="margin:1rem 0 0">Take <code>gritty-v&lt;VERSION&gt;.zip</code>, not the <code>-debug</code> zip (that one is for development, see the FAQ).</p>
       </div>
       <div class="reveal">
         <div class="callout" role="note">
           <svg aria-hidden="true"><use href="#i-warn"/></svg>
           <div>
-            <p><strong>Use at your own risk.</strong> Installing custom firmware can, in the worst case, leave a camera that needs the <a href="https://github.com/robbcocco/ricoh-grii-cfw#recovery">rescue procedure</a>. Every step here was tested on a real GR&nbsp;II, but no warranty is given, and this project has nothing to do with Ricoh.</p>
+            <p><strong>Use at your own risk.</strong> Installing custom firmware can, in the worst case, leave a camera that needs the <a href="https://github.com/robbcocco/gritty#recovery">rescue procedure</a>. Every step here was tested on a real GR&nbsp;II, but no warranty is given, and this project has nothing to do with Ricoh.</p>
             <p>For the Ricoh <b>GR&nbsp;II only</b>, firmware <b>3.00</b>. Not for the GR, GR&nbsp;III or GR&nbsp;IIIx.</p>
           </div>
         </div>
@@ -192,15 +192,15 @@
       <div class="reveal" id="install">
         <span class="eyebrow">Install</span>
         <h2>Six steps</h2>
-        <p class="muted" style="margin-top:0.8rem">The same path as an official Ricoh update. Afterwards, press the Effect button and the CFW Menu or the Recipes filmstrip opens.</p>
+        <p class="muted" style="margin-top:0.8rem">The same path as an official Ricoh update. Afterwards, press the Effect button and the TTY Menu or the Recipes filmstrip opens.</p>
       </div>
       <ol class="stepper reveal">
-        <li><h4>Download and unzip</h4><p>Download <code>gr2_cfw-v&lt;VERSION&gt;.zip</code> and unzip it.</p></li>
+        <li><h4>Download and unzip</h4><p>Download <code>gritty-v&lt;VERSION&gt;.zip</code> and unzip it.</p></li>
         <li><h4>Copy only the firmware file</h4><p>Copy <b>only <code>rg2_v003.frm</code></b> to the root of the freshly formatted card. On a Mac, delete the hidden <code>._*</code> files afterwards (<code>find /Volumes/&lt;card&gt; -name '._*' -delete</code>). There must be no other <code>rg2_v*.frm</code> on the card.</p></li>
         <li><h4>Confirm Firmware Version</h4><p>Put the card in the camera, switch it on, and open MENU → Set-up → <b>Confirm Firmware Version</b>. After a few seconds it asks <b>Execute?</b> with <i>Current Version 3.00</i> and <i>New Version 3.00</i> (installing the same version number is normal).</p></li>
         <li><h4>Choose Yes and wait</h4><p>Choose <b>Yes</b>. The camera checks the file and rewrites the program; don't touch it until <b>Firmware update complete.</b> appears. Press <b>OK</b>; the camera switches off.</p></li>
-        <li><h4>Copy your recipes</h4><p>Switch on. Then copy the zip's <code>cfw/</code> folder (your recipes) to the card root; you can delete <code>rg2_v003.frm</code> from the card now.</p></li>
-        <li><h4>Assign the menus</h4><p>MENU → <i>Key Custom Options</i> → <b>Effect Button Setting</b> and/or <b>Effect Button Hold Setting</b> → <b>CFW Menu</b> or <b>Recipes</b>. (With the mode dial on MY1–MY3 that assignment belongs to the slot: save it with the stock <i>Save My Settings</i>.)</p></li>
+        <li><h4>Copy your recipes</h4><p>Switch on. Then copy the zip's <code>tty/</code> folder (your recipes) to the card root; you can delete <code>rg2_v003.frm</code> from the card now.</p></li>
+        <li><h4>Assign the menus</h4><p>MENU → <i>Key Custom Options</i> → <b>Effect Button Setting</b> and/or <b>Effect Button Hold Setting</b> → <b>TTY Menu</b> or <b>Recipes</b>. (With the mode dial on MY1–MY3 that assignment belongs to the slot: save it with the stock <i>Save My Settings</i>.)</p></li>
       </ol>
     </div>
   </div>
@@ -211,22 +211,22 @@
     <div class="section-head reveal">
       <span class="eyebrow">Recovery</span>
       <h2 id="recovery-title">Recovery and uninstall</h2>
-      <p>The CFW never changes the parts of the camera that do the recovery (its boot loader and Ricoh's rescue mode), so these always work.</p>
+      <p>TTY never changes the parts of the camera that do the recovery (its boot loader and Ricoh's rescue mode), so these always work.</p>
     </div>
     <div class="card table-card reveal">
       <table>
         <thead><tr><th scope="col">Situation</th><th scope="col">What to do</th></tr></thead>
         <tbody>
-          <tr><td>Start the camera <b>without the CFW</b>, once</td><td>Hold the <b>shutter half-pressed</b> while you switch on, until the screen comes on. Or choose DEV → <i>Boot stock once</i> beforehand.</td></tr>
+          <tr><td>Start the camera <b>without TTY</b>, once</td><td>Hold the <b>shutter half-pressed</b> while you switch on, until the screen comes on. Or choose DEV → <i>Boot stock once</i> beforehand.</td></tr>
           <tr><td>The camera <b>hangs</b></td><td>Take the battery out, put it back, and start with the shutter half-pressed.</td></tr>
-          <tr><td>The CFW <b>crashes or hangs at start</b></td><td>Nothing to do: after <b>two failed starts in a row</b> the camera starts stock by itself and stays stock.</td></tr>
-          <tr><td>The CFW <b>stays off</b> after that</td><td>Switch on <b>with the PLAY button</b> once (the camera starts in playback, stock). The next normal start runs the CFW again.</td></tr>
+          <tr><td>TTY <b>crashes or hangs at start</b></td><td>Nothing to do: after <b>two failed starts in a row</b> the camera starts stock by itself and stays stock.</td></tr>
+          <tr><td>TTY <b>stays off</b> after that</td><td>Switch on <b>with the PLAY button</b> once (the camera starts in playback, stock). The next normal start runs TTY again.</td></tr>
           <tr id="uninstall"><td><b>Uninstall</b></td><td>Put Ricoh's official <a href="https://www.ricoh-imaging.co.jp/english/support/digital/firmware/rg2_v003.zip"><code>rg2_v003.frm</code></a> alone on a camera-formatted card and run <i>Confirm Firmware Version</i> → <b>Yes</b>, exactly as in <a href="#install">Install</a>. The camera is then 100% stock; your photos and camera settings stay.</td></tr>
-          <tr><td>The camera <b>no longer starts at all</b></td><td>Use the rescue card (Ricoh's <code>rg2_v003.frm</code> plus the zip's <code>rescue/backup.ttl</code>): follow the steps in the <a href="https://github.com/robbcocco/ricoh-grii-cfw#recovery">README, Recovery</a>. Never leave a card with <code>backup.ttl</code> in the camera.</td></tr>
+          <tr><td>The camera <b>no longer starts at all</b></td><td>Use the rescue card (Ricoh's <code>rg2_v003.frm</code> plus the zip's <code>rescue/backup.ttl</code>): follow the steps in the <a href="https://github.com/robbcocco/gritty#recovery">README, Recovery</a>. Never leave a card with <code>backup.ttl</code> in the camera.</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="small muted" style="margin-top:1rem">Updating: install a newer <code>rg2_v003.frm</code> the same way; your settings stay. <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#updating">More</a></p>
+    <p class="small muted" style="margin-top:1rem">Updating: install a newer <code>rg2_v003.frm</code> the same way; your settings stay. <a class="more" href="https://github.com/robbcocco/gritty#updating">More</a></p>
   </div>
 </section>
 
@@ -243,15 +243,15 @@
       </details>
       <details class="faq">
         <summary>Can it brick my camera?</summary>
-        <div><p>The CFW never changes the boot loader or Ricoh's rescue mode, and every step was tested on a real GR&nbsp;II. In the worst case the camera needs the rescue card from <a href="#recovery">Recovery</a>, which reinstalls the stock firmware. It is still custom firmware: use it at your own risk.</p></div>
+        <div><p>TTY never changes the boot loader or Ricoh's rescue mode, and every step was tested on a real GR&nbsp;II. In the worst case the camera needs the rescue card from <a href="#recovery">Recovery</a>, which reinstalls the stock firmware. It is still custom firmware: use it at your own risk.</p></div>
       </details>
       <details class="faq">
         <summary>How do I start the camera stock, just once?</summary>
-        <div><p>Hold the shutter half-pressed while you switch on, until the screen comes on, or choose DEV → <i>Boot stock once</i>. After two failed starts in a row the camera starts stock by itself; a power-on with the PLAY button brings the CFW back.</p></div>
+        <div><p>Hold the shutter half-pressed while you switch on, until the screen comes on, or choose DEV → <i>Boot stock once</i>. After two failed starts in a row the camera starts stock by itself; a power-on with the PLAY button brings TTY back.</p></div>
       </details>
       <details class="faq">
         <summary>Where do the recipes live, and how do I add my own?</summary>
-        <div><p>In <code>cfw/recipes/</code> on the card: one ASCII text file per film, 8.3 file name, Windows line endings, at most 4&nbsp;KB, up to 48 files. Add or delete files, then choose DEV → <i>Reload recipes</i> or restart. The looks saved in MY1–MY3 are kept inside the camera, so they work without the card. The <a href="https://github.com/robbcocco/ricoh-grii-cfw#recipe-file-format">recipe file format</a> lists every key.</p></div>
+        <div><p>In <code>tty/recipes/</code> on the card: one ASCII text file per film, 8.3 file name, Windows line endings, at most 4&nbsp;KB, up to 48 files. Add or delete files, then choose DEV → <i>Reload recipes</i> or restart. The looks saved in MY1–MY3 are kept inside the camera, so they work without the card. The <a href="https://github.com/robbcocco/gritty#recipe-file-format">recipe file format</a> lists every key.</p></div>
       </details>
       <details class="faq">
         <summary>Do recipes change my RAW files?</summary>
@@ -259,15 +259,19 @@
       </details>
       <details class="faq">
         <summary>How do I update to a new version?</summary>
-        <div><p>Install the newer <code>rg2_v003.frm</code> the same way as the first time; your settings stay. New recipe files only need copying into <code>cfw/recipes/</code>: recipe updates never need a reflash.</p></div>
+        <div><p>Install the newer <code>rg2_v003.frm</code> the same way as the first time; your settings stay. New recipe files only need copying into <code>tty/recipes/</code>: recipe updates never need a reflash.</p></div>
+      </details>
+      <details class="faq">
+        <summary>I'm updating from v1.0.x (gr2_cfw). What changes?</summary>
+        <div><p>Flash the new <code>rg2_v003.frm</code> as usual. The card folder is now <code>tty/</code>: move <code>cfw/recipes/</code> to <code>tty/recipes/</code>, <code>cfw/export/</code> to <code>tty/export/</code> and <code>cfw/config.txt</code> to <code>tty/config.txt</code> if you want them, then delete <code>cfw/</code>; there is no fallback to <code>cfw/</code>. Internal settings, MY-slot looks and the Effect-button setting are kept. The log is now <code>tty/tty_log.txt</code>.</p></div>
       </details>
       <details class="faq">
         <summary>What is the -debug zip?</summary>
-        <div><p>It is for development: its loader firmware starts the CFW from the card's <code>cfw/</code> folder instead, with full logging, so new builds need no reflash, only a new <code>cfw/</code> folder. For using the camera, take the release zip.</p></div>
+        <div><p>It is for development: its loader firmware starts TTY from the card's <code>tty/</code> folder instead, with full logging, so new builds need no reflash, only a new <code>tty/</code> folder. For using the camera, take the release zip.</p></div>
       </details>
       <details class="faq">
-        <summary>What happens to my CFW settings on a stock camera?</summary>
-        <div><p>Saved CFW choices are harmless on a stock camera: the Effect button choices simply act as “Off” (press) and “Wi-Fi” (hold). CFW Menu settings are saved inside the camera and, as a backup, in <code>cfw/config.txt</code> on the card.</p></div>
+        <summary>What happens to my TTY settings on a stock camera?</summary>
+        <div><p>Saved TTY choices are harmless on a stock camera: the Effect button choices simply act as “Off” (press) and “Wi-Fi” (hold). TTY Menu settings are saved inside the camera and, as a backup, in <code>tty/config.txt</code> on the card.</p></div>
       </details>
       <details class="faq">
         <summary>Can I use any LUT with the converter?</summary>
@@ -288,7 +292,7 @@
       <h2 id="credits-title">Credits and licences</h2>
     </div>
     <ul class="credits reveal">
-      <li>The CFW code, this site and the LUT converter: <a href="https://github.com/robbcocco/ricoh-grii-cfw/blob/main/LICENSE">MIT licence</a>.</li>
+      <li>The GR&nbsp;II TTY code, this site and the LUT converter: <a href="https://github.com/robbcocco/gritty/blob/main/LICENSE">MIT licence</a>.</li>
       <li><code>rg2_v003.frm</code> in the release zip contains Ricoh's firmware 3.00, which is Ricoh's property and not covered by the MIT licence. Not affiliated with Ricoh, Kodak or Fujifilm; film names are used descriptively.</li>
       <li>The film recipes are fitted to <a href="https://github.com/andreavolpato/spektrafilm">spektrafilm</a> film simulations by Andrea Volpato: <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.</li>
       <li>Rangefinder and the Mono recipes are the project's own designs: <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.</li>
@@ -301,7 +305,7 @@
 
 <footer>
   <div class="wrap">
-    <p>gr2_cfw · <a href="https://github.com/robbcocco/ricoh-grii-cfw">Source on GitHub</a> · <a href="https://github.com/robbcocco/ricoh-grii-cfw#readme">README (full manual)</a> · <a href="convert.html">LUT converter</a></p>
+    <p>GR II TTY · Gritty · <a href="https://github.com/robbcocco/gritty">Source on GitHub</a> · <a href="https://github.com/robbcocco/gritty#readme">README (full manual)</a> · <a href="convert.html">LUT converter</a></p>
     <p>No cookies, no trackers; the only outside request is the GitHub release lookup.</p>
   </div>
 </footer>

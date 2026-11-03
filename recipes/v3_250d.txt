@@ -1,11 +1,11 @@
-# gr2_cfw recipe: Vision3 250D look (Ricoh GR II, firmware 3.00)
-# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# GR II TTY recipe: Vision3 250D look (Ricoh GR II, firmware 3.00)
+# Keys: GR II TTY README, section Recipes. ASCII, CRLF.
 # Approximates Kodak Vision3 250D printed on Kodak Vision 2383.
 # Not affiliated with Kodak or Fujifilm; film names are used descriptively.
 #
 # Film look derived from spektrafilm 0.3.4 (commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc)
 # by Andrea Volpato, https://github.com/andreavolpato/spektrafilm; profiles licensed CC BY-SA 4.0.
-# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the gr2_cfw project.
+# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the GR II TTY project.
 # This recipe file is licensed CC BY-SA 4.0.
 # spektrafilm profiles kodak_vision3_250d / kodak_2383; fit CIEDE2000 mean/95th %: Standard 7.6/14.5, this recipe 2.7/4.9.
 

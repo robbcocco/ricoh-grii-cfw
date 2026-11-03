@@ -1,9 +1,9 @@
-/* INFO and DEV tabs of the CFW Menu (finding 21). CFW task only.
+/* INFO and DEV tabs of the TTY Menu (finding 21). TTY task only.
  *
  * INFO shows read-only camera state from stock getters and RAM copies:
  * inventory counters, battery level and raw ADC, thermistors, card space,
  * firmware version, serial, uptime. DEV runs developer actions: the stock
- * telnet shell and the CFW developer console (no password, started on request,
+ * telnet shell and the TTY developer console (no password, started on request,
  * never persisted; Wi-Fi itself is turned on in the camera menu), a screenshot of
  * live view + OSD to the card, a recipe rescan, the preset export (src/export.c)
  * and an IQ RAM dump. */
@@ -166,7 +166,7 @@ void info_wifi_state(uint32_t v[INFO_WIFI_N]) {
 
 /* DEV rows that switch something:
  *  - console: OFF, or ON with where to reach it (or that Wi-Fi is still off).
- *    Wi-Fi itself is left to the camera menu: the CFW's own Prop_Set(0x1E8) +
+ *    Wi-Fi itself is left to the camera menu: TTY's own Prop_Set(0x1E8) +
  *    Msg_Post(0x116) start reached JOBID_WIFI (state 1, status 1) but the access
  *    point never appeared on hardware (2026-11-01, finding 21).
  *  - test pattern: RUNNING between OK and the drawing after the menu closed. */
@@ -229,7 +229,7 @@ static uint8_t *g_band;
 static uint32_t g_pal[256];
 
 static int shot_name(char *path) {
-    static const char base[] = "H:/cfw/shot0000.bmp";
+    static const char base[] = "H:/tty/shot0000.bmp";
     for (uint32_t n = 1; n < 10000; n++) {
         char *p = path;
         for (int i = 0; base[i]; i++) *p++ = base[i];
@@ -323,7 +323,7 @@ static void iq_dump(void) {
     int bank = ctx >= 0xA0000000u && ctx < 0xC0000000u ? *(volatile int8_t *)(ctx + 0x2C) : -1;
     if (bank < 0 || bank > 1) { copy_msg(D_IQDUMP, "IQ not loaded"); return; }
     uint32_t iq = *(volatile uint32_t *)(ctx + 0x158 + 4 * bank);
-    int fd = GR2_FN_FILE_OPEN("H:/cfw/iq_ram.bin", FILE_WRITE);
+    int fd = GR2_FN_FILE_OPEN("H:/tty/iq_ram.bin", FILE_WRITE);
     if (!fd) { copy_msg(D_IQDUMP, "cannot write"); return; }
     int n = GR2_FN_FILE_WRITE(fd, (const void *)GR2_UNCACHED(iq), IQ_BYTES);
     GR2_FN_FILE_CLOSE(fd);
@@ -401,7 +401,7 @@ void info_poll(void) {
         screenshot();
     } else if (row == D_OVLSTATE) {
         overlay_log_state();
-        copy_msg(row, "written to cfw_log.txt");
+        copy_msg(row, "written to tty_log.txt");
     } else {
         int rc = overlay_test_pattern();
         g_pattern_on = rc > 0;

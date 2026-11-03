@@ -1,5 +1,5 @@
 /* ARM-state helper: MRS is not available in Thumb-1. Called via interworking.
- * The shell/CFW tasks run in USR mode (CPSR 0x60000010 on hardware), so
+ * The shell/TTY tasks run in USR mode (CPSR 0x60000010 on hardware), so
  * privileged CP15 operations (cache maintenance) are not available. */
 
     .syntax unified

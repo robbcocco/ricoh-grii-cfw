@@ -1,9 +1,9 @@
-/* Resident CFW task. With the flashed loader it is created at hook(10), right
+/* Resident TTY task. With the flashed loader it is created at hook(10), right
  * after the menus and Effect hooks are installed (finding 35 §3), and runs in
  * phases while the boot continues:
  *   - until JobSystem step 10 (APP exists): nothing but waiting;
  *   - then every 20 ms: Effect-button requests, key input, INFO and the VIEW
- *     overlays, a 1 s heartbeat for `cfw status`;
+ *     overlays, a 1 s heartbeat for `tty status`;
  *   - fonts once the card is readable (after the boot task's remount; rom:
  *     from A: at the same point); menu requests wait for them, the Recipes
  *     menu also for the recipe scan;
@@ -100,7 +100,7 @@ static void cfw_task(uint32_t arg) {
 }
 
 int cfw_task_start(void) {
-    return GR2_FN_TASK_CREATE(cfw_task, 0, CFW_TASK_PRIORITY, CFW_TASK_STACK, "CFW");
+    return GR2_FN_TASK_CREATE(cfw_task, 0, CFW_TASK_PRIORITY, CFW_TASK_STACK, "TTY");
 }
 
 uint32_t cfw_task_heartbeat(void) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rasterise the overlay fonts into the CFW's GFNT format (fonts/*.fnt).
+"""Rasterise the overlay fonts into TTY's GFNT format (fonts/*.fnt).
 
 Fonts (SIL Open Font License 1.1, licence texts in fonts/licenses/):
   Inter 4.1            https://github.com/rsms/inter/releases (extras/ttf)

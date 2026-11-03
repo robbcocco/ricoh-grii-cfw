@@ -1,4 +1,4 @@
-; gr2_cfw loader (copy to H:/Startup.ttl; needs PROPID_DEVEL_MODE=1)
+; GR II TTY loader (copy to H:/Startup.ttl; needs PROPID_DEVEL_MODE=1)
 ; ASCII, CRLF, uppercase drive letters.
 ;
 ; Prerequisite: the M0 probe (loader/probe/) showed the window
@@ -7,7 +7,7 @@
 ;
 ; fload <file> <addr_hex> <max_size_hex>: fread stops at EOF; 8000 = window size.
 ; ex needs the 0x prefix (C-style radix); bit 0 set = Thumb entry.
-; Payload log: H:/cfw/cfw_log.txt (release build: errors only; debug build: everything).
+; Payload log: H:/tty/tty_log.txt (release build: errors only; debug build: everything).
 
 sprintf "fload H:/cfw/gr2_cfw.bin A0017000 8000"
 sendln inputstr

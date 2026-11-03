@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LUT to recipe converter · gr2_cfw</title>
-<meta name="description" content="Convert a 3D LUT (.cube, .3dl or Hald CLUT .png) into a gr2_cfw film recipe for the Ricoh GR II. Runs entirely in your browser.">
+<title>LUT to recipe converter · GR II TTY</title>
+<meta name="description" content="Convert a 3D LUT (.cube, .3dl or Hald CLUT .png) into a GR II TTY film recipe for the Ricoh GR II. Runs entirely in your browser.">
 <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0f0f10" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
@@ -23,14 +23,14 @@
 <a class="skip" href="#main">Skip to content</a>
 <header class="site-header">
   <div class="wrap">
-    <a class="brand" href="./"><img src="img/icon.svg" alt="" width="28" height="28">gr2_cfw</a>
+    <a class="brand" href="./"><img src="img/icon.svg" alt="" width="28" height="28">GR II TTY</a>
     <nav aria-label="Main">
       <ul>
         <li class="nav-wide"><a href="./#features">Features</a></li>
         <li><a href="./#download">Download</a></li>
         <li class="nav-wide"><a href="./#faq">FAQ</a></li>
         <li><a href="convert.html" aria-current="page"><span class="nav-wide-inline">LUT c</span><span class="nav-narrow">C</span>onverter</a></li>
-        <li><a href="https://github.com/robbcocco/ricoh-grii-cfw">GitHub</a></li>
+        <li><a href="https://github.com/robbcocco/gritty">GitHub</a></li>
       </ul>
     </nav>
   </div>
@@ -94,7 +94,7 @@
       <p class="small" id="check"></p>
       <div class="next">
         <svg aria-hidden="true"><use href="#i-card"/></svg>
-        <p>Copy the file to <code>cfw/recipes/</code> on the card, choose DEV → <i>Reload recipes</i> (or restart), and pick it in <b>Recipes</b>.</p>
+        <p>Copy the file to <code>tty/recipes/</code> on the card, choose DEV → <i>Reload recipes</i> (or restart), and pick it in <b>Recipes</b>.</p>
       </div>
     </section>
 
@@ -106,7 +106,7 @@
           <li>It models the Standard rendering with its own approximation, so the result is close but not exact; the colour difference (CIEDE2000) is measured on held-out colours. Below about 2 is close; above 5 the LUT does something the camera cannot follow.</li>
           <li>No grain, halation or blur, and no colour-dependent tone changes: those are not part of the camera's colour path.</li>
           <li>Log LUTs (V-Log, S-Log3, LogC3, F-Log, F-Log2) are fed scene light through the matching log curve and gamut and taken as Rec.709 out.</li>
-          <li>The recipe file follows the <a href="https://github.com/robbcocco/ricoh-grii-cfw#recipe-file-format">recipe file format</a>: ASCII, CRLF, 8.3 file name, under 4&nbsp;KB.</li>
+          <li>The recipe file follows the <a href="https://github.com/robbcocco/gritty#recipe-file-format">recipe file format</a>: ASCII, CRLF, 8.3 file name, under 4&nbsp;KB.</li>
         </ul>
       </div>
     </details>
@@ -115,7 +115,7 @@
 
 <footer>
   <div class="wrap">
-    <p><a href="./">gr2_cfw</a> · LUT converter, MIT licence · <a href="https://github.com/robbcocco/ricoh-grii-cfw/tree/main/site">Source</a></p>
+    <p><a href="./">GR II TTY</a> · LUT converter, MIT licence · <a href="https://github.com/robbcocco/gritty/tree/main/site">Source</a></p>
     <p>Runs in your browser; nothing is uploaded.</p>
   </div>
 </footer>

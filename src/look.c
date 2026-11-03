@@ -1,11 +1,11 @@
-/* Recipe looks in IQ RAM (finding 20 §B). CFW task only.
+/* Recipe looks in IQ RAM (finding 20 §B). TTY task only.
  *
  * The firmware reads every IQ record as section_pointer + index * size, and
- * re-reads the section pointer at each fetch. On first use the CFW copies the
+ * re-reads the section pointer at each fetch. On first use TTY copies the
  * camera-matrix, hue-sector, tone-curve and RGB->YCbCr sections into heap
  * buffers with room for its own records after the stock ones, and publishes
  * each copy with one aligned pointer store (identical contents: nothing
- * visible changes). A look is then shown by writing the CFW records and
+ * visible changes). A look is then shown by writing the TTY records and
  * pointing only the list entries of one IQ mode (Standard, Vivid, Setting1 or
  * Setting2) at them; every other mode keeps the stock records. Stills read the
  * lists at each capture; live view is told to reprogram through its change
@@ -25,7 +25,7 @@ void *memcpy(void *dst, const void *src, size_t n);   /* src/mem.c */
 #define N_MODES       4            /* IQ modes 0..3: Standard, Vivid, Setting1, Setting2 */
 #define IQ_TYPE_STILL 3            /* lookup key k14: 0 live view, 3 stills */
 
-/* Stage table: IQ section, lookup directory, record size, stock records, CFW records. */
+/* Stage table: IQ section, lookup directory, record size, stock records, TTY records. */
 enum { ST_MAT, ST_HUE, ST_TONE, ST_YCC, N_STAGES };
 static const struct { uint8_t sect, dir; uint16_t size; uint8_t n, extra, flag; } STAGE[N_STAGES] = {
     { 0x08, 0x09, 0x18,   11, 1,  LOOK_MATRIX },
@@ -55,7 +55,7 @@ int look_tone_at(const uint8_t *k, int x) {
 
 static uint32_t list(int st) { return g_iq + DIR(STAGE[st].dir); }
 
-/* Point IQ mode k5 at the CFW records (stages in `flags`) or back at stock. */
+/* Point IQ mode k5 at the TTY records (stages in `flags`) or back at stock. */
 static void set_entries(int k5, uint8_t flags) {
     uint32_t a = list(ST_MAT);
     for (int j = 0; j < 3; j++) U16(a + 4 * (3 * k5 + j)) = (flags & LOOK_MATRIX) ? 11 : 0;

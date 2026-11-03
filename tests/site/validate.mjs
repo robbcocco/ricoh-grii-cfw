@@ -12,7 +12,7 @@
 //  4. the recipe file rules of the README ("Recipe file format"), checked independently of the
 //     converter's own check: every shipped recipes/*.txt, the converter's output and any recipe
 //     files given as arguments must pass.
-// Output directory: $SITE_TEST_OUT, default <tmpdir>/gr2_cfw-site-test.
+// Output directory: $SITE_TEST_OUT, default <tmpdir>/gritty-site-test.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
 const core = new Function(fs.readFileSync(path.join(ROOT, 'site/js/core.js'), 'utf8') + '\nreturn lut2grCore();')();
-const OUT_DIR = process.env.SITE_TEST_OUT || path.join(os.tmpdir(), 'gr2_cfw-site-test');
+const OUT_DIR = process.env.SITE_TEST_OUT || path.join(os.tmpdir(), 'gritty-site-test');
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
 let failures = 0;
@@ -200,5 +200,22 @@ const bad = [
 ];
 ok(bad.every(([t, f]) => recipeRules(t, f).length > 0), `README rules reject: ${bad.map(b => b[2]).join(', ')}`);
 
+
+// ---- 5. site brand and release asset selection -------------------------------------------------
+console.log('');
+{
+  const rel = fs.readFileSync(path.join(ROOT, 'site/js/release.js'), 'utf8');
+  const m = rel.match(/const ZIP = \/(.+)\/;/);
+  const zip = m && new RegExp(m[1]);
+  ok(!!zip && zip.test('gritty-v1.1.0.zip') && !zip.test('gritty-v1.1.0-debug.zip') && !zip.test('gritty-v1.1.0.zip.sha256'),
+    'release.js picks gritty-v1.1.0.zip, not the -debug zip');
+  ok(rel.includes("REPO = 'robbcocco/gritty'"), 'release.js asks the robbcocco/gritty repository');
+  for (const page of ['index.html', 'convert.html']) {
+    const html = fs.readFileSync(path.join(ROOT, 'site', page), 'utf8');
+    const repos = [...html.matchAll(/github\.com\/robbcocco\/([\w.-]+)/g)].map((r) => r[1]);
+    ok(/<title>[^<]*GR II TTY/.test(html) && repos.length > 0 && repos.every((r) => r === 'gritty'),
+      `${page}: GR II TTY title, links point at robbcocco/gritty`);
+  }
+}
 console.log(`\n${failures ? `${failures} FAILED` : 'all passed'}; files written to ${OUT_DIR}`);
 process.exit(failures ? 1 : 0);

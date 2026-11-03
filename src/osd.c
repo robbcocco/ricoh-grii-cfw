@@ -1,4 +1,4 @@
-/* OSD access for the CFW overlay (static RE: finding 17).
+/* OSD access for the TTY overlay (static RE: finding 17).
  *
  * The LCD shows OSD layer 3 from one of two 8-bpp palette bitmaps (0x54600 B
  * each) that the APP task flips on every present. While the overlay is open:
@@ -14,7 +14,7 @@
  * bytes, 8-bit palette indices. Palette entries are 0x0AYYUUVV (4-bit alpha,
  * YCbCr), read with FUN_a0393990(idx). Buffers are at 0x20xxxxxx (uncached).
  *
- * Text: GFNT fonts from H:/cfw/fonts (rom: A:/cfw/fonts; 4-bit coverage per pixel, see
+ * Text: GFNT fonts from H:/tty/fonts (rom: A:/cfw/fonts; 4-bit coverage per pixel, see
  * scripts/make_fonts.py). Edge pixels are blended with the pixel underneath
  * in YCbCr and mapped to the nearest opaque palette entry; ramps are cached
  * per (background, foreground) pair. Without font files the ROM font is used. */
@@ -50,7 +50,7 @@
 #if CFW_ROM
 #define FONT_PATH       "A:/cfw/fonts/"   /* release firmware: the RES A: drive (finding 29) */
 #else
-#define FONT_PATH       "H:/cfw/fonts/"
+#define FONT_PATH       "H:/tty/fonts/"
 #endif
 #define FONT_MAX_BYTES  0x10000
 static const char *const FONT_FILE[FONT_COUNT] = {

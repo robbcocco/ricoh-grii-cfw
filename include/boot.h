@@ -6,17 +6,17 @@
  *   Stage 1 (bin/<v>/gr2_cfw.bin; H:/cfw/gr2_cfw.bin, ROM: A:/cfw/gr2_cfw.bin): fixed in the 32 KiB
  *   IPL-tail window 0xA0017000 (src/boot.c, src/entry.S, src/veneers.S). Started by Startup.ttl
  *   or a flashed loader stub; loads stage 2 into the heap, relocates it and calls it.
- *   Stage 2 (bin/<v>/gr2_main.bin; H:/cfw/gr2_main.bin, ROM: A:/cfw/gr2_main.bin): everything
+ *   Stage 2 (bin/<v>/tty_main.bin; H:/tty/tty_main.bin, ROM: A:/cfw/gr2_main.bin): everything
  *   else, linked at 0 and relocated at load (no size limit from the window).
  *
- * gr2_main.bin = cfw_main_hdr_t, image (text + data), nrelocs u32 image offsets
+ * tty_main.bin = cfw_main_hdr_t, image (text + data), nrelocs u32 image offsets
  * of absolute words that need + load address (made by scripts/mkmain.py). */
 
 #define CFW_MAIN_MAGIC   0x47524D31u   /* "GRM1" */
 #if CFW_ROM
 #define CFW_MAIN_PATH    "A:/cfw/gr2_main.bin"   /* release firmware: the RES A: drive (finding 29) */
 #else
-#define CFW_MAIN_PATH    "H:/cfw/gr2_main.bin"
+#define CFW_MAIN_PATH    "H:/tty/tty_main.bin"
 #endif
 
 typedef struct {

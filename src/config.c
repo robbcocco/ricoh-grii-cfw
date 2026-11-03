@@ -1,9 +1,9 @@
-/* CFW configuration: one "key=XXXXXXXX" line per entry (hex values), kept on the
+/* TTY configuration: one "key=XXXXXXXX" line per entry (hex values), kept on the
  * internal D: drive in two generations (src/store.c, finding 34), with a backup
- * copy in H:/cfw/config.txt whenever the card is there. Stock formats D: on the
+ * copy in H:/tty/config.txt whenever the card is there. Stock formats D: on the
  * first boot after a battery pull or crash (finding 34 §11); when D: holds no
  * valid copy (that, Reset Settings, a first start) the card copy is imported and
- * the next cfg_save writes it back to D:. Owned by the CFW task; the loader's
+ * the next cfg_save writes it back to D:. Owned by the TTY task; the loader's
  * first hook only loads (rom: from D: only, the card is read in the task's late phase). File_Open flags (File.c, 0xA002C70F): 0x00 = "r",
  * 0x01 = "w" (create/truncate). */
 #include <stdint.h>
@@ -13,7 +13,7 @@
 #include "gr2_hw.h"
 #include "store.h"
 
-#define CARD_PATH    "H:/cfw/config.txt"
+#define CARD_PATH    "H:/tty/config.txt"
 #define CFG_MAX      48   /* settings + recorded camera values + recipe matrices (6 per MY slot) */
 #define CFG_KEY_LEN  16
 #define FILE_READ    0x00
@@ -21,10 +21,10 @@
 
 typedef struct { char key[CFG_KEY_LEN]; uint32_t value; } entry_t;
 
-/* Entries and the file image live in one GlobalHeap block (the CFW window is small). */
+/* Entries and the file image live in one GlobalHeap block (the TTY window is small). */
 typedef struct {
     entry_t cfg[CFG_MAX];
-    char io[CFG_MAX * (CFG_KEY_LEN + 12)];   /* text image; load and save both run in the CFW task */
+    char io[CFG_MAX * (CFG_KEY_LEN + 12)];   /* text image; load and save both run in the TTY task */
     char card[CFG_MAX * (CFG_KEY_LEN + 12)]; /* the card copy as read, compared by cfg_sync_card */
 } cfg_store_t;
 static cfg_store_t *S;
@@ -169,7 +169,7 @@ void cfg_save(void) {
     DBG_HEX2("config: saved to D: (generation, entries)", g_file.gen, (uint32_t)g_n);
 }
 
-/* The task's late phase: rewrite the card copy if it is missing (e.g. a fresh cfw/ folder) or differs from the
+/* The task's late phase: rewrite the card copy if it is missing (e.g. a fresh tty/ folder) or differs from the
  * loaded config, so a wiped D: can always be restored from it. One small read per boot; no card: nothing. */
 void cfg_sync_card(void) {
     if (!S || !g_n) return;

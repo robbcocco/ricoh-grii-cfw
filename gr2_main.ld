@@ -1,4 +1,4 @@
-/* Linker script for gr2_cfw stage 2 (include/boot.h). Linked at MAIN_BASE
+/* Linker script for GR II TTY stage 2 (include/boot.h). Linked at MAIN_BASE
  * (0 for the shipped image; scripts/mkmain.py links a second copy at another
  * base and turns the words that differ into the relocation table). Stage 1
  * loads it into the heap, adds the load address to those words and zeroes .bss.

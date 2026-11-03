@@ -1,10 +1,10 @@
-# gr2_cfw recipe: Rangefinder look (Ricoh GR II, firmware 3.00)
-# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# GR II TTY recipe: Rangefinder look (Ricoh GR II, firmware 3.00)
+# Keys: GR II TTY README, section Recipes. ASCII, CRLF.
 # Our version of the plain Setting2 preset: classic rangefinder colour. Source: own parametric
 # target; no spektrafilm profile models a camera maker's colour rendering.
 #
-# Own design of the gr2_cfw project (no third-party data). This recipe file is licensed
-# CC BY 4.0, https://creativecommons.org/licenses/by/4.0/ (attribution: gr2_cfw project).
+# Own design of the GR II TTY project (no third-party data). This recipe file is licensed
+# CC BY 4.0, https://creativecommons.org/licenses/by/4.0/ (attribution: GR II TTY project).
 # Target: own parametric rangefinder colour. Curve per channel about mid grey (code 116),
 # 46 codes/stop, black asymptote 5, white 332 (deep but open blacks, gentle shoulder);
 # OKLab chroma x1.2 at reds (hue 28+-30 deg), x0.84 greens (140+-45), x0.86 blues (235+-50);

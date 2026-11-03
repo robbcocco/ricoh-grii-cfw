@@ -1,8 +1,8 @@
-/* Persistent overlays over live view (finding 23, Tier A). CFW task only.
+/* Persistent overlays over live view (finding 23, Tier A). TTY task only.
  *
  * In every shooting screen the camera shows its RGBA4444 "full" plane (display
  * layer 2) between live view and the OSD; it is transparent except for the
- * stock grid guide and effect masks. The CFW stamps its pixels into the buffer
+ * stock grid guide and effect masks. TTY stamps its pixels into the buffer
  * stock currently shows (bitmap 2 or 3, index G[1]) and stamps again after
  * every stock flip (stock copies its canvas over the whole buffer at a flip).
  * Nothing is re-pointed or enabled, and the overlay disappears by itself in
@@ -174,7 +174,7 @@ static void clear_zcells(void) {
         for (int c = 0; c < W / 4; c++) g_zcell[r][c] = 0;
 }
 
-/* Remove everything the CFW drew from the shown buffer and let stock rebuild its
+/* Remove everything TTY drew from the shown buffer and let stock rebuild its
  * own grid/mask pixels (it flips to a fresh copy of its canvas); the next poll
  * stamps the current overlays again. */
 static void wipe(void) {

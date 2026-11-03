@@ -1,18 +1,18 @@
 /* Export the camera's saved presets as recipe files (README "Exporting your presets"; findings 18,
- * 19). CFW task only (the DEV row; the developer console asks through export_request).
+ * 19). TTY task only (the DEV row; the developer console asks through export_request).
  *
  * Presets (finding 19 §1.1): My Settings MY1..MY3 (B:/P_MY0k.bin) and the six My Settings Box
  * entries (B:/P_BOX0b.bin). Each file is read without touching the live settings: clone the live
  * property DB, load the file into the clone, read the values, free the clone; nothing is saved. The
  * loader falls back to the factory values without telling, so a file that does not exist (a slot or
  * box never saved) is found with File_Open first and skipped. Then the live settings (stored values;
- * where a CFW Menu setting holds a property, the camera's own value it replaced, src/settings.c),
+ * where a TTY Menu setting holds a property, the camera's own value it replaced, src/settings.c),
  * and the image presets the camera keeps outside the slots: Image Settings Setting1 and Setting2
  * always, an effect's sliders when they differ from the factory values. Those come from the live
  * settings when the dial is not on MY, else from B:/P_COMMON.bin, where the camera keeps the
  * non-MY settings meanwhile (finding 19 §3).
  *
- * Output: one recipe file per preset in H:/cfw/export (not scanned by the Recipes list), rewritten
+ * Output: one recipe file per preset in H:/tty/export (not scanned by the Recipes list), rewritten
  * by every export. The keys come from recipes_format (src/recipes.c), which writes only values that
  * apply back exactly; what a recipe cannot hold (shooting mode, focus, drive, ...) is a comment. */
 #include <stdint.h>
@@ -26,8 +26,8 @@
 
 #define FILE_READ   0x00
 #define FILE_WRITE  0x01
-#define CFW_DIR     "H:/cfw"
-#define OUT_DIR     "H:/cfw/export"
+#define CFW_DIR     "H:/tty"
+#define OUT_DIR     "H:/tty/export"
 #define KIND_COMMON 0                    /* GR2_FN_PROP_PATH types (finding 19 §1.1) */
 #define KIND_MY     1
 #define KIND_BOX    2
@@ -152,7 +152,7 @@ static void put_header(text_t *t, const char *title) {
     t_s(t, "# ");
     t_s(t, title);
     t_nl(t);
-    t_s(t, "# exported by gr2_cfw " CFW_VERSION);
+    t_s(t, "# exported by GR II TTY " CFW_VERSION);
     if (GR2_INV_LOADED == 1) {
         t_s(t, ", power-on ");
         t_d(t, (int32_t)GR2_INV_U32(GR2_INV_POWER_ONS));
@@ -161,11 +161,11 @@ static void put_header(text_t *t, const char *title) {
     t_d(t, (int32_t)min);
     t_s(t, " min after power-on");
     t_nl(t);
-    t_s(t, "# To use it: move it to cfw/recipes/ and save it into a MY slot from Recipes.");
+    t_s(t, "# To use it: move it to tty/recipes/ and save it into a MY slot from Recipes.");
     t_nl(t);
 }
 
-/* Properties a CFW Menu setting can hold at its own value (src/settings.c): Clarity strength,
+/* Properties a TTY Menu setting can hold at its own value (src/settings.c): Clarity strength,
  * High-ISO NR and its thresholds, Auto-Hi slowest shutter. */
 static const uint16_t OVERRIDDEN[] = { 0x0CE, 0x0EF, 0x0F0, 0x0F1, 0x0F2, 0x113 };
 
@@ -185,18 +185,18 @@ static void log_file(const char *what, const char *file) {
 }
 
 typedef struct {
-    const char *file;      /* 8.3 name in cfw/export */
+    const char *file;      /* 8.3 name in tty/export */
     const char *title;     /* first comment line */
     recipe_get_t get;
     const void *src;
     const uint16_t *n16;   /* the camera's name for it (UTF-16), or empty */
     const char *def;       /* name when it has none */
-    int slot;              /* MY slot whose CFW look to add, -1 none */
+    int slot;              /* MY slot whose TTY look to add, -1 none */
     int mode;              /* -1 whole preset, else the image preset of that colour mode */
     uint32_t mode_id;      /* whole preset: property holding its shooting mode */
 } preset_t;
 
-/* cfw/export/<file>: 1 written, -1 failed (logged). */
+/* tty/export/<file>: 1 written, -1 failed (logged). */
 static int put_file(const preset_t *s) {
     char name[RECIPE_NAME_LEN];
     text_t t = { X->buf, X->buf + sizeof(X->buf), 0 };
@@ -207,9 +207,9 @@ static int put_file(const preset_t *s) {
         t_nl(&t);
     }
     if (s->get == live_get && any_override()) {
-        t_s(&t, "# A CFW Menu setting is in force (Clarity strength, High-ISO NR or Auto-Hi slowest shutter):");
+        t_s(&t, "# A TTY Menu setting is in force (Clarity strength, High-ISO NR or Auto-Hi slowest shutter):");
         t_nl(&t);
-        t_s(&t, "# the camera's own values are written, not the CFW's.");
+        t_s(&t, "# the camera's own values are written, not TTY's.");
         t_nl(&t);
     }
     if (recipes_format(&t, s->get, s->src, name, s->slot, s->mode)) {
@@ -256,8 +256,8 @@ int export_run(void) {
         return fail("no card");
     }
     if (GR2_FN_FILE_MKDIR(OUT_DIR) < 0) {
-        ERR("export: cannot create H:/cfw/export");
-        return fail("cannot create cfw/export");
+        ERR("export: cannot create H:/tty/export");
+        return fail("cannot create tty/export");
     }
     if (!X) X = GR2_FN_MEMORY_ALLOC(sizeof(xwork_t));
     if (!X) {
@@ -344,7 +344,7 @@ int export_run(void) {
         p = put_udec(p, (uint32_t)failed);
         put_str(p, " failed (log)")[0] = 0;
     } else {
-        put_str(p, " files in cfw/export")[0] = 0;
+        put_str(p, " files in tty/export")[0] = 0;
     }
     DBG_HEX2("export: files written, failed", (uint32_t)written, (uint32_t)failed);
     return failed ? -1 : written;

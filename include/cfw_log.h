@@ -2,12 +2,12 @@
 #define CFW_LOG_H
 #include <stdint.h>
 
-#define CFW_LOG_PATH "H:/cfw/cfw_log.txt"
+#define CFW_LOG_PATH "H:/tty/tty_log.txt"
 
 /* Build variants (Makefile): CFW_DEBUG=1 writes every log line, CFW_DEBUG=0
  * (release, rom) writes only ERR lines; DBG calls compile to nothing and their
  * arguments are not evaluated. Messages passed to ERR must be literals.
- * CFW_ROM=1 (rom): the CFW lives in the release firmware's A: drive (loader/flash/README.md §5):
+ * CFW_ROM=1 (rom): TTY lives in the release firmware's A: drive (loader/flash/README.md §5):
  * code and fonts from A:/cfw, no card access in the boot hooks. */
 #ifndef CFW_DEBUG
 #define CFW_DEBUG 1
@@ -26,12 +26,12 @@ extern void (*volatile cfw_log_tap)(const char *line, uint32_t len);
 /* Hold: lines go to RAM instead of the card (the loader's section-load hooks,
  * which must not write H: before the boot task's remount after section 9,
  * finding 32). Each stage (stage 1, stage 2) has its own buffers: 2 KiB for
- * the boot task (and other tasks), 2 KiB for the early CFW task. */
+ * the boot task (and other tasks), 2 KiB for the early TTY task. */
 void cfw_log_hold(void);
-/* Write the held lines (boot task's, then the CFW task's; plus a count of
+/* Write the held lines (boot task's, then the TTY task's; plus a count of
  * lines lost to a full buffer) and log to the card again. No-op if not holding. */
 void cfw_log_release(void);
-/* The CFW task tells the log where its stack is (an address near its top),
+/* The TTY task tells the log where its stack is (an address near its top),
  * so held lines from it go to its own buffer. */
 void cfw_log_task_stack(uint32_t top);
 

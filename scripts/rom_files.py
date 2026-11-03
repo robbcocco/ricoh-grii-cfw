@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""The CFW's files on the A: drive of the release firmware (M11, loader/flash/README.md §5).
+"""TTY's files on the A: drive of the release firmware (M11, loader/flash/README.md §5).
 
 `rom_files(root)` -> {A: path: bytes}, in directory order (stage 1 first, so the
 stub's lookup scans the fewest directory sectors):
     A:/cfw/gr2_cfw.bin         bin/<variant>/gr2_cfw.bin (stage 1, loader ABI v1, <= 0x8000 B:
                                the stub's LoadFile truncates silently; its length (+12)
                                and CRC-32 (+16) must match, scripts/stage1_crc.py)
-    A:/cfw/gr2_main.bin        bin/<variant>/gr2_main.bin (stage 2)
+    A:/cfw/gr2_main.bin        bin/<variant>/tty_main.bin (stage 2)
     A:/cfw/fonts/<name>.fnt    every fonts/*.fnt (GFNT)
-No recipe files: the film recipes ship on the card (cfw/recipes/ in the official zip,
-scripts/package_sd.py). The CFW still lists A:/cfw/recipes/ first (src/recipes.c), and an
+The A: names are internal and unchanged since v1.0.x (the rom stub opens A:/cfw/gr2_cfw.bin), so
+updates from v1.0.x keep the NAND layout.
+No recipe files: the film recipes ship on the card (tty/recipes/ in the official zip,
+scripts/package_sd.py). TTY still lists A:/cfw/recipes/ first (src/recipes.c), and an
 absent A: recipe folder is normal. The variant is `rom` (CFW_ROM=1); scripts/build_cfw_frm.py
 writes these files into RES and scripts/emu_release.py / tests/emu read them back.
 
@@ -43,7 +45,7 @@ def rom_files(root: Path = ROOT, variant: str = "rom") -> dict[str, bytes]:
     bindir = root / "bin" / variant
     try:
         boot = (bindir / "gr2_cfw.bin").read_bytes()
-        main = (bindir / "gr2_main.bin").read_bytes()
+        main = (bindir / "tty_main.bin").read_bytes()
     except FileNotFoundError as ex:
         raise RomError(f"{ex.filename} missing: run make") from None
     if len(boot) > WINDOW_SIZE:

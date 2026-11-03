@@ -1,7 +1,7 @@
 /* Stage 1 (window 0xA0017000). Two entries:
  *
  * - cfw_boot: `ex` from H:/Startup.ttl, once per power cycle, after the camera
- *   has booted: check the window, load H:/cfw/gr2_main.bin into the heap,
+ *   has booted: check the window, load H:/tty/tty_main.bin into the heap,
  *   apply its relocations, zero its .bss and call its cfw_main.
  *
  * - cfw_ldr_hook(n, &ldr_state): a flashed loader stub (loader ABI v1; the debug
@@ -14,11 +14,11 @@
  *   in section 8) and writes nothing to the card; the card stays mounted, so the
  *   boot task's remount after section 9 is a short one. The rom build reads stage 2
  *   from A: with LoadFile and never touches the card in the hooks.
- *   hook(13) starts the "CFWldr" task and disarms the loader; that task waits
+ *   hook(13) starts the "TTYldr" task and disarms the loader; that task waits
  *   until JobSystem boot step 13 (which queues Startup.ttl to the Script task) has
  *   finished, then calls cfw_main exactly like the Startup.ttl path. Step 13 does
  *   not wait for the script (finding 26), so a Startup.ttl on the card may still be
- *   running then; with the loader flashed the card must not carry the CFW
+ *   running then; with the loader flashed the card must not carry TTY
  *   Startup.ttl. Stage 2's cfw_hook does patch-on-load and the early look (M10c).
  *
  * The heap block has never held code, so the I-cache has no stale lines for
@@ -216,12 +216,12 @@ int cfw_boot(void) {
     uint32_t st = *CFW_LDR_STATE;
     if (st == CFW_LDR_ARMED || st == CFW_LDR_DISARMED) {
         /* The flashed loader already runs this stage 1: `fload` has just rewritten
-         * it under the running CFW. Do not start a second one. */
-        ERR("boot: flashed loader active, Startup.ttl must not load the CFW (remove it from the card)");
+         * it under the running TTY. Do not start a second one. */
+        ERR("boot: flashed loader active, Startup.ttl must not load TTY (remove it from the card)");
         return -1;
     }
     if (!image_ok()) {
-        ERR("boot: stage 1 length/CRC mismatch (gr2_cfw.bin truncated or corrupt), CFW not started");
+        ERR("boot: stage 1 length/CRC mismatch (gr2_cfw.bin truncated or corrupt), TTY not started");
         return -1;
     }
     uint32_t base = 0, entry = 0, hook = 0;
@@ -236,19 +236,19 @@ static uint32_t g_ldr_first = 1;       /* .data: 1 until the first hook call zer
 static uint32_t g_main_entry, g_main_hook;
 static int g_ldr_err;
 
-/* Runs in the CFWldr task: wait for boot step 13, then start stage 2. */
+/* Runs in the TTYldr task: wait for boot step 13, then start stage 2. */
 int cfw_ldr_start(void) {
     for (uint32_t t = 0; !GR2_BOOT_STEP_DONE(LDR_START_SECTION); t += LDR_POLL_MS) {
         if (t >= LDR_WAIT_MS) {
             cfw_log_release();
-            ERR("boot (loader): JobSystem step 13 not done after 60 s, CFW not started");
+            ERR("boot (loader): JobSystem step 13 not done after 60 s, TTY not started");
             return -1;
         }
         GR2_FN_DELAY(LDR_POLL_MS);
     }
     cfw_log_release();                 /* the card is the camera's now (remounted after section 9) */
     if (g_ldr_err || !g_main_entry) {
-        ERR("boot (loader): stage 2 not loaded at the first hook, CFW not started");
+        ERR("boot (loader): stage 2 not loaded at the first hook, TTY not started");
         return -1;
     }
     return ((cfw_main_fn)g_main_entry)(&g_boot);
@@ -260,7 +260,7 @@ static void ldr_task(uint32_t arg) {
     for (;;) GR2_FN_DELAY(60000);      /* task bodies never return */
 }
 
-/* M12 safe boot (include/safeboot.h): 1 = run the CFW this boot. The state moves on before anything of
+/* M12 safe boot (include/safeboot.h): 1 = run TTY this boot. The state moves on before anything of
  * stage 2 runs, so a crash or hang in it counts. */
 static int safeboot(void) {
     uint32_t s = sb_get(), was = s;
@@ -270,7 +270,7 @@ static int safeboot(void) {
         s = SB_ARMED;
     } else if (s == SB_DISARMED) {
         uint32_t ui = GR2_FN_PROP_GET_RAW(GR2_PROPID_UI_MODE);
-        if (ui == 2 || ui == 3) s = SB_ARMED;                          /* PLAY power-on: CFW again next boot */
+        if (ui == 2 || ui == 3) s = SB_ARMED;                          /* PLAY power-on: TTY again next boot */
     } else {
         s = s == SB_ARMED ? SB_ONE_FAIL : SB_DISARMED;
         run = 1;
@@ -290,9 +290,9 @@ void cfw_ldr_hook(uint32_t n, volatile uint32_t *state) {
         g_ldr_first = 0;
         cfw_log_hold();
         if (bad) {
-            /* Truncated or corrupt: nothing else of this image runs (no stage 2, no CFWldr task), so the
+            /* Truncated or corrupt: nothing else of this image runs (no stage 2, no TTYldr task), so the
              * line stays in stage 1's hold buffer in RAM. */
-            ERR("boot (loader): stage 1 length/CRC mismatch, CFW disarmed");
+            ERR("boot (loader): stage 1 length/CRC mismatch, TTY disarmed");
             *state = CFW_LDR_DISARMED;
             return;
         }
@@ -306,7 +306,7 @@ void cfw_ldr_hook(uint32_t n, volatile uint32_t *state) {
     }
     if (g_main_hook && !g_ldr_err) ((cfw_hook_fn)g_main_hook)(n, &g_boot);
     if (n == LDR_START_SECTION) {
-        if (!GR2_FN_TASK_CREATE(ldr_task, 0, LDR_TASK_PRIO, LDR_TASK_STACK, "CFWldr")) g_ldr_err = 1;
+        if (!GR2_FN_TASK_CREATE(ldr_task, 0, LDR_TASK_PRIO, LDR_TASK_STACK, "TTYldr")) g_ldr_err = 1;
         *state = CFW_LDR_DISARMED;
     }
 }

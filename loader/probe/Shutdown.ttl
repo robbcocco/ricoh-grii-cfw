@@ -3,14 +3,14 @@
 ; power off: the same areas are dumped again for comparison.
 ; ASCII, CRLF, uppercase drive letters.
 
-foldercreate 'H:/cfw'
-foldercreate 'H:/cfw/probe'
+foldercreate 'H:/tty'
+foldercreate 'H:/tty/probe'
 
-sprintf "fsave H:/cfw/probe/SHUT_A0000000.BIN A0000000 20000"
+sprintf "fsave H:/tty/probe/SHUT_A0000000.BIN A0000000 20000"
 sendln inputstr
-sprintf "fsave H:/cfw/probe/SHUT_POOL.BIN A00C2BA0 10"
+sprintf "fsave H:/tty/probe/SHUT_POOL.BIN A00C2BA0 10"
 sendln inputstr
 
 pause 1
-foldercreate 'H:/cfw/probe/SHUT_DONE'
+foldercreate 'H:/tty/probe/SHUT_DONE'
 end

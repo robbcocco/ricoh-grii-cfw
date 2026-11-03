@@ -1,11 +1,11 @@
-# gr2_cfw recipe: Mono Hard look (Ricoh GR II, firmware 3.00)
-# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# GR II TTY recipe: Mono Hard look (Ricoh GR II, firmware 3.00)
+# Keys: GR II TTY README, section Recipes. ASCII, CRLF.
 # Our version of the Hi-Contrast B&W preset (contrast -2, 10000 K A+8: a warm white balance
 # before the B&W conversion acts like an orange filter). Source: own parametric target
 # (spektrafilm's profiles are colour films): hard, deep blacks, bright whites, darker skies.
 #
-# Own design of the gr2_cfw project (no third-party data). This recipe file is licensed
-# CC BY 4.0, https://creativecommons.org/licenses/by/4.0/ (attribution: gr2_cfw project).
+# Own design of the GR II TTY project (no third-party data). This recipe file is licensed
+# CC BY 4.0, https://creativecommons.org/licenses/by/4.0/ (attribution: GR II TTY project).
 # Target: own parametric black and white. Orange filter mix of linear R, G, B 0.45 / 0.51 / 0.04;
 # curve about mid grey (code 115), 61 codes/stop, black asymptote 0, white 268 (Standard: 0 / 255).
 # fit CIEDE2000 mean/95th % vs this target: Standard 23.8/32.6, this recipe 0.2/0.6.

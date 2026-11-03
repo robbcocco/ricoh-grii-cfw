@@ -2,10 +2,10 @@
 #define CONSOLE_H
 #include <stdint.h>
 
-/* Developer console (src/console.c): a CFW-owned telnet server on port 23 (the
+/* Developer console (src/console.c): a TTY-owned telnet server on port 23 (the
  * stock telnetd is not started). The stock shell prints to the UART, so stock
  * telnet only answered "result: N"; while the console runs, all printf text and
- * CFW log lines are captured in a ring buffer, and any stock shell command run
+ * TTY log lines are captured in a ring buffer, and any stock shell command run
  * through it returns its output. No password, like stock telnetd: switched on
  * and off from the DEV tab; Wi-Fi itself is turned on in the camera menu. */
 #define CONSOLE_PORT 23

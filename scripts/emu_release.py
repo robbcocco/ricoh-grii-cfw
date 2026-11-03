@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Check dist/rg2_v003_cfw.frm (scripts/build_cfw_frm.py) offline; prints ALL PASSED or exits 1.
+"""Check dist/rg2_v003_tty.frm (scripts/build_cfw_frm.py) offline; prints ALL PASSED or exits 1.
 
 1. Byte checks, independent of the builder (own directory parser, plain checksum loop):
    RES = stock up to the old directory end (only the directory pointer and header
-   +0x164..+0x16F differ), 0x00 up to the first CFW file, the new directory = the 121
+   +0x164..+0x16F differ), 0x00 up to the first TTY file, the new directory = the 121
    stock entries verbatim + one entry per scripts/rom_files.py file + a zero terminator
-   ending at nUpdateTotalSize (<= 0x7E0000), every stock and CFW file byte-identical
+   ending at nUpdateTotalSize (<= 0x7E0000), every stock and TTY file byte-identical
    through it; header sizes (+0x168 = entry length = 0x200 + +0x164), bCheckRomSize 1,
    both nUpdateCsum values; APP differs only in the hook BL, the 132-byte stub range and
    nUpdateCsum; the nested container only in APP, the outer header only in its length
@@ -20,7 +20,7 @@
       served from the .frm) -> header check + full nUpdateCsum + ROM-size check pass;
       a flipped payload bit is refused; Destroy APP 0xA00402B0; install 0xA0040286(6),
       (8) -> the NAND holds the new RES and APP.
-   b. Boot reads with the installed APP: stock LoadFile of every A: file (stock + CFW),
+   b. Boot reads with the installed APP: stock LoadFile of every A: file (stock + TTY),
       FindFirst/FindNext of A:/cfw/fonts/ (full paths, no ./..) and of A:/cfw/recipes/ (no
       recipe files on A:: no entry), fopen/fread of a font.
    c. The release stub as flashed, at the real hook site (like scripts/emu_loader.py), with
@@ -29,11 +29,11 @@
       (stock RES), stage 1 without loader ABI, USB-charge boot (section 1 only). Any
       card/FAT access, a LoadFile other than A:/cfw/gr2_cfw.bin at section 3, a write
       into APP code or into the window outside LoadFile, or unbalanced registers fail.
-   d. Stock reinstall from the CFW camera: the stock .frm passes search and installs;
+   d. Stock reinstall from the TTY camera: the stock .frm passes search and installs;
       the NAND holds byte-identical stock RES and APP again, A:/cfw/* is gone, every stock
-      A: file reads back (blocks past the stock end keep unreachable CFW bytes: reported).
+      A: file reads back (blocks past the stock end keep unreachable TTY bytes: reported).
 
-Usage: python3 scripts/emu_release.py [--frm dist/rg2_v003_cfw.frm] [--stock fw/rg2_v003.frm] [--variant rom]
+Usage: python3 scripts/emu_release.py [--frm dist/rg2_v003_tty.frm] [--stock fw/rg2_v003.frm] [--variant rom]
 """
 import argparse
 import hashlib
@@ -142,10 +142,10 @@ def check_bytes(stock_frm, frm, files):
         raise Fail("new directory does not start with the 121 stock entries verbatim")
     cfw = new_dir[STOCK_ENTRIES:]
     if [n for _, n, _, _ in cfw] != list(files):
-        raise Fail(f"CFW entries {[n for _, n, _, _ in cfw]} != rom_files {list(files)}")
+        raise Fail(f"TTY entries {[n for _, n, _, _ in cfw]} != rom_files {list(files)}")
     first = cfw[0][2]
     if first % SECT or first < STOCK_PAYLOAD or any(nr[HDR + STOCK_PAYLOAD:HDR + first]):
-        raise Fail("first CFW file not 0x200-aligned after a 0x00 gap behind the stock payload")
+        raise Fail("first TTY file not 0x200-aligned after a 0x00 gap behind the stock payload")
     for e, name, off, size in new_dir:
         if name in files and (nr[HDR + off:HDR + off + size] != files[name] or e[0x34] != 0x01
                               or len(name) > 31 or off % SECT):
@@ -175,7 +175,7 @@ def check_bytes(stock_frm, frm, files):
            for lo, hi in runs(stock_frm[:0x800], frm[:0x800])):
         raise Fail("outer header differs outside the total length, the RES length and the APP-container sector")
     print(f"[OK] bytes: RES stock up to 0x{STOCK_PAYLOAD:X} (pointer 0x{STOCK_DIR:X} -> 0x{u32(nr, HDR):X}), "
-          f"{len(cfw)} CFW files from 0x{first:X}, directory {len(new_dir)} entries + terminator ending at "
+          f"{len(cfw)} TTY files from 0x{first:X}, directory {len(new_dir)} entries + terminator ending at "
           f"0x{total:X} (cap 0x{RES_CAP:X}); header sizes, bCheckRomSize 1, both nUpdateCsum = plain sum")
     print(f"[OK] bytes: APP differs only in {', '.join(f'0x{lo:X}-0x{hi - 1:X}' for lo, hi in app_runs)}; "
           "nested container only in APP; outer header only in its length words")
@@ -445,7 +445,7 @@ def check_reads(nand, files, stock_res, label, cfw=True):
         chunks.append(bytes(st.uc.mem_read(BUF, n)))
     if b"".join(chunks) != files[font]:
         raise Fail(f"{label}: fopen/fread({font}) chunks {[len(c) for c in chunks]} do not match")
-    print(f"[OK] {label}: stock LoadFile of all {ok} stock + {len(files)} CFW A: files byte-identical; "
+    print(f"[OK] {label}: stock LoadFile of all {ok} stock + {len(files)} TTY A: files byte-identical; "
           f"FindFirst/Next lists A:/cfw/fonts/ as full paths, A:/cfw/recipes/ as empty; fopen/fread({font}) "
           f"in {len(chunks)} chunks")
     return st
@@ -559,7 +559,7 @@ def stub_cases(nand_cfw, app, stock_res, files):
         ("G  stage 1 disarms at section 5 (self-check failed)", nand_cfw, dict(hook=hook, disarm_at=5), 6, 1,
          [3, 5], loaded(stage1)),
         ("C  shutter half-press held -> stock, A: not read", nand_cfw, dict(hook=hook, skip=True), 1, 0, [], ff),
-        ("B  A: without the CFW files (stock RES) -> stock", nand_stock_res, dict(hook=hook), 3, 1, [], ff),
+        ("B  A: without the TTY files (stock RES) -> stock", nand_stock_res, dict(hook=hook), 3, 1, [], ff),
         ("E  stage 1 without loader ABI -> loaded, never called", nand_no_abi, dict(hook=hook), 4, 1, [],
          loaded(no_abi)),
         ("I  USB-charge boot (section 1 only) -> undecided, nothing read", nand_cfw, dict(hook=hook, order=[1]), 0,
@@ -592,7 +592,7 @@ def stub_cases(nand_cfw, app, stock_res, files):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--frm", type=Path, default=REPO_ROOT / "dist" / "rg2_v003_cfw.frm")
+    ap.add_argument("--frm", type=Path, default=REPO_ROOT / "dist" / "rg2_v003_tty.frm")
     ap.add_argument("--stock", type=Path, default=STOCK_FRM)
     ap.add_argument("--variant", default="rom", help="bin/<variant>/ the .frm was built from")
     a = ap.parse_args(argv)
@@ -617,11 +617,11 @@ def main(argv=None):
         nand.put(si[RES], RES_DATA, RES_HDR)
         nand.put(si[APP], APP_DATA, APP_HDR)
         seed = dict(nand.s)
-        up(nand, si[APP], ni[RES], ni[APP], "CFW install on stock")
+        up(nand, si[APP], ni[RES], ni[APP], "TTY install on stock")
         check_reads(nand, files, si[RES], "boot reads after the install")
         ok &= stub_cases(nand, ni[APP], si[RES], files)
         cfw_end = RES_DATA + nblk_of(ni[RES])
-        up(nand, ni[APP], si[RES], si[APP], "stock reinstall on the CFW camera")
+        up(nand, ni[APP], si[RES], si[APP], "stock reinstall on the TTY camera")
         check_reads(nand, files, si[RES], "boot reads after the stock reinstall", cfw=False)
         stale = sorted({k >> 8 for k in nand.s if nand.s[k] != seed.get(k)})
         expect = list(range(RES_DATA + nblk_of(si[RES]), cfw_end))
@@ -629,7 +629,7 @@ def main(argv=None):
             raise Fail(f"NAND after the stock reinstall differs from stock in blocks {[hex(b) for b in stale]}")
         print(f"[OK] stock reinstall: NAND byte-identical to stock except block(s) "
               f"{', '.join(f'0x{b:X}' for b in stale) or 'none'} past the stock RES end, which keep unreachable "
-              "CFW bytes (never erased by up, finding 29 §4)")
+              "TTY bytes (never erased by up, finding 29 §4)")
     except (Fail, RomError) as ex:
         print(f"[FAIL] {ex}")
         ok = False

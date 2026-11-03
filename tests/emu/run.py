@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Emulator smoke test of the CFW (both stages, real code) against b01firm8.
+"""Emulator smoke test of GR II TTY (both stages, real code) against b01firm8.
 
     python3 tests/emu/run.py [--variant release|debug|rom] [--render OUT_DIR]
 
 Boots stage 1 like `fload` + `ex`, loads stage 2 from the modelled H: drive,
-then drives the CFW task functions through the scenarios below. The rom
+then drives the TTY task functions through the scenarios below. The rom
 variant (release firmware, M11) runs its own scenario: boots through a model
-of the release stub with the CFW on the A: drive (scripts/rom_files.py). Exit 0 when
+of the release stub with TTY on the A: drive (scripts/rom_files.py). Exit 0 when
 all checks pass, 1 on a failure or missing inputs. Inputs (`make fw`, not in
 the repo):
     GR2_FW          firmware image (default fw/b01firm8.bin)
@@ -22,14 +22,14 @@ import traceback
 import types
 
 HERE = pathlib.Path(__file__).resolve().parent
-CFW = HERE.parents[1]
+REPO = HERE.parents[1]
 sys.path.insert(0, str(HERE))
-sys.path.insert(1, str(CFW / 'scripts'))
+sys.path.insert(1, str(REPO / 'scripts'))
 
 KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_OK, KEY_EFFECT = 0x4206, 0x4207, 0x4208, 0x4209, 0x420A, 0x421C
 MENU_SETTINGS, MENU_RECIPES = 0, 1
 TABS = ['EXPOSURE', 'FOCUS', 'VIEW', 'IMAGE', 'INFO', 'DEV']
-DOT = '\x86'                                   # GLYPH_DOT in the CFW fonts
+DOT = '\x86'                                   # GLYPH_DOT in the TTY fonts
 NONE = 0xFFFF
 TONE_SECONDARY = [NONE, 1, 2, NONE, 1, 2]      # src/look.c
 LOOK_MATRIX, LOOK_TONE, LOOK_POST, LOOK_HUE = 1, 2, 4, 8
@@ -53,7 +53,7 @@ PALETTE_HW = {0: 0x00000000, 241: 0x062D807F}
 
 
 def load_inputs():
-    fw = pathlib.Path(os.environ.get('GR2_FW', CFW / 'fw' / 'b01firm8.bin'))
+    fw = pathlib.Path(os.environ.get('GR2_FW', REPO / 'fw' / 'b01firm8.bin'))
     afs = fw.parent / 'afs'
     need = {'firmware': fw, 'iq': afs / 'isp' / 'IQ.bin', 'ae_f': afs / 'fix' / 'AE_F.bin'}
     missing = [str(p) for p in need.values() if not p.is_file()]
@@ -68,10 +68,10 @@ def load_inputs():
     return inp, []
 
 
-# ---- recipes as the CFW should see them ----------------------------------------------------------
+# ---- recipes as TTY should see them ----------------------------------------------------------
 
 def recipe_info(file, data):
-    """What the CFW should make of recipe file `file` with bytes `data`."""
+    """What TTY should make of recipe file `file` with bytes `data`."""
     kv = dict(re.findall(r'^\s*(\w+)\s*=\s*(.*?)\s*$', data.decode('ascii').split('\x00')[0], re.M))
     flags = 0
     if kv.get('base') in LOOK_BASES:
@@ -90,12 +90,12 @@ def by_name(recipes):
 
 
 def shipped_recipes():
-    return by_name(recipe_info(p.name, p.read_bytes()) for p in sorted((CFW / 'recipes').glob('*.txt')))
+    return by_name(recipe_info(p.name, p.read_bytes()) for p in sorted((REPO / 'recipes').glob('*.txt')))
 
 
 def test_recipe(name, body):
     """A recipe file built here (the repository ships only the film recipes): Setting2, neutral steps."""
-    return (f'# gr2_cfw test recipe\r\nname={name}\r\nbase=setting2\r\nsaturation=0\r\ncontrast=0\r\nsharpness=0\r\n'
+    return (f'# GR II TTY test recipe\r\nname={name}\r\nbase=setting2\r\nsaturation=0\r\ncontrast=0\r\nsharpness=0\r\n'
             f'vignetting=off\r\n{body}').encode('ascii')
 
 
@@ -131,30 +131,30 @@ class Checks:
 # ---- session helpers ------------------------------------------------------------------------------
 
 class Session:
-    """One emulated camera: boot + the CFW task's start sequence (src/task.c)."""
+    """One emulated camera: boot + the TTY task's start sequence (src/task.c)."""
 
     def __init__(self, ctx, files=None, props=None, slots=None, loader=False, on_hook=None, drop=(), cfw_files=True,
                  card=True, a_extra=None):
-        """cfw_files: the card carries cfw/recipes and cfw/fonts (the SD zip); card=False: no card at all;
+        """cfw_files: the card carries tty/recipes and tty/fonts (the SD zip); card=False: no card at all;
         a_extra: files added to the rom variant's A: drive."""
         import machine
         self.ctx = ctx
-        self.m = m = machine.Machine(ctx.inputs, ctx.variant, str(CFW), files=files, props=props, slots=slots,
+        self.m = m = machine.Machine(ctx.inputs, ctx.variant, str(REPO), files=files, props=props, slots=slots,
                                      card=card, a_extra=a_extra)
         ctx.machines.append(m)
-        for p in sorted((CFW / 'recipes').glob('*.txt')) if cfw_files else ():
-            m.put_file('H:/cfw/recipes/' + p.name, p.read_bytes())
-        for p in sorted((CFW / 'recipes' / 'licenses').glob('*')) if cfw_files else ():
-            m.put_file('H:/cfw/recipes/licenses/' + p.name, p.read_bytes())
-        for p in sorted((CFW / 'fonts').glob('*.fnt')) if cfw_files else ():
-            m.put_file('H:/cfw/fonts/' + p.name, p.read_bytes())
+        for p in sorted((REPO / 'recipes').glob('*.txt')) if cfw_files else ():
+            m.put_file('H:/tty/recipes/' + p.name, p.read_bytes())
+        for p in sorted((REPO / 'recipes' / 'licenses').glob('*')) if cfw_files else ():
+            m.put_file('H:/tty/recipes/licenses/' + p.name, p.read_bytes())
+        for p in sorted((REPO / 'fonts').glob('*.fnt')) if cfw_files else ():
+            m.put_file('H:/tty/fonts/' + p.name, p.read_bytes())
         for path in drop:                       # card files that are gone in this session
             del m.files[path.upper()]
         self.rc = m.boot(loader=loader, on_hook=on_hook)
-        task = [t for t in m.tasks if t['name'] == 'CFW']
-        ctx.check(len(task) == 1 and task[0]['entry'] & ~1 == m.syms['cfw_task'] & ~1, 'CFW task not created')
+        task = [t for t in m.tasks if t['name'] == 'TTY']
+        ctx.check(len(task) == 1 and task[0]['entry'] & ~1 == m.syms['cfw_task'] & ~1, 'TTY task not created')
         m.boot_step_done(10)
-        m.call('cfw_task_poll')            # the CFW task's first iteration with every boot phase open
+        m.call('cfw_task_poll')            # the TTY task's first iteration with every boot phase open
 
     def keys(self, *ks):
         for k in ks:
@@ -263,7 +263,7 @@ def sc_boot(ctx):
         check(img == struct.pack('>HH', ohi, olo), f'stock BL at {site:#x} not as expected in the image')
         check((m.u16(site), m.u16(site + 2)) == (nhi, nlo), f'BL at {site:#x} not retargeted to {veneer:#x}')
         check(m.u32(m.syms1[tgt]) == m.syms[hook] | 1, f'{tgt} != {hook}')
-    # Effect press through the patched stock BL: CFW values count, others reach the stock function.
+    # Effect press through the patched stock BL: TTY values count, others reach the stock function.
     for value, menu in ((0x20, 0), (0x21, 1), (0x05, None)):
         before = [m.call('cfw_hook_requests', k) for k in (0, 1)]
         m.run_range(0xA03A1F93, 0xA03A1F96, value)
@@ -297,7 +297,7 @@ def sc_boot(ctx):
     else:
         check(patched == stock_off and not new, 'release build touched the power-off job')
     # Menu choices: labels resolve through the stock (bound-patched) string accessor.
-    for sid, label in ((0x354, 'CFW Menu'), (0x35E, 'Recipes')):
+    for sid, label in ((0x354, 'TTY Menu'), (0x35E, 'Recipes')):
         got = m.ustr(m.call_addr(machine.STRING_RESOLVER, sid))
         check(got == label, f'string {sid:#x} resolves to {got!r}')
     check(m.ustr(m.call_addr(machine.STRING_RESOLVER, 0x1A2)) == 'Name', 'stock string 0x1A2 lost')
@@ -305,12 +305,12 @@ def sc_boot(ctx):
     l1 = m.u32(efx + 0x10)
     check(m.u16(efx + 0x0C) == 34 and [m.u32(l1 + 12 * i) for i in (32, 33)] == [0x20, 0x21],
           'Effect menu choices 0x20/0x21 missing')
-    # Shell: one record "cfw" appended.
+    # Shell: one record "tty" appended.
     check(m.u32(machine.A_SHELL_CTX + 8) == 923, 'shell count not incremented')
     node = m.u32(machine.A_SHELL_CTX + 4)
     while m.u32(node + 4):
         node = m.u32(node + 4)
-    check(m.cstr(m.u32(node)) == 'cfw', 'shell record "cfw" not appended')
+    check(m.cstr(m.u32(node)) == 'tty', 'shell record "tty" not appended')
     # Key input: pass-through while closed, queued and consumed while the overlay is open.
     slot = m.u32(machine.A_MSG_HANDLER_SLOT)
     check(slot == m.syms['msg_hook'] | 1, 'message handler slot not swapped')
@@ -318,7 +318,7 @@ def sc_boot(ctx):
     m.wr(msg, struct.pack('>3I', KEY_RIGHT, 1, 0))
     check(m.call_addr(slot, msg) == 0 and m.stock_calls[-1] == ('msg', KEY_RIGHT, 1), 'closed: key not passed on')
     s.request(MENU_SETTINGS)
-    check(s.is_open(), 'CFW Menu did not open')
+    check(s.is_open(), 'TTY Menu did not open')
     check(m.call_addr(slot, msg) == 1, 'open: key press not consumed')
     m.wr(msg, struct.pack('>3I', KEY_RIGHT, 0, 0))
     check(m.call_addr(slot, msg) == 1, 'open: key release not consumed')
@@ -328,12 +328,12 @@ def sc_boot(ctx):
         got.append((m.u32(out), m.u32(out + 4)))
     check(got == [(KEY_RIGHT, 1), (KEY_RIGHT, 0)], f'queued keys {got}')
     s.keys(KEY_EFFECT)
-    check(not s.is_open(), 'Effect did not close the CFW Menu')
+    check(not s.is_open(), 'Effect did not close the TTY Menu')
     finish(ctx, s)
 
 
 def sc_menu(ctx):
-    """CFW Menu: all tabs, Auto ISO AE_F writes and their stock restore, property settings, INFO."""
+    """TTY Menu: all tabs, Auto ISO AE_F writes and their stock restore, property settings, INFO."""
     import machine
     check = ctx.check
     s = Session(ctx)
@@ -397,7 +397,7 @@ def sc_menu(ctx):
     check(not s.is_open() and m.layer[3] == machine.OSD_BITMAPS[0], 'stock OSD buffer not back after close')
     cfg = m.cfg_text()
     check('aisomin=00000000' in cfg and 'clarity.s=00000007' in cfg, f'config not saved to D:: {cfg!r}')
-    check((m.file('H:/cfw/config.txt') or b'').decode() == cfg, 'card backup copy differs from D:')
+    check((m.file('H:/tty/config.txt') or b'').decode() == cfg, 'card backup copy differs from D:')
     finish(ctx, s)
 
 
@@ -459,7 +459,7 @@ def sc_recipes(ctx):
     pi = next(i for i, r in enumerate(rec) if r['file'] == 'portra.txt')
     s.keys(*[KEY_LEFT] * (len(rec) - pi))
     check(s.look_shown({3: rec[pi]['flags']}), 'Left did not return to Portra')
-    # CFW matrix record 11 = recipe matrix x stock record 0 (src/look.c write_records)
+    # TTY matrix record 11 = recipe matrix x stock record 0 (src/look.c write_records)
     sect = m.u32(machine.IQ_BASE + 0x24 + 4 * 8)
     stock0 = struct.unpack('>9h', m.iq_image[0x7B44 + 4:0x7B44 + 22])
     M = rec[pi]['matrix']
@@ -511,7 +511,7 @@ def sc_recipes(ctx):
     finish(ctx, s2)
     # ... and from the look cache alone when the recipe file is no longer on the card (no ERROR, no rewrite).
     d = s2.m.d_files()
-    s3 = Session(ctx, files=d, slots=m.slots, props={0x2D: 4, 6: 2}, drop=['H:/cfw/recipes/portra.txt'])
+    s3 = Session(ctx, files=d, slots=m.slots, props={0x2D: 4, 6: 2}, drop=['H:/tty/recipes/portra.txt'])
     check(s3.look_shown({3: rec[pi]['flags']}), 'recipe file gone: cached MY2 look not shown')
     check(s3.m.d_files() == d, 'D: rewritten although nothing changed')
     finish(ctx, s3)
@@ -593,10 +593,10 @@ def sc_dev(ctx):
     check(s.info(1, 0) == 'OFF' and s.info(1, 8) == '-', f'before start: {s.info(1, 0)!r}')
     s.keys(KEY_OK)
     check(not m.msgs and m.props[0x1E8] == 0, f'Wi-Fi touched: msgs {m.msgs}')
-    check([t['name'] for t in m.tasks] == ['CFW', 'CFWcon'], f'tasks: {[t["name"] for t in m.tasks]}')
+    check([t['name'] for t in m.tasks] == ['TTY', 'TTYcon'], f'tasks: {[t["name"] for t in m.tasks]}')
     check(s.info(1, 0) == f'ON  {DOT}  Wi-Fi off (camera menu)', f'console row, Wi-Fi off: {s.info(1, 0)!r}')
     m.props[0x260] = 1                                         # turned on in the camera menu
-    m.w32(m.syms['g_listen'], 3)                               # CFWcon has its listening socket
+    m.w32(m.syms['g_listen'], 3)                               # TTYcon has its listening socket
     check(s.info(1, 0) == f'ON  {DOT}  telnet 192.168.0.1' and s.info(1, 8) == f'GR_A1B2C3  {DOT}  secretpass12',
           f'Wi-Fi row: {s.info(1, 8)!r}')
     m.call('cfw_ui_tick')
@@ -607,7 +607,7 @@ def sc_dev(ctx):
     s.keys(KEY_OK)
     check(len(m.tasks) == 2 and s.info(1, 0) != 'OFF', 'console on again: task started twice or still off')
     s.keys(KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_OK)
-    dump = m.file('H:/cfw/iq_ram.bin')
+    dump = m.file('H:/tty/iq_ram.bin')
     check(dump is not None and len(dump) == 0x2FAA0, f'IQ dump size {len(dump or b"")}')
     check(dump == m.rd(machine.IQ_BASE, 0x2FAA0) and s.info(1, 4) == 'iq_ram.bin saved', 'IQ dump content')
     s.keys(KEY_UP, KEY_UP, KEY_OK)
@@ -615,10 +615,10 @@ def sc_dev(ctx):
     s.keys(KEY_UP, KEY_OK)
     check(not s.is_open(), 'screenshot did not close the menu')
     m.call('info_poll')
-    check(m.file('H:/cfw/shot0001.bmp') is None, 'screenshot taken before the delay')
+    check(m.file('H:/tty/shot0001.bmp') is None, 'screenshot taken before the delay')
     m.time_ms += 1500
     m.call('info_poll')
-    bmp = m.file('H:/cfw/shot0001.bmp')
+    bmp = m.file('H:/tty/shot0001.bmp')
     check(bmp is not None and len(bmp) == SHOT_BYTES, f'screenshot size {len(bmp or b"")}')
     check(bmp == expected_shot(m), 'screenshot pixels differ from LV + shown OSD')
     check(lv_gradient_visible(bmp, m), 'LV gradient not visible in the screenshot')
@@ -696,7 +696,7 @@ def sc_recipe_files(ctx):
     extra = {**TEST_RECIPES,
              'zzz.txt': test_recipe('zzz', 'matrix=128,0,0,0,128,0,0,0,128\r\n'),
              'stock.txt': test_recipe('Stock', 'matrix=120,4,4,4,120,4,4,4,120\r\n')}
-    s = Session(ctx, files={'H:/cfw/recipes/' + k: v for k, v in extra.items()}, props={0x2D: 4})
+    s = Session(ctx, files={'H:/tty/recipes/' + k: v for k, v in extra.items()}, props={0x2D: 4})
     want = by_name(ctx.recipes + [recipe_info(k, v) for k, v in extra.items()])
     names = s.recipe_names()
     check(names == [r['name'] for r in want] + ['Stock'], f'recipe list {names}')
@@ -735,7 +735,7 @@ def sc_view(ctx):
     m.call('overlay_poll')
     check(xpan_ok(buf(0)), 'XPan frame not stamped into BITMAPS[2] (mask y 28-121/358-451, lines 122-123/356-357)')
     s.render('view_xpan')
-    # Stock flip: it copies its canvas over BITMAPS[3] and shows it; the CFW stamps again.
+    # Stock flip: it copies its canvas over BITMAPS[3] and shows it; TTY stamps again.
     m.wr(machine.FULL_BUFS[1], b'\0' * (640 * 480 * 2))
     m.wr(machine.A_GSTATE + 1, b'\x03')
     m.call('overlay_poll')
@@ -820,12 +820,12 @@ def sc_ae_hooks(ctx):
     check(m2.u16(TAV) == 0x000A and s2.setting(S_TAVMIN) == 'ERR', 'patched over a foreign guard')
     errs = [l for l in m2.log_lines() if 'ERROR' in l]
     check(len(errs) == 1 and 'not as expected' in errs[0], f'guard error not logged: {errs}')
-    m2.files.pop('H:/CFW/CFW_LOG.TXT')                 # the expected ERROR line (both variants log ERRORs)
+    m2.files.pop('H:/TTY/TTY_LOG.TXT')                 # the expected ERROR line (both variants log ERRORs)
     finish(ctx, s2)
 
 
-def console_exec(m, line, size=8192, task='CFW'):
-    """Run one developer-console line in the CFW (console_exec); returns (rc, text)."""
+def console_exec(m, line, size=8192, task='TTY'):
+    """Run one developer-console line in TTY (console_exec); returns (rc, text)."""
     lp = m.obj_alloc(len(line) + 1)
     m.wr(lp, line.encode('latin-1') + b'\0')
     op = m.obj_alloc(size)
@@ -835,7 +835,7 @@ def console_exec(m, line, size=8192, task='CFW'):
 
 
 def sc_console(ctx):
-    """DEV telnet ON starts the developer console: server task, printf capture hook, CFW log tap;
+    """DEV telnet ON starts the developer console: server task, printf capture hook, TTY log tap;
     commands log, sh, tasks, heap, mem (bounds), status, unknown, exit."""
     import machine
     check = ctx.check
@@ -845,12 +845,12 @@ def sc_console(ctx):
     s.keys(KEY_LEFT, KEY_DOWN, KEY_OK)                         # DEV: telnet ON
     check(s.info(1, 0) == f'ON  {DOT}  telnet 192.168.0.1' or s.info(1, 0) == f'ON  {DOT}  Wi-Fi off (camera menu)',
           f'console row: {s.info(1, 0)!r}')
-    con = [t for t in m.tasks if t['name'] == 'CFWcon']
+    con = [t for t in m.tasks if t['name'] == 'TTYcon']
     check(len(con) == 1 and con[0]['entry'] & ~1 == m.syms['server'] & ~1, 'console task not started')
     hook = m.u32(machine.A_CONSOLE_HOOK_SLOT)
     check(hook & ~1 == m.syms['printf_hook'] & ~1, f'printf hook not installed: {hook:#x}')
     s.keys(KEY_OK, KEY_OK)                                     # off and on again: still one task, hook back
-    check(len([t for t in m.tasks if t['name'] == 'CFWcon']) == 1 and m.u32(machine.A_CONSOLE_HOOK_SLOT) == hook,
+    check(len([t for t in m.tasks if t['name'] == 'TTYcon']) == 1 and m.u32(machine.A_CONSOLE_HOOK_SLOT) == hook,
           'console task started twice or hook not reinstalled')
     s.keys(KEY_EFFECT)
     # printf text from any task lands in the ring
@@ -860,7 +860,7 @@ def sc_console(ctx):
     rc, out = console_exec(m, 'log')
     check(rc > 0 and 'lens: hello from printf\r\n' in out, f'log: {out[-200:]!r}')
     if ctx.variant == 'debug':
-        check('console: on' in out, 'CFW log lines not mirrored into the console')
+        check('console: on' in out, 'TTY log lines not mirrored into the console')
     # sh: stock command, its result text
     m.shell_rc, m.shell_result = 7, 'done'
     rc, out = console_exec(m, 'sh  wsys  ')
@@ -896,7 +896,7 @@ def sc_console(ctx):
     check(out.startswith('only DRAM'), 'mem past the end of DRAM accepted')
     # status, unknown, truncation, exit
     rc, out = console_exec(m, 'status')
-    check(out.startswith('gr2_cfw ') and 'Auto ISO in M' in out and 'capture on' in out, f'status: {out[:200]!r}')
+    check(out.startswith('GR II TTY ') and 'Auto ISO in M' in out and 'capture on' in out, f'status: {out[:200]!r}')
     m.shell_rc, m.shell_result = 3, None
     rc, out = console_exec(m, 'ver')                           # not a console command: runs as a stock command
     check(m.shell_lines[-1] == 'ver' and out == 'result: 3\r\n', f'stock fallthrough: {out!r}')
@@ -909,14 +909,14 @@ def sc_console(ctx):
     m.sock_in = [b'\xff\xfb\x01\xff\xfd\x03he', b'lp\r\n', b'\r\n', b'frob\x7fx\r', b'exit\r\n', b'status\r\n']
     m.call('session', 5)
     out = m.sock_out.decode('latin-1')
-    check(out.startswith('gr2_cfw ') and 'developer console' in out and out.count('\r\n> ') == 3, f'session: {out!r}')
-    check('mem <addr> [len]' in out and out.endswith('result: 3\r\n> ') and m.shell_lines[-1] == 'frox',
+    check(out.startswith('GR II TTY ') and 'developer console' in out and out.count('\r\ntty> ') == 3, f'session: {out!r}')
+    check('mem <addr> [len]' in out and out.endswith('result: 3\r\ntty> ') and m.shell_lines[-1] == 'frox',
           f'session tail: {out[-80:]!r}')
     check(m.sock_in == [b'status\r\n'], 'session read past exit')
     finish(ctx, s)
 
 
-# ---- export (src/export.c): recipe keys -> slot properties, worked out here independently of the CFW -------------
+# ---- export (src/export.c): recipe keys -> slot properties, worked out here independently of TTY -------------
 
 EXPORT_BASES = {'standard': (0, 0), 'vivid': (1, 0), 'setting1': (3, 0), 'setting2': (4, 0), 'bright': (2, 1),
                 'bw': (5, 1), 'bw_te': (6, 1), 'hicontrast_bw': (7, 1), 'cross_process': (8, 1),
@@ -992,12 +992,12 @@ def slot_name(v):
 def sc_export(ctx):
     """DEV "Export settings to card" and the console's `export` (src/export.c): (a) MY slots, boxes, live settings,
     Setting1/2 and changed effect sliders give the expected keys (Hi-Contrast B&W contrast, custom NR, ISO,
-    AUTO-HI, comments for manual WB and a 1/2-step EV; a name with '#' changed; the camera's Clarity value under a CFW
+    AUTO-HI, comments for manual WB and a 1/2-step EV; a name with '#' changed; the camera's Clarity value under a TTY
     Clarity strength); nothing written at boot, no slot or property changed; (b) every file applied to MY3 sets each
     property its keys name to the source value and nothing else; (c) the slot linked to Portra exports Portra's look
     keys (also live with the dial on it), which parse to the same look, and MY1 linked to Vision3 500T (no slot
     change) its look; (d) no card: an error, nothing written;
-    (e) the export runs in the CFW task within its stack, also for the console (CFWcon waits in Task_Delay)."""
+    (e) the export runs in the TTY task within its stack, also for the console (TTYcon waits in Task_Delay)."""
     import machine
     check = ctx.check
     mask = 0xFFFFFFFF
@@ -1024,12 +1024,12 @@ def sc_export(ctx):
     live.update({5: 2, 6: 0, 0x2B: 0, 0x2C: 3, 0x2D: 3, 0x2E + 3: 6, 0x46 + 3: 4, 0x76 + 3: 0, 0x2E + 9: 8, 0xFE: 4})
     cfg = b'rc1.0=504F5254\r\nrc1.1=52412E54\r\nrc1.2=58540000\r\nclarity=00000009\r\n'   # MY1 = PORTRA.TXT
     cfg500 = b'rc1.0=56335F35\r\nrc1.1=3030542E\r\nrc1.2=54585400\r\nclarity=00000009\r\n'   # MY1 = V3_500T.TXT
-    portra = recipe_kv((CFW / 'recipes' / 'portra.txt').read_bytes())
-    v500t = recipe_kv((CFW / 'recipes' / 'v3_500t.txt').read_bytes())
+    portra = recipe_kv((REPO / 'recipes' / 'portra.txt').read_bytes())
+    v500t = recipe_kv((REPO / 'recipes' / 'v3_500t.txt').read_bytes())
 
-    s = Session(ctx, files={'H:/cfw/config.txt': cfg}, props=dict(live), slots=slots)
+    s = Session(ctx, files={'H:/tty/config.txt': cfg}, props=dict(live), slots=slots)
     m = s.m
-    check(m.props[0xCE] == 9, 'CFW Clarity strength 9 not in force')
+    check(m.props[0xCE] == 9, 'TTY Clarity strength 9 not in force')
     check(not [e for e in m.io if 'EXPORT' in e[1].upper() or 'P_BOX' in e[1]], 'export files touched at boot')
     live_src = [m.props.get(i, dflt[i]) for i in range(899)]
     live_src[0xCE] = 7                                          # the camera's own Clarity value
@@ -1037,13 +1037,13 @@ def sc_export(ctx):
     m.stack_margin = 1 << 30
     s.request(MENU_SETTINGS)
     s.keys(KEY_LEFT, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_OK)   # DEV: Export settings to card
-    out = {m.names[k].rsplit('/', 1)[1]: m.file(k) for k in m.files if k.startswith('H:/CFW/EXPORT/')}
+    out = {m.names[k].rsplit('/', 1)[1]: m.file(k) for k in m.files if k.startswith('H:/TTY/EXPORT/')}
     want = ['box01.txt', 'box03.txt', 'fx09.txt', 'live.txt', 'my1.txt', 'my2.txt', 'set1.txt', 'set2.txt']
     check(sorted(out) == want, f'export files {sorted(out)}')
-    check(s.info(1, 3) == f'{len(want)} files in cfw/export', f'DEV row: {s.info(1, 3)!r}')
+    check(s.info(1, 3) == f'{len(want)} files in tty/export', f'DEV row: {s.info(1, 3)!r}')
     check(m.slots == before and len(m.prop_sets) == sets, 'the export changed a slot file or a property')
-    check(all(t == 'CFW' for _, _, t in m.io[io0:]) and m.stack_margin >= 0,
-          f'export outside the CFW task or over its stack (margin {m.stack_margin} B)')
+    check(all(t == 'TTY' for _, _, t in m.io[io0:]) and m.stack_margin >= 0,
+          f'export outside the TTY task or over its stack (margin {m.stack_margin} B)')
     for f, d in out.items():
         check(d.isascii() and b'\n' not in d.replace(b'\r\n', b'') and len(d) <= 4094 and d.startswith(b'# '),
               f'{f}: not an ASCII CRLF recipe of at most 4094 bytes')
@@ -1076,11 +1076,11 @@ def sc_export(ctx):
     check(look_of(portra) and look_of(recipe_kv(out['my1.txt'])) == look_of(portra), 'my1.txt: not Portra\'s look')
     check(not any(look_of(recipe_kv(d)) for f, d in out.items() if f != 'my1.txt'), 'look keys in another file')
     # ... and with MY1 on Vision3 500T (same base) its look.
-    s5 = Session(ctx, files={'H:/cfw/config.txt': cfg500}, props=dict(live), slots=slots)
+    s5 = Session(ctx, files={'H:/tty/config.txt': cfg500}, props=dict(live), slots=slots)
     s5.m.stack_margin = 1 << 30
     s5.request(MENU_SETTINGS)
     s5.keys(KEY_LEFT, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_OK)
-    e500 = next((s5.m.file(k) for k in s5.m.files if k.upper() == 'H:/CFW/EXPORT/MY1.TXT'), b'')
+    e500 = next((s5.m.file(k) for k in s5.m.files if k.upper() == 'H:/TTY/EXPORT/MY1.TXT'), b'')
     got, want_l = look_of(recipe_kv(e500)), look_of(v500t)
     check(want_l and got == want_l, f'my1.txt on Vision3 500T: not its look (keys differing: '
           f'{sorted(k for k in set(got) | set(want_l) if got.get(k) != want_l.get(k))})')
@@ -1090,7 +1090,7 @@ def sc_export(ctx):
     s.keys(KEY_OK)
     check(s.info(1, 3) == 'no card', f'no card: {s.info(1, 3)!r}')
     check({k: bytes(v) for k, v in m.files.items()} == files and m.slots == before and
-          all(e[0] in ('File_Mkdir', 'File_Open') and e[1].upper().startswith('H:/CFW') for e in m.io[io1:]),
+          all(e[0] in ('File_Mkdir', 'File_Open') and e[1].upper().startswith('H:/TTY') for e in m.io[io1:]),
           f'no card: something written: {m.io[io1:]}')
     m.card = True
     s.keys(KEY_EFFECT)
@@ -1102,10 +1102,10 @@ def sc_export(ctx):
         check('stack' in str(ex), f'small stack: {ex}')
     finish(ctx, s)
 
-    # (b) Round trip: every exported file, from cfw/recipes, applied to MY3 (never saved before).
+    # (b) Round trip: every exported file, from tty/recipes, applied to MY3 (never saved before).
     src = {'my1.txt': my1, 'my2.txt': my2, 'box01.txt': box1, 'box03.txt': box3, 'live.txt': live_src,
            'set1.txt': live_src, 'set2.txt': live_src, 'fx09.txt': live_src}
-    s2 = Session(ctx, files={'H:/cfw/recipes/' + f: d for f, d in out.items()}, props=dict(live))
+    s2 = Session(ctx, files={'H:/tty/recipes/' + f: d for f, d in out.items()}, props=dict(live))
     m2 = s2.m
     names = s2.recipe_names()
     for f, d in sorted(out.items()):
@@ -1124,7 +1124,7 @@ def sc_export(ctx):
         other = [hex(p) for p in range(899) if slot[p] != old[p] and p not in ids and p not in NAME_IDS]
         check(not other, f'{f} applied to MY3 changed properties no key names: {other}')
         check(slot_name(slot) == dict(kv)['name'], f'{f}: MY3 name {slot_name(slot)!r}')
-    # (c) the CFW parses my1.txt to Portra's look, and MY3 now holds it.
+    # (c) TTY parses my1.txt to Portra's look, and MY3 now holds it.
     mono = m2.obj_alloc(4)
     look = lambda n: m2.rd(m2.call('recipes_look', names.index(n), mono), 353)
     check(look('Portra Look') == look('Portra 400'), 'my1.txt parsed to another look than portra.txt')
@@ -1132,39 +1132,39 @@ def sc_export(ctx):
     check(m2.call('recipes_apply', i, 2) == 0 and 'rc3.0=4D59312E' in m2.cfg_text(), 'MY3 does not hold MY1.TXT')
     finish(ctx, s2)
 
-    # Console `export` with the dial on MY1: the CFW task runs it while CFWcon waits; live carries MY1's look,
+    # Console `export` with the dial on MY1: the TTY task runs it while TTYcon waits; live carries MY1's look,
     # Setting1 comes from B:/P_COMMON.bin.
     live_b = {i: my1[i] for i in live}
     live_b.update({5: 3, 6: 1, 0x2D: 4})
     slots_b = {**slots, 'B:/P_COMMON.bin': preset({0x2C: 3, 0x2E + 3: 9})}
-    s3 = Session(ctx, files={'H:/cfw/config.txt': cfg}, props=live_b, slots=slots_b)
+    s3 = Session(ctx, files={'H:/tty/config.txt': cfg}, props=live_b, slots=slots_b)
     m3 = s3.m
     m3.on_delay = lambda mm: mm.call_in_task('cfw_task_poll')
     io0, m3.stack_margin = len(m3.io), 1 << 30
-    rc, text = console_exec(m3, 'export', task='CFWcon')
-    writes = [e for e in m3.io[io0:] if e[1].upper().startswith('H:/CFW/EXPORT/')]
-    check('7 files in cfw/export' in text and len(writes) == 7 and all(e[2] == 'CFW' for e in writes),
+    rc, text = console_exec(m3, 'export', task='TTYcon')
+    writes = [e for e in m3.io[io0:] if e[1].upper().startswith('H:/TTY/EXPORT/')]
+    check('7 files in tty/export' in text and len(writes) == 7 and all(e[2] == 'TTY' for e in writes),
           f'console export: {text!r}, writes {writes}')
-    check(m3.stack_margin >= 0, f'console export: over the CFW task stack (margin {m3.stack_margin} B)')
-    check(look_of(recipe_kv(m3.file('H:/cfw/export/live.txt'))) == look_of(portra), 'live.txt on MY1: no Portra look')
-    set1 = dict(recipe_kv(m3.file('H:/cfw/export/set1.txt')))
+    check(m3.stack_margin >= 0, f'console export: over the TTY task stack (margin {m3.stack_margin} B)')
+    check(look_of(recipe_kv(m3.file('H:/tty/export/live.txt'))) == look_of(portra), 'live.txt on MY1: no Portra look')
+    set1 = dict(recipe_kv(m3.file('H:/tty/export/set1.txt')))
     check(set1['saturation'] == '4', f'set1.txt not from P_COMMON: {set1}')
-    m3.on_delay = None                                          # the CFW task does not run: the console gives up
-    rc, text = console_exec(m3, 'export', task='CFWcon')
-    check(rc > 0 and 'files' not in text, f'console export without the CFW task: {text!r}')
+    m3.on_delay = None                                          # the TTY task does not run: the console gives up
+    rc, text = console_exec(m3, 'export', task='TTYcon')
+    check(rc > 0 and 'files' not in text, f'console export without the TTY task: {text!r}')
     finish(ctx, s3)
 
 
 def sc_loader(ctx):
-    """Flashed loader (stub v2): stage 1 header, hook(n) from section 3 on (preload at the first hook, CFWldr task +
-    disarm at 13), M10c patch-on-load at hook(10), the CFW settings and the MY slot's look at the IQ-ready call (after
-    CapInit(5) loaded AE_F, never before), the CFW task from hook(10) in phases (APP, card, late), nothing written to H:
-    before step 13, no double install or task by cfw_main; USB boot (section 1 only) runs no CFW code at all; missing
+    """Flashed loader (stub v2): stage 1 header, hook(n) from section 3 on (preload at the first hook, TTYldr task +
+    disarm at 13), M10c patch-on-load at hook(10), the TTY settings and the MY slot's look at the IQ-ready call (after
+    CapInit(5) loaded AE_F, never before), the TTY task from hook(10) in phases (APP, card, late), nothing written to H:
+    before step 13, no double install or task by cfw_main; USB boot (section 1 only) runs no TTY code at all; missing
     stage 2 is logged only once the task runs; Startup.ttl refuses while the loader is active; no step 13 -> timeout,
-    CFW not started."""
+    TTY not started."""
     import machine
     check = ctx.check
-    s1 = (CFW / 'bin' / ctx.variant / 'gr2_cfw.bin').read_bytes()
+    s1 = (REPO / 'bin' / ctx.variant / 'gr2_cfw.bin').read_bytes()
     check(struct.unpack_from('>HHI', s1, 0)[2] == machine.LDR_MAGIC and s1[0] >> 3 == 0x1C,
           'stage 1 header: no b over the header or no GRL1 magic')
     check(struct.unpack_from('>I', s1, 8)[0] == ctx_sym1(ctx, 'cfw_ldr_hook') | 1, 'hook entry at +8')
@@ -1186,8 +1186,8 @@ def sc_loader(ctx):
         return tuple(mm.u32(mm.syms[k]) for k in ('g_task_started', 'g_task_fonts', 'g_task_late'))
 
     def on_hook(mm, n):
-        seen.setdefault('card', mm.file('H:/cfw/cfw_log.txt') is not None)
-        seen['card'] |= mm.file('H:/cfw/cfw_log.txt') is not None
+        seen.setdefault('card', mm.file('H:/tty/tty_log.txt') is not None)
+        seen['card'] |= mm.file('H:/tty/tty_log.txt') is not None
         if n == machine.LOADER_DECIDE_SECTION:                  # the first hook: JobSystem step 2 ran later
             seen['look_before_props'] = not shown(mm, {})
             mm.w32(machine.A_MODE_PROPS_FINAL, 1)
@@ -1208,7 +1208,7 @@ def sc_loader(ctx):
             seen['bl_before_10'] = mm.u16(site)
         if n == 10:
             seen['bl_at_10'] = mm.u16(site)
-            seen['tasks_at_10'] = sum(t['name'] == 'CFW' for t in mm.tasks)
+            seen['tasks_at_10'] = sum(t['name'] == 'TTY' for t in mm.tasks)
             seen['task_before_app'] = task(mm)                  # JobSystem step 10 not done yet
             mm.boot_step_done(10)
             seen['task_app'] = task(mm)                         # loop live; the card is being remounted later
@@ -1216,11 +1216,11 @@ def sc_loader(ctx):
             seen['task_card'] = task(mm)
         if n == 13:
             seen['task_13'] = task(mm)                          # cfw_main has not run: still not late
-    s = Session(ctx, files={'H:/cfw/config.txt': cfg}, props={0x2D: 4, 6: 2, 0xCE: 5}, loader=True, on_hook=on_hook)
+    s = Session(ctx, files={'H:/tty/config.txt': cfg}, props={0x2D: 4, 6: 2, 0xCE: 5}, loader=True, on_hook=on_hook)
     m = s.m
     cfw_bl = encode_bl(site, m.syms1['cfw_veneer_press'])[0]
-    ldr = [t for t in m.tasks if t['name'] == 'CFWldr']
-    check(s.rc == 0 and len(ldr) == 1 and ldr[0]['entry'] & ~1 == m.syms1['ldr_task'] & ~1, 'CFWldr task')
+    ldr = [t for t in m.tasks if t['name'] == 'TTYldr']
+    check(s.rc == 0 and len(ldr) == 1 and ldr[0]['entry'] & ~1 == m.syms1['ldr_task'] & ~1, 'TTYldr task')
     check(m.u32(machine.LDR_STATE) == 6, 'loader not disarmed after section 13')
     check(not seen['card'], 'H: written during the section-load hooks')
     check(seen['iq_bl'] == encode_bl(iq_site, m.syms1['cfw_veneer_iq']), f'IQ-ready BL not patched at hook(5): {seen["iq_bl"]}')
@@ -1231,8 +1231,8 @@ def sc_loader(ctx):
           'MY2 look not applied at the IQ-ready call (before live view), or the stock call not made once')
     check(s.look_shown({3: portra['flags']}), 'MY2 look lost after the task start')
     check(seen['clarity_before_iq'] == 5 and seen['clarity_at_iq'] == 9, 'Clarity not applied at the IQ-ready call')
-    check(seen['tasks_at_10'] == 1 and sum(t['name'] == 'CFW' for t in m.tasks) == 1,
-          'CFW task not created once at hook(10)')
+    check(seen['tasks_at_10'] == 1 and sum(t['name'] == 'TTY' for t in m.tasks) == 1,
+          'TTY task not created once at hook(10)')
     check(seen['task_before_app'] == (0, 0, 0) and seen['task_app'] == (1, 0, 0) and seen['task_card'] == (1, 1, 0)
           and seen['task_13'] == (1, 1, 0) and task(m) == (1, 1, 1),
           f'task phases: {[seen[k] for k in ("task_before_app", "task_app", "task_card", "task_13")]}')
@@ -1240,40 +1240,40 @@ def sc_loader(ctx):
     if ctx.variant == 'debug':
         log = m.log_lines()
         check(any('started by the flashed loader' in l for l in log), 'loader start not logged')
-        check(sum('menu: CFW Menu / Recipes added' in l for l in log) == 1, 'menus installed twice or never')
+        check(sum('menu: TTY Menu / Recipes added' in l for l in log) == 1, 'menus installed twice or never')
         check(any(l.startswith('hook: (n, systime) 0x0000000A') for l in log), 'hook timeline not logged')
-        check(log[0] == 'safeboot: state (before, after) 0x00000000 0x00000001' and log[1].startswith('=== gr2_cfw'),
+        check(log[0] == 'safeboot: state (before, after) 0x00000000 0x00000001' and log[1].startswith('=== GR II TTY '),
               f'held lines out of order (stage 1, then stage 2): {log[:2]}')
     finish(ctx, s)
 
     def bare(main=True):
-        mm = machine.Machine(ctx.inputs, ctx.variant, str(CFW))
+        mm = machine.Machine(ctx.inputs, ctx.variant, str(REPO))
         ctx.machines.append(mm)
         if main:
-            mm.put_file('H:/cfw/gr2_main.bin', mm.inputs_main())
+            mm.put_file('H:/tty/tty_main.bin', mm.inputs_main())
         mm.wr(machine.WINDOW, s1)
         return mm
 
-    # USB/PC boot: only section 1 loads, so the stub never decides and no CFW code runs
+    # USB/PC boot: only section 1 loads, so the stub never decides and no TTY code runs
     mu = bare()
     before = mu.u32(machine.LDR_STATE)
     check(mu.loader_hooks([1]) == [] and mu.u32(machine.LDR_STATE) == before, 'USB boot: state')
-    check(not mu.tasks and not mu.allocs, 'USB boot: CFW code ran')
+    check(not mu.tasks and not mu.allocs, 'USB boot: TTY code ran')
     # stage 2 missing: muted at the first hook, logged by the task
     mm = bare(main=False)
     mm.loader_hooks(machine.LOADER_SHOOTING)
-    check(mm.file('H:/cfw/cfw_log.txt') is None, 'card written at the first hook')
-    check([t['name'] for t in mm.tasks] == ['CFWldr'], 'CFWldr not started after a failed preload')
+    check(mm.file('H:/tty/tty_log.txt') is None, 'card written at the first hook')
+    check([t['name'] for t in mm.tasks] == ['TTYldr'], 'TTYldr not started after a failed preload')
     mm.boot_step_done(13)
     rc = mm.run_ldr_task()
     log = mm.log_lines()
-    check(rc == 0xFFFFFFFF and any('gr2_main.bin missing' in l for l in log) and
+    check(rc == 0xFFFFFFFF and any('tty_main.bin missing' in l for l in log) and
           any('not loaded at the first hook' in l for l in log), f'missing stage 2: {log}')
     # Startup.ttl while the loader runs this stage 1
     rc = mm.call_addr(mm.syms1['_start'] | 1, stack=machine.SCRIPT_TASK_STACK, task='Script')
     check(rc == 0xFFFFFFFF and any('flashed loader active' in l for l in mm.log_lines()), 'double load not refused')
     check(mm.u32(mm.syms1['g_boot']) == 0, 'stage 2 started twice')
-    mm.files.pop('H:/CFW/CFW_LOG.TXT')                         # expected ERROR lines
+    mm.files.pop('H:/TTY/TTY_LOG.TXT')                         # expected ERROR lines
     # JobSystem step 13 never completes
     mt = bare()
     mt.loader_hooks(machine.LOADER_SHOOTING)
@@ -1281,14 +1281,14 @@ def sc_loader(ctx):
     check(rc == 0xFFFFFFFF and any('not done after 60 s' in l for l in mt.log_lines()), 'no timeout')
     mt.boot_step_done(10)
     mt.call('cfw_task_poll')
-    check([t['name'] for t in mt.tasks].count('CFW') == 1 and mt.u32(mt.syms['g_task_late']) == 0,
-          'CFW task not started at hook(10), or its late phase (settings, saves) ran without step 13')
-    mt.files.pop('H:/CFW/CFW_LOG.TXT')
+    check([t['name'] for t in mt.tasks].count('TTY') == 1 and mt.u32(mt.syms['g_task_late']) == 0,
+          'TTY task not started at hook(10), or its late phase (settings, saves) ran without step 13')
+    mt.files.pop('H:/TTY/TTY_LOG.TXT')
 
 
 def ctx_sym1(ctx, name):
     import machine
-    return machine.Symbols(str(CFW / 'bin' / ctx.variant / 'gr2_cfw.elf'))[name]
+    return machine.Symbols(str(REPO / 'bin' / ctx.variant / 'gr2_cfw.elf'))[name]
 
 
 def sc_store(ctx):
@@ -1298,9 +1298,9 @@ def sc_store(ctx):
     check = ctx.check
     S_MAUTO = 14
     card = b'mauto=00000001\r\n'
-    s = Session(ctx, files={'H:/cfw/config.txt': card})
+    s = Session(ctx, files={'H:/tty/config.txt': card})
     m = s.m
-    check('mauto=00000001' in m.cfg_text() and m.file('H:/cfw/config.txt').decode() == m.cfg_text(),
+    check('mauto=00000001' in m.cfg_text() and m.file('H:/tty/config.txt').decode() == m.cfg_text(),
           'card config not imported, or the backup copy differs')
     check(m.store('D:/CFW/CFG_A.DAT', 'D:/CFW/CFG_B.DAT') is not None and m.file('D:/CFW/CFG_B.DAT') is None,
           'first save not in CFG_A')
@@ -1322,13 +1322,13 @@ def sc_store(ctx):
     finish(ctx, s2)
     # D: valid, card copy stale (edited or old): D: wins.
     d2 = m2.d_files()
-    s4 = Session(ctx, files={**d2, 'H:/cfw/config.txt': b'mauto=00000001\r\n'})
+    s4 = Session(ctx, files={**d2, 'H:/tty/config.txt': b'mauto=00000001\r\n'})
     check(s4.setting(S_MAUTO) == 'OFF', 'stale card copy preferred over D:')
-    check(s4.m.file('H:/cfw/config.txt').decode() == s4.m.cfg_text(), 'stale card copy not rewritten from D:')
+    check(s4.m.file('H:/tty/config.txt').decode() == s4.m.cfg_text(), 'stale card copy not rewritten from D:')
     finish(ctx, s4)
-    # Fresh cfw/ folder (no card copy), D: valid: the copy is written again, so a later battery pull can restore it.
+    # Fresh tty/ folder (no card copy), D: valid: the copy is written again, so a later battery pull can restore it.
     s5 = Session(ctx, files=d2)
-    check(s5.m.file('H:/cfw/config.txt').decode() == s5.m.cfg_text() == m2.cfg_text(), 'missing card copy not written')
+    check(s5.m.file('H:/tty/config.txt').decode() == s5.m.cfg_text() == m2.cfg_text(), 'missing card copy not written')
     finish(ctx, s5)
     # Wiped D: (Reset Settings) and no card file: built-in defaults.
     s3 = Session(ctx)
@@ -1340,17 +1340,17 @@ def sc_store(ctx):
 
 def sc_safeboot(ctx):
     """M12 safe boot (include/safeboot.h): OPSR bits 2-3 hold the state. A boot moves ARMED -> ONE_FAIL -> DISARMED
-    and still runs the CFW; DISARMED boots stock (stage 2 never loaded) until a PLAY power-on re-arms it; a session
+    and still runs TTY; DISARMED boots stock (stage 2 never loaded) until a PLAY power-on re-arms it; a session
     ended by the power-off job, or the healthy mark 20 s after the task start, counts as healthy; "Boot stock once"
-    gives one stock boot without undoing it; an invalid RTC runs the CFW (fail-open)."""
+    gives one stock boot without undoing it; an invalid RTC runs TTY (fail-open)."""
     import machine
     check = ctx.check
-    s1 = (CFW / 'bin' / ctx.variant / 'gr2_cfw.bin').read_bytes()
+    s1 = (REPO / 'bin' / ctx.variant / 'gr2_cfw.bin').read_bytes()
 
     def boot(state, clean=0, ui_mode=1, rtc=True):
-        mm = machine.Machine(ctx.inputs, ctx.variant, str(CFW), props={1: ui_mode})
+        mm = machine.Machine(ctx.inputs, ctx.variant, str(REPO), props={1: ui_mode})
         ctx.machines.append(mm)
-        mm.put_file('H:/cfw/gr2_main.bin', mm.inputs_main())
+        mm.put_file('H:/tty/tty_main.bin', mm.inputs_main())
         mm.wr(machine.WINDOW, s1)
         lo = 0x50 | state << 2
         mm.opsr, mm.rtc_valid = (~lo & 0xFF) << 8 | lo, rtc
@@ -1358,7 +1358,7 @@ def sc_safeboot(ctx):
         ran = mm.loader_hooks(machine.LOADER_SHOOTING)
         cfw = ran == machine.LOADER_SHOOTING[3:] and bool(mm.allocs)
         stock = ran == [3] and mm.u32(machine.LDR_STATE) == 6 and not mm.allocs and not mm.tasks
-        check(cfw != stock, f'neither a CFW nor a stock boot: hooks {ran}, allocs {len(mm.allocs)}')
+        check(cfw != stock, f'neither a TTY nor a stock boot: hooks {ran}, allocs {len(mm.allocs)}')
         return mm, cfw
 
     ARMED, ONE_FAIL, DISARMED, STOCK_ONCE = range(4)
@@ -1372,7 +1372,7 @@ def sc_safeboot(ctx):
             (True, DISARMED, dict(state=DISARMED, rtc=False), 'RTC invalid')):
         mm, cfw = boot(**kw)
         check(cfw == want_cfw and mm.safeboot_state() == want_after,
-              f'{what}: CFW ran {cfw}, state after {mm.safeboot_state()} (want {want_cfw}, {want_after})')
+              f'{what}: TTY ran {cfw}, state after {mm.safeboot_state()} (want {want_cfw}, {want_after})')
     # Healthy mark 20 s after the task start; "Boot stock once" survives it.
     mm, _ = boot(ARMED)
     mm.boot_step_done(10)
@@ -1392,7 +1392,7 @@ def sc_safeboot(ctx):
 
 def sc_rom(ctx):
     """Release firmware (rom build, M11): stage 1's length/CRC fields; stage 1 from A: through the release-stub model,
-    stage 2 and fonts from A: (no recipe files there); no card access in the boot hooks nor in the CFW task before
+    stage 2 and fonts from A: (no recipe files there); no card access in the boot hooks nor in the TTY task before
     step 13. First boot with an empty D: (first start, or stock formatted it after a battery pull) and a card config:
     settings_early is skipped (the camera's Clarity at the IQ-ready call, no early look); the late phase imports the
     card config, applies it, writes D: and the card copy, lists the card's recipes then Stock (the empty A: recipe
@@ -1404,16 +1404,16 @@ def sc_rom(ctx):
     import machine
     import stage1_crc
     check = ctx.check
-    s1 = (CFW / 'bin' / 'rom' / 'gr2_cfw.bin').read_bytes()
+    s1 = (REPO / 'bin' / 'rom' / 'gr2_cfw.bin').read_bytes()
     check(stage1_crc.check(s1) is None, f'bin/rom/gr2_cfw.bin: {stage1_crc.check(s1)}')
     portra = next(r for r in ctx.recipes if r['file'] == 'portra.txt')
-    src = (CFW / 'recipes' / 'portra.txt').read_bytes()
+    src = (REPO / 'recipes' / 'portra.txt').read_bytes()
     card_portra = src.replace(b'\r\nname=Portra 400\r\n', b'\r\nname=Portra Card\r\n')
-    mine = (CFW / 'recipes' / 'gold.txt').read_bytes().replace(b'\r\nname=Gold 200\r\n', b'\r\nname=Mine\r\n')
+    mine = (REPO / 'recipes' / 'gold.txt').read_bytes().replace(b'\r\nname=Gold 200\r\n', b'\r\nname=Mine\r\n')
     check(card_portra != src and b'name=Mine' in mine, 'recipe name lines not found')
-    card = {'H:/cfw/config.txt': b'rc2.0=504F5254\r\nrc2.1=52412E54\r\nrc2.2=58540000\r\nclarity=00000009\r\n',
-            'H:/cfw/recipes/portra.txt': card_portra, 'H:/cfw/recipes/mine.txt': mine,
-            'H:/cfw/recipes/bad.txt': b'name=Bad\r\nbase=nope\r\n'}
+    card = {'H:/tty/config.txt': b'rc2.0=504F5254\r\nrc2.1=52412E54\r\nrc2.2=58540000\r\nclarity=00000009\r\n',
+            'H:/tty/recipes/portra.txt': card_portra, 'H:/tty/recipes/mine.txt': mine,
+            'H:/tty/recipes/bad.txt': b'name=Bad\r\nbase=nope\r\n'}
     aef = (machine.A_AEF, 0x2D8)                                # AE_F, loaded by CapInit(5) (finding 35)
     iq_site = 0xA01B584A                                        # IQ-ready BL in CapInit(5) (finding 32)
 
@@ -1437,9 +1437,9 @@ def sc_rom(ctx):
                 seen['clarity_at_iq'] = mm.props[0xCE]
             if n == 10:
                 mm.boot_step_done(10)
-            if n in (10, 6):                                    # the early CFW task: loop live, fonts after hook(9)
+            if n in (10, 6):                                    # the early TTY task: loop live, fonts after hook(9)
                 mm.call('cfw_task_poll')
-            if n == 13:                                         # last hook: CFWldr / cfw_main / late phase follow
+            if n == 13:                                         # last hook: TTYldr / cfw_main / late phase follow
                 seen['fonts'] = mm.u32(mm.syms['g_task_fonts'])
                 seen['io'] = list(mm.io)
         s = Session(ctx, files=files, props={0x2D: 4, 6: 2, 0xCE: 5}, loader=True, on_hook=on_hook, cfw_files=False,
@@ -1450,30 +1450,30 @@ def sc_rom(ctx):
               f'stage 1 / stage 2 not read from A: by LoadFile: {hooks_io[:3]}')
         check(s.rc == 0 and s.m.u32(machine.LDR_STATE) == 6, 'not armed and disarmed after section 13')
         h = [e for e in hooks_io if e[1].upper().startswith('H:')]
-        check(not h, f'card accessed before JobSystem step 13 (boot hooks, early CFW task): {h}')
+        check(not h, f'card accessed before JobSystem step 13 (boot hooks, early TTY task): {h}')
         a_fonts = sorted(k for k in s.m.a_files if k.startswith('A:/cfw/fonts/'))
-        fonts = sorted({e[1] for e in hooks_io if e[1].startswith('A:/cfw/fonts/') and e[2] == 'CFW'})
+        fonts = sorted({e[1] for e in hooks_io if e[1].startswith('A:/cfw/fonts/') and e[2] == 'TTY'})
         check(seen['fonts'] == 1 and len(a_fonts) == 5 and fonts == a_fonts, f'fonts not read from A:: {fonts}')
         return s, seen
 
     # First boot: D: empty, card with config, two own recipes (one for MY2) and a broken one; no A: recipes.
     from rom_files import rom_files
-    check(not [k for k in rom_files(CFW) if k.startswith('A:/cfw/recipes/')], 'recipe files on A: (scripts/rom_files.py)')
+    check(not [k for k in rom_files(REPO) if k.startswith('A:/cfw/recipes/')], 'recipe files on A: (scripts/rom_files.py)')
     s, seen = boot(card)
     m = s.m
     check(seen['clarity_at_iq'] == 5 and not seen['look_at_iq'],
           'empty D:: settings or look applied at the IQ-ready call (settings_early must be skipped)')
     check(m.props[0xCE] == 9 and 'clarity=00000009' in m.cfg_text() and 'rc2.0=504F5254' in m.cfg_text() and
-          m.file('H:/cfw/config.txt').decode() == m.cfg_text(),
+          m.file('H:/tty/config.txt').decode() == m.cfg_text(),
           f'card config not imported and saved in the late phase: {m.cfg_text()!r}')
     check(s.recipe_names() == ['Mine', 'Portra Card', 'Stock'], f'recipes: {s.recipe_names()}')
-    check(('FindFirst', 'A:/cfw/recipes/', 'CFW') in m.io and ('File_Open', 'H:/cfw/recipes/PORTRA.TXT', 'CFW') in m.io,
+    check(('FindFirst', 'A:/cfw/recipes/', 'TTY') in m.io and ('File_Open', 'H:/tty/recipes/PORTRA.TXT', 'TTY') in m.io,
           'A: recipe folder not listed or card recipe not read')
     check(s.look_shown({3: portra['flags']}), 'MY2 look not shown after the late phase')
     check(m.store('D:/CFW/LOOK_A.DAT', 'D:/CFW/LOOK_B.DAT') is not None, 'look cache not saved to D:')
     log = m.log_lines()
     check(log and all(l.startswith('ERROR') and 'BAD.TXT' in l for l in log), f'log: {log}')
-    m.files.pop('H:/CFW/CFW_LOG.TXT')                           # the expected ERROR line
+    m.files.pop('H:/TTY/TTY_LOG.TXT')                           # the expected ERROR line
     finish(ctx, s)
 
     # Next boot: D: from the first one, no card.
@@ -1482,16 +1482,16 @@ def sc_rom(ctx):
     check(seen2['clarity_at_iq'] == 9 and seen2['look_at_iq'], 'D: config or MY2 look not applied at the IQ-ready call')
     check(s2.recipe_names() == ['Stock'], f'recipes: {s2.recipe_names()}')
     check(s2.look_shown({3: portra['flags']}) and m2.props[0xCE] == 9, 'MY2 look or Clarity lost after the late phase')
-    check(not [e for e in m2.io if e[1].upper() == 'H:/CFW/CFW_LOG.TXT'], 'log written without an error')
+    check(not [e for e in m2.io if e[1].upper() == 'H:/TTY/TTY_LOG.TXT'], 'log written without an error')
     finish(ctx, s2)
 
     # A: with recipe files (none ship there; the scan stays): the card's portra.txt replaces the A: one.
-    a_extra = {'A:/cfw/recipes/portra.txt': src, 'A:/cfw/recipes/gold.txt': (CFW / 'recipes' / 'gold.txt').read_bytes()}
-    s3, _ = boot({**m2.d_files(), 'H:/cfw/recipes/portra.txt': card_portra}, a_extra=a_extra)
+    a_extra = {'A:/cfw/recipes/portra.txt': src, 'A:/cfw/recipes/gold.txt': (REPO / 'recipes' / 'gold.txt').read_bytes()}
+    s3, _ = boot({**m2.d_files(), 'H:/tty/recipes/portra.txt': card_portra}, a_extra=a_extra)
     m3 = s3.m
     check(s3.recipe_names() == ['Gold 200', 'Portra Card', 'Stock'], f'recipes: {s3.recipe_names()}')
-    check(('LoadFile', 'A:/cfw/recipes/portra.txt', 'CFW') in m3.io and
-          ('File_Open', 'H:/cfw/recipes/PORTRA.TXT', 'CFW') in m3.io, 'A: recipe or its card replacement not read')
+    check(('LoadFile', 'A:/cfw/recipes/portra.txt', 'TTY') in m3.io and
+          ('File_Open', 'H:/tty/recipes/PORTRA.TXT', 'TTY') in m3.io, 'A: recipe or its card replacement not read')
     check(not m3.log_lines(), f'log: {m3.log_lines()}')
     finish(ctx, s3)
 
@@ -1499,7 +1499,7 @@ def sc_rom(ctx):
     flipped = bytearray(s1)
     flipped[len(s1) // 2] ^= 0x10
     for what, data in (('one flipped bit', bytes(flipped)), ('truncated', s1[:0x7000])):
-        mm = machine.Machine(ctx.inputs, 'rom', str(CFW))
+        mm = machine.Machine(ctx.inputs, 'rom', str(REPO))
         ctx.machines.append(mm)
         mm.a_files[machine.ROM_STAGE1] = data
         ran = mm.loader_hooks(machine.LOADER_SHOOTING)
@@ -1543,12 +1543,12 @@ def run_variant(variant, inputs, renderer, only=None):
             print(f'FAIL {variant}/{name}: harness error')
             traceback.print_exc()
     if variant in ('release', 'rom'):
-        logged = [m.file('H:/cfw/cfw_log.txt') for m in ctx.machines if m.file('H:/cfw/cfw_log.txt') is not None]
+        logged = [m.file('H:/tty/tty_log.txt') for m in ctx.machines if m.file('H:/tty/tty_log.txt') is not None]
         if logged:
             ok = False
-            print(f'FAIL {variant}/log: H:/cfw/cfw_log.txt written: {logged[0][:200]!r}')
+            print(f'FAIL {variant}/log: H:/tty/tty_log.txt written: {logged[0][:200]!r}')
         else:
-            print(f'PASS {variant}/log (no cfw_log.txt)')
+            print(f'PASS {variant}/log (no tty_log.txt)')
     return ok
 
 
@@ -1564,8 +1564,8 @@ def main():
         return 1
     variants = [args.variant] if args.variant else ['release', 'debug', 'rom']
     for v in variants:
-        for f in ('gr2_cfw.bin', 'gr2_cfw.elf', 'gr2_main.bin', 'gr2_main.elf'):
-            if not (CFW / 'bin' / v / f).is_file():
+        for f in ('gr2_cfw.bin', 'gr2_cfw.elf', 'tty_main.bin', 'tty_main.elf'):
+            if not (REPO / 'bin' / v / f).is_file():
                 print(f'ERROR bin/{v}/{f} missing: run make first')
                 return 1
     renderer = None

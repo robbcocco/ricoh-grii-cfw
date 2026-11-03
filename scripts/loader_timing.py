@@ -6,9 +6,9 @@ BOOT_PROF.BIN = 0x168 B from 0xA00C22E4: the APP's section-load profile, one
 0x2004/0x2094/0x20A8 around the section load in FUN_a0022e28). LDR_STATE.BIN =
 the flashed loader's status word (0xFFFFFFFF on a stock APP).
 
-Prints the boot timeline and, given the CFW task start from the debug log
+Prints the boot timeline and, given the TTY task start from the debug log
 ("task: running, systime 0x..."), how much earlier the flashed loader could
-start each phase of the CFW than Startup.ttl (JobSystem step 13) does.
+start each phase of TTY than Startup.ttl (JobSystem step 13) does.
 
 Usage: python3 scripts/loader_timing.py DIR [--task-start 0x7D0]
 """
@@ -26,7 +26,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("dir", type=Path)
     ap.add_argument("--task-start", type=lambda s: int(s, 0),
-                    help="CFW task start systime (ms) from cfw_log.txt of the same boot")
+                    help="TTY task start systime (ms) from tty_log.txt of the same boot")
     a = ap.parse_args(argv)
 
     prof = (a.dir / "BOOT_PROF.BIN").read_bytes()
@@ -61,7 +61,7 @@ def main(argv=None):
         print(f"IQ RAM ready (ISP init after section 5) by the hook after section {nxt}: "
               f"{rows[order.index(5) + 1][0] + rows[order.index(5) + 1][3]} ms")
     if a.task_start is not None:
-        print(f"Startup.ttl CFW task start {a.task_start} ms")
+        print(f"Startup.ttl TTY task start {a.task_start} ms")
         print(f"  gain if stage 1 runs at the first hook:       {a.task_start - first} ms")
         print(f"  gain if the task starts after the last section: {a.task_start - last_end} ms")
     return 0

@@ -1,11 +1,11 @@
-/* Key input while the CFW overlay is open (static RE: finding 17 §4).
+/* Key input while the TTY overlay is open (static RE: finding 17 §4).
  *
  * The APP task dispatches every system message through the function pointer
  * at 0xA04071F0 (stock 0xA039725F, signature int h(u32 *msg), msg = {id, p1, p2},
  * return non-zero = consumed). Replacing that pointer is a single aligned
  * 32-bit data store: no code patch, no I-cache concern.
  *
- * While the overlay is open, key messages (0x42NN) are queued for the CFW task
+ * While the overlay is open, key messages (0x42NN) are queued for the TTY task
  * and consumed, except POWER and the shutter (passed through; the task closes
  * the overlay on a shutter press). A release is consumed only if its press was
  * consumed, so the Effect release belonging to the press that opened the menu
@@ -26,8 +26,8 @@ typedef int (*msg_handler_t)(uint32_t *msg, uint32_t a1, uint32_t a2, uint32_t a
 
 #define QUEUE_LEN 16
 static volatile uint32_t g_queue[QUEUE_LEN][2];  /* {id, p1} */
-static volatile uint32_t g_head, g_tail;          /* producer: APP task, consumer: CFW task */
-static volatile uint32_t g_capture;               /* set by the CFW task while the overlay is open */
+static volatile uint32_t g_head, g_tail;          /* producer: APP task, consumer: TTY task */
+static volatile uint32_t g_capture;               /* set by the TTY task while the overlay is open */
 static uint32_t g_pressed[2];                     /* bitmap of keys 0x4200..0x423F pressed while captured */
 
 static int is_pressed(uint32_t k) { return (g_pressed[k >> 5] >> (k & 31)) & 1; }

@@ -1,15 +1,15 @@
 ; M0 probe, boot side (copy to H:/Startup.ttl). Data only: no code is loaded or run.
-; Dumps the IPL copy area (contains the CFW window 0xA0017000-0xA001EFFF)
-; and the free-memory pool state to H:/cfw/probe/.
+; Dumps the IPL copy area (contains the TTY window 0xA0017000-0xA001EFFF)
+; and the free-memory pool state to H:/tty/probe/.
 ; ASCII, CRLF, uppercase drive letters.
 
-foldercreate 'H:/cfw'
-foldercreate 'H:/cfw/probe'
+foldercreate 'H:/tty'
+foldercreate 'H:/tty/probe'
 
-sprintf "fsave H:/cfw/probe/BOOT_A0000000.BIN A0000000 20000"
+sprintf "fsave H:/tty/probe/BOOT_A0000000.BIN A0000000 20000"
 sendln inputstr
-sprintf "fsave H:/cfw/probe/BOOT_POOL.BIN A00C2BA0 10"
+sprintf "fsave H:/tty/probe/BOOT_POOL.BIN A00C2BA0 10"
 sendln inputstr
 
-foldercreate 'H:/cfw/probe/BOOT_DONE'
+foldercreate 'H:/tty/probe/BOOT_DONE'
 end

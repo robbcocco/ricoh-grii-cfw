@@ -1,5 +1,5 @@
-/* Registers CFW shell commands in the RTOS shell registry so TTL scripts
- * (`sprintf "cfw status"` + `sendln inputstr`) and telnet can drive the CFW.
+/* Registers TTY shell commands in the RTOS shell registry so TTL scripts
+ * (`sprintf "tty status"` + `sendln inputstr`) and telnet can drive TTY.
  * Shell output goes to the UART; results are reported through the log file
  * and the handler return value (telnet shows "result: %d"). */
 #include "cfw.h"
@@ -17,7 +17,7 @@ static int streq(const char *a, const char *b) {
 }
 
 #if CFW_DEBUG
-/* Session state into the debug log: `cfw status` and the power-off hook (src/hooks.c). */
+/* Session state into the debug log: `tty status` and the power-off hook (src/hooks.c). */
 void cfw_status_log(void) {
     cfw_log_hex("status: systime now", GR2_FN_SYSTEM_GETTIME());
     cfw_log_hex("status: task start systime", cfw_task_start_time());
@@ -31,7 +31,7 @@ void cfw_status_log(void) {
 }
 #endif
 
-/* `cfw status`: debug builds log the session state; release builds only return the heartbeat. */
+/* `tty status`: debug builds log the session state; release builds only return the heartbeat. */
 static int cmd_cfw(int argc, char **argv) {
     if (argc >= 2 && streq(argv[1], "status")) {
 #if CFW_DEBUG
@@ -39,12 +39,12 @@ static int cmd_cfw(int argc, char **argv) {
 #endif
         return (int)cfw_task_heartbeat();
     }
-    DBG("usage: cfw status");
+    DBG("usage: tty status");
     return -1;
 }
 
 static gr2_shell_cmd_t g_cmds[] = {
-    { "cfw", cmd_cfw },
+    { "tty", cmd_cfw },
 };
 
 int cfw_shell_register(void) {

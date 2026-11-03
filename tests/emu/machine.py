@@ -1,16 +1,16 @@
-"""Unicorn model of the parts of a Ricoh GR II (fw 3.00) that the CFW touches.
+"""Unicorn model of the parts of a Ricoh GR II (fw 3.00) that TTY touches.
 
-The CFW runs unmodified: stage 1 is loaded into the window like `fload`,
+TTY runs unmodified: stage 1 is loaded into the window like `fload`,
 `_start` loads stage 2 from the H: drive model, and the scenarios then call
 stage-2 functions directly. The `rom` variant (release firmware, M11) boots
 through a model of the release stub instead: stage 1 from the read-only A:
 drive (`scripts/rom_files.py`; `a_extra` adds test files such as A: recipes),
-stage 2 and fonts from A:. Firmware entry points the CFW calls are Python
+stage 2 and fonts from A:. Firmware entry points TTY calls are Python
 stubs (see `_install_stubs`); firmware code in `REAL_CODE` runs as is. Any
-other instruction fetch outside the CFW raises `EmuError` with its address.
+other instruction fetch outside TTY raises `EmuError` with its address.
 
 Memory: one 16 MiB host buffer is mapped at 0xA0000000 (cached DRAM) and at
-0x20000000 (the uncached alias the CFW uses for OSD bitmaps, the live-view
+0x20000000 (the uncached alias TTY uses for OSD bitmaps, the live-view
 frame and the IQ dump), so both views share their bytes like on the camera.
 """
 import ctypes
@@ -32,8 +32,8 @@ ALIAS_BASE = 0x20000000               # GR2_UNCACHED(a) = (a & 0x1FFFFFFF) | 0x2
 STACK_BASE, STACK_SIZE = 0xB0000000, 0x00100000
 STACK_TOP = STACK_BASE + STACK_SIZE - 0x100
 NESTED_STACK_TOP = STACK_TOP - 0x20000   # a second task's stack while the first is blocked (call_in_task)
-# Task stacks the CFW's code runs on (bytes). Calls default to the CFW task; boot paths name theirs.
-CFW_TASK_STACK = 0x3000               # src/task.c (also CFWcon)
+# Task stacks TTY's code runs on (bytes). Calls default to the TTY task; boot paths name theirs.
+CFW_TASK_STACK = 0x3000               # src/task.c (also TTYcon)
 SCRIPT_TASK_STACK = 0x4000            # Startup.ttl's `ex` runs in the Script task (finding 26 §3)
 ROOT_TASK_STACK = 0x4000              # loader hooks run in the root init task (kernel config 0xA00B5B98)
 # JOBID_POWER_OFF runs in the FRM task (stack 0x3000, finding 26 §3) below the JobCore loop and the job
@@ -43,7 +43,7 @@ FRM_JOB_STACK = 0x3000 - 0x800
 STOCK_FILE_STACK = {'File_Open': 8612 + 712, 'File_Read': 4188 + 712, 'File_Write': 4244 + 712,
                     'File_Close': 4132 + 712,
                     'File_Mkdir': 8612 + 712}   # [I] not measured: assumed like File_Open (path lookup)
-D_DIRS = {'D:/CFW'}                  # subdirectories of the internal D: drive that the CFW may create
+D_DIRS = {'D:/CFW'}                  # subdirectories of the internal D: drive that TTY may create
 WINDOW, WINDOW_SIZE = 0xA0017000, 0x8000
 SENTINEL = 0xA001F000                 # return address of every call (just past the window)
 FW_BASE = 0xA0020200                  # RAM = 0xA0020200 + file offset
@@ -113,7 +113,7 @@ STRING_RESOLVER = 0xA03A4AEF          # string ID -> UTF-16 pointer (finding 16 
 
 # Firmware code that runs for real (half-open ranges).
 REAL_CODE = [
-    (0xA03A4AD0, 0xA03A4F5E),         # string accessors (resolver, bound checks patched by the CFW)
+    (0xA03A4AD0, 0xA03A4F5E),         # string accessors (resolver, bound checks patched by TTY)
     (0xA03A1F92, 0xA03A1F96),         # Effect press BL site (patched to the press veneer)
     (0xA03A5790, 0xA03A5794),         # Effect hold BL site (patched to the hold veneer)
     (0xA01B584A, 0xA01B584E),         # IQ-ready BL site in CapInit(5) (patched to the IQ veneer, loader only)
@@ -184,7 +184,7 @@ class Symbols:
 # ---- palette ----------------------------------------------------------------------------------
 
 def yuv_rgb(y, u, v):
-    """Same integer conversion as the CFW screenshot (src/info.c)."""
+    """Same integer conversion as the TTY screenshot (src/info.c)."""
     u -= 128
     v -= 128
     c = lambda x: 0 if x < 0 else 255 if x > 255 else x
@@ -193,7 +193,7 @@ def yuv_rgb(y, u, v):
 
 class Machine:
     def __init__(self, inputs, variant, cfw_dir, files=None, props=None, slots=None, card=True, a_extra=None):
-        self.stack_limit, self.stack_task = STACK_TOP - CFW_TASK_STACK, 'CFW'
+        self.stack_limit, self.stack_task = STACK_TOP - CFW_TASK_STACK, 'TTY'
         self.inputs, self.variant, self.cfw_dir = inputs, variant, cfw_dir
         self.uc = Uc(UC_ARCH_ARM, UC_MODE_ARM | UC_MODE_BIG_ENDIAN)
         self.uc.ctl_set_cpu_model(UC_CPU_ARM_946)   # ARMv5TE: Thumb-2 encodings fault
@@ -244,7 +244,7 @@ class Machine:
         self.shell_lines, self.shell_rc, self.shell_result = [], 0, None
         self.rtos_tasks = {}          # id -> {'stat', 'pri'} for ref_tsk
         self.sock_in, self.sock_out = [], bytearray()   # recv chunks queued for the console session; sent bytes
-        self.closed_fds = []                            # sockets closed by the CFW
+        self.closed_fds = []                            # sockets closed by TTY
         self.on_delay = None          # f(machine): runs other tasks while a call waits in Task_Delay
         self._switch = False          # a Task_Delay stopped the run for on_delay
         self.stack_margin = 1 << 30   # smallest (stack left - stock need) at a file-API call so far
@@ -328,7 +328,7 @@ class Machine:
         return [e for e in self.io[since:] if e[1].upper().startswith('H:')]
 
     def log_lines(self):
-        f = self.file('H:/cfw/cfw_log.txt')
+        f = self.file('H:/tty/tty_log.txt')
         return [] if f is None else f.decode('latin-1').splitlines()
 
     # ---- seeding -----------------------------------------------------------------------------
@@ -411,18 +411,18 @@ class Machine:
         self.uc.reg_write(UC_ARM_REG_R0, v & MASK)
         self.uc.reg_write(UC_ARM_REG_PC, self.uc.reg_read(UC_ARM_REG_LR))
 
-    def call_addr(self, addr, *args, stack=CFW_TASK_STACK, task='CFW'):
+    def call_addr(self, addr, *args, stack=CFW_TASK_STACK, task='TTY'):
         """Call a Thumb function (bit 0 set) or ARM function and return r0, on a task stack of
         `stack` bytes (the stock file stubs check that their stack need fits)."""
         return self.run_range(addr, SENTINEL, *args, stack=stack, task=task)
 
-    def call_in_task(self, name, *args, stack=CFW_TASK_STACK, task='CFW'):
+    def call_in_task(self, name, *args, stack=CFW_TASK_STACK, task='TTY'):
         """Run another task's function from on_delay, i.e. while the current call is blocked in
         Task_Delay: it gets its own stack area below the caller's (run_range saves and restores the
         caller's registers around it, a task switch as the RTOS would do)."""
         return self.run_range(self.syms[name] | 1, SENTINEL, *args, stack=stack, task=task, top=NESTED_STACK_TOP)
 
-    def run_range(self, begin, until, *args, timeout_s=120, stack=CFW_TASK_STACK, task='CFW', top=STACK_TOP):
+    def run_range(self, begin, until, *args, timeout_s=120, stack=CFW_TASK_STACK, task='TTY', top=STACK_TOP):
         """Run from `begin` (Thumb: bit 0 set) until pc == `until`; returns r0.
         LR is the sentinel, so a plain function call stops at its return. A Task_Delay with on_delay
         set stops the run, runs on_delay (other tasks) and resumes after the delay."""
@@ -482,7 +482,7 @@ class Machine:
         else:
             self.main_lo = HEAP_LO
             self.main_end = HEAP_LO + ((image + bss + 7) & ~7)
-        # Block hooks everywhere except the CFW's own code (stage 1 window, stage 2 block):
+        # Block hooks everywhere except TTY's own code (stage 1 window, stage 2 block):
         # stage 2 is the first Memory_Alloc block, so its range is known before boot.
         for lo, hi in ((0, WINDOW - 1), (WINDOW + WINDOW_SIZE, HEAP_LO - 1), (self.main_end, MASK)):
             self.uc.hook_add(UC_HOOK_BLOCK, self._on_block, begin=lo, end=hi)
@@ -490,7 +490,7 @@ class Machine:
                          self._on_unmapped)
 
     def inputs_main(self):
-        return open(f'{self.cfw_dir}/bin/{self.variant}/gr2_main.bin', 'rb').read()
+        return open(f'{self.cfw_dir}/bin/{self.variant}/tty_main.bin', 'rb').read()
 
     def _fail(self, msg):
         if not self._err:
@@ -538,7 +538,7 @@ class Machine:
     def _stack_need(self, api):
         # The stubs stand in for stock PrFILE2 code that needs a lot of the caller's task stack
         # (finding 31: static worst case of the file API plus 712 B of SD driver). A task whose
-        # remaining stack is smaller overflows on hardware (F3, 2026-11-01: CFWldr had 0x1000).
+        # remaining stack is smaller overflows on hardware (F3, 2026-11-01: the loader task had 0x1000).
         need = STOCK_FILE_STACK[api]
         left = self.uc.reg_read(UC_ARM_REG_SP) - self.stack_limit
         self.stack_margin = min(self.stack_margin, left - need)
@@ -558,7 +558,7 @@ class Machine:
             key = path
         elif path.startswith('B:'):     # property files: only their existence (contents go through the PDB stubs)
             if mode != 0:
-                raise EmuError(f'File_Open({path!r}, {mode:#x}): the CFW writes B: only through Property_Save')
+                raise EmuError(f'File_Open({path!r}, {mode:#x}): TTY writes B: only through Property_Save')
             if path not in self.slots:
                 return self.ret(0)
         elif key.startswith('D:/'):
@@ -587,8 +587,8 @@ class Machine:
         self.ret(fd)
 
     def _file_mkdir(self):
-        """1 created, 0 exists, -1 error (finding 34). D:: the CFW's own folder; H:: the card, where a
-        parent must exist (H:/CFW exists as soon as any file is in it)."""
+        """1 created, 0 exists, -1 error (finding 34). D:: TTY's own folder; H:: the card, where a
+        parent must exist (H:/TTY exists as soon as any file is in it)."""
         self._stack_need('File_Mkdir')
         path = self.cstr(self.r(0)).upper().rstrip('/')
         self.io.append(('File_Mkdir', path, self.stack_task))
@@ -624,7 +624,7 @@ class Machine:
         return None if best is None else best[1]
 
     def cfg_text(self):
-        """The CFW config as saved on D: (src/config.c), '' if none."""
+        """The TTY config as saved on D: (src/config.c), '' if none."""
         d = self.store('D:/CFW/CFG_A.DAT', 'D:/CFW/CFG_B.DAT')
         return '' if d is None else d.decode('ascii')
 
@@ -671,7 +671,7 @@ class Machine:
         path, dst, n = self.cstr(self.r(0)), self.r(1), self.r(2)
         self.io.append(('LoadFile', path, self.stack_task))
         if not path.startswith('A:'):
-            raise EmuError(f'LoadFile({path!r}): only A: is modelled (the CFW uses File_Open on the FAT drives)')
+            raise EmuError(f'LoadFile({path!r}): only A: is modelled (TTY uses File_Open on the FAT drives)')
         self.ret(self.a_load(path, dst, n))
 
     def a_load(self, path, dst, n):
@@ -1011,7 +1011,7 @@ class Machine:
     def boot(self, loader=False, on_hook=None):
         """fload stage 1, `ex 0xA0017001`, resolve stage 2 at its load address.
         loader=True: boot through the flashed debug loader's ABI instead (loader_hooks over the
-        shooting order, JobSystem step 13 done, then cfw_ldr_start as the CFWldr task runs it).
+        shooting order, JobSystem step 13 done, then cfw_ldr_start as the TTYldr task runs it).
         The rom variant always boots like this, with stage 1 and 2 on A: and nothing on the card."""
         s1 = open(f'{self.cfw_dir}/bin/{self.variant}/gr2_cfw.bin', 'rb').read()
         if len(s1) > WINDOW_SIZE:
@@ -1020,7 +1020,7 @@ class Machine:
             loader = True             # the release stub reads A: itself (loader_hooks)
         else:
             self.put_file('H:/cfw/gr2_cfw.bin', s1)
-            self.put_file('H:/cfw/gr2_main.bin', self.inputs_main())
+            self.put_file('H:/tty/tty_main.bin', self.inputs_main())
             self.wr(WINDOW, s1)
         if loader:
             self.loader_hooks(LOADER_SHOOTING, on_hook)
@@ -1035,7 +1035,7 @@ class Machine:
         if base != self.main_lo:
             raise EmuError(f'stage 2 at {base:#x}, expected {self.main_lo:#x} in the first heap block')
         self.main_base = base
-        self.syms = Symbols(f'{self.cfw_dir}/bin/{self.variant}/gr2_main.elf', base)
+        self.syms = Symbols(f'{self.cfw_dir}/bin/{self.variant}/tty_main.elf', base)
         return rc - (1 << 32) if rc & 0x80000000 else rc
 
     def loader_hooks(self, order, on_hook=None):
@@ -1064,7 +1064,7 @@ class Machine:
             ran.append(n)
             base = self.u32(self.syms1['g_boot'])
             if self.syms is None and base:   # stage 2 is loaded: on_hook may call into it
-                self.syms = Symbols(f'{self.cfw_dir}/bin/{self.variant}/gr2_main.elf', base)
+                self.syms = Symbols(f'{self.cfw_dir}/bin/{self.variant}/tty_main.elf', base)
             if on_hook:
                 on_hook(self, n)
         return ran
@@ -1073,11 +1073,11 @@ class Machine:
         self.w32(self.ui_state + 0x54 + 4 * step, 1)
 
     def run_ldr_task(self):
-        """Run the CFWldr task body (cfw_ldr_start) on the stack size stage 1 created it with."""
-        t = [t for t in self.tasks if t['name'] == 'CFWldr']
+        """Run the TTYldr task body (cfw_ldr_start) on the stack size stage 1 created it with."""
+        t = [t for t in self.tasks if t['name'] == 'TTYldr']
         if len(t) != 1:
-            raise EmuError(f'CFWldr created {len(t)} times')
-        return self.call_addr(self.syms1['cfw_ldr_start'] | 1, stack=t[0]['stack'], task='CFWldr')
+            raise EmuError(f'TTYldr created {len(t)} times')
+        return self.call_addr(self.syms1['cfw_ldr_start'] | 1, stack=t[0]['stack'], task='TTYldr')
 
 
 DEFAULT_PROPS = {

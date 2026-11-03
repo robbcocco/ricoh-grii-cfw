@@ -1,5 +1,5 @@
-# gr2_cfw recipe: Cinema Warm look (Ricoh GR II, firmware 3.00)
-# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# GR II TTY recipe: Cinema Warm look (Ricoh GR II, firmware 3.00)
+# Keys: GR II TTY README, section Recipes. ASCII, CRLF.
 # Our version of the cinematic preset (Positive Film over Setting2, contrast -1, 4700 K A+2 G+2):
 # a soft, warm, slightly green print. Source: spektrafilm Vision3 250D on Vision 2383, print-timed
 # in spektrafilm like Cinema Green / Yellow (a real film/print chain, not an invented curve).
@@ -10,7 +10,7 @@
 #
 # Film look derived from spektrafilm 0.3.4 (commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc)
 # by Andrea Volpato, https://github.com/andreavolpato/spektrafilm; profiles licensed CC BY-SA 4.0.
-# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the gr2_cfw project.
+# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the GR II TTY project.
 # This recipe file is licensed CC BY-SA 4.0.
 # Print timing: warm and a little green (Y -5, M +2 CC), soft print (gamma 0.82), lifted blacks, weak interlayer effects.
 # spektrafilm runtime parameters (all others at their defaults):

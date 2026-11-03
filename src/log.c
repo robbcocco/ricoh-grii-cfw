@@ -3,15 +3,15 @@
 #include "gr2_hw.h"
 
 #define LINE_MAX 128
-#define HOLD_MAX 2048                  /* per buffer: the boot task (+ other tasks) and the CFW task */
+#define HOLD_MAX 2048                  /* per buffer: the boot task (+ other tasks) and the TTY task */
 #define TASK_STACK 0x3000              /* src/task.c CFW_TASK_STACK */
 
 void (*volatile cfw_log_tap)(const char *line, uint32_t len);
 static uint8_t g_held;
-/* While held, the boot task (hooks, lowest priority) and the early CFW task (higher) both log; the CFW task can
+/* While held, the boot task (hooks, lowest priority) and the early TTY task (higher) both log; the TTY task can
  * preempt a boot-task append but not the other way round, so each gets its own buffer (released boot first). */
 static struct { char buf[HOLD_MAX]; uint32_t len, lost; } g_hold[2];
-static uint32_t g_task_top;            /* an address near the top of the CFW task's stack, 0 before it runs */
+static uint32_t g_task_top;            /* an address near the top of the TTY task's stack, 0 before it runs */
 
 void cfw_log_task_stack(uint32_t top) {
     g_task_top = top;

@@ -2,17 +2,17 @@
  *
  * Capture: the console printf (0xA0039CBD) hands every formatted line to the
  * hook in GR2_CONSOLE_HOOK_SLOT instead of the UART while one is installed
- * (stock `attach` uses the same slot). The CFW hook copies the text into a
- * 16 KiB ring; CFW log lines are mirrored into it too (cfw_log_tap). The hook
+ * (stock `attach` uses the same slot). The TTY hook copies the text into a
+ * 16 KiB ring; TTY log lines are mirrored into it too (cfw_log_tap). The hook
  * runs in the printing task with the console mutex held: it only copies bytes.
  *
- * Server: one task ("CFWcon", like stock telnetd: socket/bind/listen/accept,
+ * Server: one task ("TTYcon", like stock telnetd: socket/bind/listen/accept,
  * then a line loop) on port 23; the stock telnetd is not started. Commands:
  * help, status, log, tail, sh, tasks, heap, mem, wifi, export, exit; anything else
  * runs as a stock shell line (Shell_Execute in this task, as stock telnetd does).
  *
  * On/off: console_set(0) closes the listening and the session socket from the
- * CFW task (the blocked accept/recv in CFWcon then fails) and puts printf back
+ * TTY task (the blocked accept/recv in TTYcon then fails) and puts printf back
  * on the UART; the task idles until console_set(1). */
 #include <stdint.h>
 #include "console.h"
@@ -32,14 +32,14 @@
 #define TAIL_MAX_S    300
 #define MEM_MAX       0x400u
 #define POOL_WALK_MAX 128
-#define EXPORT_WAIT_S 30               /* the CFW task picks a request up within 20 ms, writing takes ~1 s */
+#define EXPORT_WAIT_S 30               /* the TTY task picks a request up within 20 ms, writing takes ~1 s */
 #define TSK_MAGIC     0x54534B20u      /* 'TSK ' */
 #define MPL_MAGIC     0x4D504C20u      /* 'MPL ' */
 #define POOL_BASE     0xA0900000u      /* free-memory pool start (FUN_a00542d0) */
 
 static volatile char *g_ring;
 static volatile uint32_t g_head;       /* bytes ever written; index = g_head & (RING - 1) */
-static int g_started;                  /* CFWcon task exists */
+static int g_started;                  /* TTYcon task exists */
 static volatile int g_enabled;
 static volatile int g_listen = -1, g_session = -1;   /* sockets, -1 = none */
 
@@ -155,15 +155,15 @@ static const char *number(const char *s, uint32_t *v, int hex) {
 
 static void cmd_help(out_t *o) {
     out_s(o, "help              this list\n"
-             "status            version, uptime, CFW settings\n"
-             "log [bytes]       captured printf + CFW log (default 2048)\n"
+             "status            version, uptime, TTY settings\n"
+             "log [bytes]       captured printf + TTY log (default 2048)\n"
              "tail [seconds]    stream new output (default 10, max 300)\n"
              "sh <command>      run a stock shell command, show its output\n"
              "tasks             RTOS tasks: id, name, state, priority, stack\n"
              "heap              GlobalHeap free, memory pools, pool map\n"
              "mem <addr> [len]  hex dump (hex; len <= 0x400; DRAM only)\n"
              "wifi              Wi-Fi state as the system controller sees it\n"
-             "export            camera presets as recipe files in cfw/export\n"
+             "export            camera presets as recipe files in tty/export\n"
              "exit              close the session\n"
              "anything else     runs as a stock shell command (like sh)\n");
 }
@@ -183,10 +183,10 @@ static void cmd_wifi(out_t *o) {
 }
 
 static void cmd_status(out_t *o) {
-    out_s(o, "gr2_cfw " CFW_VERSION);
+    out_s(o, "GR II TTY " CFW_VERSION);
     out_s(o, CFW_DEBUG ? " (debug)\nuptime ms " : " (release)\nuptime ms ");
     out_dec(o, GR2_FN_SYSTEM_GETTIME());
-    out_s(o, ", CFW task beats ");
+    out_s(o, ", TTY task beats ");
     out_dec(o, cfw_task_heartbeat());
     out_s(o, ", capture ");
     out_s(o, GR2_CONSOLE_HOOK_SLOT == printf_hook ? "on\n" : "off (hook slot taken, e.g. by attach)\n");
@@ -218,12 +218,12 @@ static void cmd_tail(out_t *o, const char *a) {
     }
 }
 
-/* The export runs in the CFW task (src/export.c): ask for it and wait for its result. */
+/* The export runs in the TTY task (src/export.c): ask for it and wait for its result. */
 static void cmd_export(out_t *o) {
     uint32_t ticket = export_request();
     for (int t = 0; t < EXPORT_WAIT_S * 10 && !export_served(ticket); t++) GR2_FN_DELAY(100);
     if (!export_served(ticket)) {
-        out_s(o, "export: requested, the CFW task has not run it yet (result on the DEV tab)\n");
+        out_s(o, "export: requested, the TTY task has not run it yet (result on the DEV tab)\n");
         return;
     }
     out_s(o, "export: ");
@@ -402,7 +402,7 @@ static void session(int fd) {
     uint8_t in[64];
     int n = 0, iac = 0;
     out_t o = { obuf, obuf, obuf + OUT_BUF, fd, 0 };
-    out_s(&o, "gr2_cfw " CFW_VERSION " developer console (help for commands)\n> ");
+    out_s(&o, "GR II TTY " CFW_VERSION " developer console (help for commands)\ntty> ");
     out_flush(&o);
     while (!o.failed && g_enabled) {
         int got = GR2_FN_RECV(fd, in, sizeof(in), 0);
@@ -416,7 +416,7 @@ static void session(int fd) {
                 line[n] = 0;
                 n = 0;
                 if (run(line, &o) < 0) { out_flush(&o); return; }
-                out_s(&o, "> ");
+                out_s(&o, "tty> ");
                 out_flush(&o);
             } else if ((c == 8 || c == 0x7F) && n) {
                 n--;
@@ -490,7 +490,7 @@ int console_set(int on) {
         }
     }
     if (!g_started) {
-        if (!GR2_FN_TASK_CREATE(server, 0, TASK_PRIO, TASK_STACK, "CFWcon")) {
+        if (!GR2_FN_TASK_CREATE(server, 0, TASK_PRIO, TASK_STACK, "TTYcon")) {
             ERR("console: Task_Create failed");
             return -1;
         }

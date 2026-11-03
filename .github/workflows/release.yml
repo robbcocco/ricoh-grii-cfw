@@ -43,9 +43,9 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          name: gr2_cfw ${{ github.ref_name }}
+          name: GR II TTY ${{ github.ref_name }}
           body_path: dist/RELEASE_NOTES.md
           files: |
-            dist/gr2_cfw-${{ github.ref_name }}.zip
-            dist/gr2_cfw-${{ github.ref_name }}-debug.zip
+            dist/gritty-${{ github.ref_name }}.zip
+            dist/gritty-${{ github.ref_name }}-debug.zip
             dist/SHA256SUMS.txt

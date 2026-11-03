@@ -1,5 +1,5 @@
 /* M5 settings engine. Boot task (settings_early, flashed loader: the IQ-ready call before live view) or the
- * CFW task (everything else), never both at once: the task calls in only after the loader's hooks are over.
+ * TTY task (everything else), never both at once: the task calls in only after the loader's hooks are over.
  *
  * Property settings (Clarity, Auto-ISO slowest shutter, High-ISO NR) write
  * stock-legal values through the stock setter, exactly like the camera menu.
@@ -440,7 +440,7 @@ static const hpatch_t HP_MAUTO[] = {
 #define AEF_FUNCTION_F 0x138                                  /* bit 0: M auto ISO enabled */
 #define NHP(t) ((int)(sizeof(t) / sizeof((t)[0])))
 
-/* 1 if every halfword holds its stock (on = 0) or CFW (on = 1) value. */
+/* 1 if every halfword holds its stock (on = 0) or TTY (on = 1) value. */
 static int hp_is(const hpatch_t *p, int n, int on) {
     for (int i = 0; i < n; i++)
         if (*(volatile uint16_t *)p[i].addr != (on ? p[i].cfw : p[i].stock)) return 0;

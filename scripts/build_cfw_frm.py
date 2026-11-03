@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Build dist/rg2_v003_cfw.frm: the M11 release firmware (`make rom`).
+"""Build dist/rg2_v003_tty.frm: the M11 release firmware (`make rom`).
 
-stock rg2_v003.frm + loader/flash/rom_stub.S in APP + the CFW files (scripts/rom_files.py,
+stock rg2_v003.frm + loader/flash/rom_stub.S in APP + the TTY files (scripts/rom_files.py,
 bin/rom/) appended to the A: drive in RES (finding 29 §8, loader/flash/README.md §5).
 Builds and checks only; flashing is a user step (the camera's menu update, README.md). The
 output contains Ricoh's firmware; it is published only as rg2_v003.frm in the official zip
@@ -14,19 +14,19 @@ Steps:
   2. APP: assemble rom_stub.S (ldr_stub.ld placement), assert the stock bytes at the hook
      BL and the 132-byte 0xFF range and the stub's BL targets (Port_Get, LoadFile,
      Section_Load), patch in place (same length), like build_loader_frm.py.
-  3. RES (stock bytes never move): payload 0x787C80-0x787DFF 0x00; from 0x787E00 the CFW
+  3. RES (stock bytes never move): payload 0x787C80-0x787DFF 0x00; from 0x787E00 the TTY
      files, each 0x200-aligned and 0x00-padded; then the directory = the 121 stock
-     entries verbatim + one entry per CFW file (FAT date/time 2026-01-01 00:00 x3,
+     entries verbatim + one entry per TTY file (FAT date/time 2026-01-01 00:00 x3,
      attribute 0x01) + a 64-byte zero terminator; the u32 at payload 0 points at it.
      Header: +0x164 nUpdateTotalSize = payload size (<= 0x7E0000, data stays in blocks
      0x62-0xA0), +0x168 nUpdateFileSize = 0x200 + +0x164, nUpdateCsum recomputed;
      bCheckRomSize (+0x17C) stays 1, every other header byte stock.
   4. Container via gr2frm.repack (resizes the RES entry, moves the nested APP container,
      new total length), then verify: round trip, `gr2frm.py verify`, header sizes and
-     checksums, RES = stock up to the old directory, every stock and CFW file read back
+     checksums, RES = stock up to the old directory, every stock and TTY file read back
      through the new directory, APP diff = hook + stub + nUpdateCsum, the nested container
      differs only in APP, the outer header only in its length words.
-  5. Write the .frm and dist/rg2_v003_cfw.manifest.txt (header fields, container layout,
+  5. Write the .frm and dist/rg2_v003_tty.manifest.txt (header fields, container layout,
      A: entries with offsets/sizes/SHA-256, APP diff runs, room left, stub listing).
 scripts/emu_release.py then checks the output independently (byte checks + stock code).
 
@@ -54,7 +54,7 @@ ROM_STUB = REPO_ROOT / "loader" / "flash" / "rom_stub.S"
 ROM_STUB_CALLS = {0xA00408D8: "Port_Get", 0xA002CD2C: "LoadFile", 0xA003FB02: "Section_Load"}
 
 STOCK_DIR, STOCK_ENTRIES, STOCK_PAYLOAD = 0x785E00, 121, 0x787C80   # finding 29 §2
-CFW_START = 0x787E00                    # first CFW file: payload offset, 0x200-aligned
+CFW_START = 0x787E00                    # first TTY file: payload offset, 0x200-aligned
 RES_CAP = 0x7E0000                      # nUpdateTotalSize cap: blocks 0x62-0xA0 (finding 29 §5)
 APP_CAP = 0x800000
 DIR_MAX = 1024                          # 0x80 directory sectors
@@ -105,7 +105,7 @@ def build_res(stock_res, files):
 
 def check_files(files, stock_names):
     if len(files) + STOCK_ENTRIES > DIR_MAX:
-        fail(f"{len(files)} CFW files + {STOCK_ENTRIES} stock entries exceed {DIR_MAX} directory entries")
+        fail(f"{len(files)} TTY files + {STOCK_ENTRIES} stock entries exceed {DIR_MAX} directory entries")
     for name in files:
         if any(s.startswith(name) or name.startswith(s) for s in stock_names) or \
                 any(s.startswith("A:/cfw") for s in stock_names):
@@ -117,8 +117,8 @@ def check_files(files, stock_names):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--stock", type=Path, default=STOCK_FRM)
-    ap.add_argument("--out", type=Path, default=REPO_ROOT / "dist" / "rg2_v003_cfw.frm")
-    ap.add_argument("--variant", default="rom", help="bin/<variant>/ for the CFW binaries")
+    ap.add_argument("--out", type=Path, default=REPO_ROOT / "dist" / "rg2_v003_tty.frm")
+    ap.add_argument("--variant", default="rom", help="bin/<variant>/ for the TTY binaries")
     a = ap.parse_args(argv)
 
     frm = a.stock.read_bytes()
@@ -156,12 +156,12 @@ def main(argv=None):
     app = with_csum(bytes(app))
     print("[OK] APP: stock bytes asserted; rom_stub.S patched in place (same length)")
 
-    # ── RES: CFW files appended to A: ──
+    # ── RES: TTY files appended to A: ──
     res, placed, new_dir = build_res(stock_res, files)
     total = len(res) - IMAGE_HDR
     if total > RES_CAP:
         fail(f"RES nUpdateTotalSize 0x{total:X} > cap 0x{RES_CAP:X}")
-    print(f"[OK] RES: {len(placed)} CFW files from payload 0x{CFW_START:X}, directory at 0x{new_dir:X}, "
+    print(f"[OK] RES: {len(placed)} TTY files from payload 0x{CFW_START:X}, directory at 0x{new_dir:X}, "
           f"payload 0x{total:X} (cap 0x{RES_CAP:X}, {RES_CAP - total:,} B left)")
 
     out = repack(frm, {APP: app, RES: res})
@@ -190,7 +190,7 @@ def main(argv=None):
     afs = afs_entries(nr)
     if len(afs) != STOCK_ENTRIES + len(files) or [n for n, _, _ in afs[:STOCK_ENTRIES]] != \
             [n for n, _, _ in stock_afs]:
-        fail("new A: directory is not the stock entries + the CFW entries")
+        fail("new A: directory is not the stock entries + the TTY entries")
     dir_bytes = nr[IMAGE_HDR + new_dir:]
     if dir_bytes[:STOCK_ENTRIES * AFS_ENTRY] != b"".join(stock_entries) or dir_bytes[-AFS_ENTRY:] != bytes(AFS_ENTRY):
         fail("stock entries not verbatim or terminator missing")
@@ -233,7 +233,7 @@ def main(argv=None):
     hs, hn = update_header(stock_res), update_header(nr)
     ha_s, ha_n = update_header(stock_app), update_header(na)
     rep = [
-        "rg2_v003_cfw.frm - M11 release firmware (loader/flash/README.md §5; the official zip's rg2_v003.frm)",
+        "rg2_v003_tty.frm - M11 release firmware (loader/flash/README.md §5; the official zip's rg2_v003.frm)",
         "built by scripts/build_cfw_frm.py from loader/flash/rom_stub.S, bin/"
         f"{a.variant}/ and scripts/rom_files.py; checked by scripts/emu_release.py",
         "",
@@ -254,11 +254,11 @@ def main(argv=None):
         f"  payload 0x0       directory pointer 0x{STOCK_DIR:X} -> 0x{new_dir:X}",
         f"  payload 0x4-0x{STOCK_PAYLOAD - 1:X}  stock bytes (old directory at 0x{STOCK_DIR:X} unused)",
         f"  payload 0x{STOCK_PAYLOAD:X}-0x{CFW_START - 1:X}  0x00",
-        f"  payload 0x{CFW_START:X}-0x{new_dir - 1:X}  CFW files (0x200-aligned, 0x00 padding)",
+        f"  payload 0x{CFW_START:X}-0x{new_dir - 1:X}  TTY files (0x200-aligned, 0x00 padding)",
         f"  payload 0x{new_dir:X}-0x{hn['nUpdateTotalSize'] - 1:X}  directory: {STOCK_ENTRIES} stock entries "
-        f"verbatim + {len(placed)} CFW entries + terminator",
+        f"verbatim + {len(placed)} TTY entries + terminator",
         "",
-        "A: CFW entries (payload offset, size, sha256):",
+        "A: TTY entries (payload offset, size, sha256):",
         *(f"  0x{o:06X}  {size:7,d}  {sha256(files[n])}  {n}" for n, o, size in placed),
         f"  {sum(s for _, _, s in placed):,} B in {len(placed)} files",
         "",

@@ -4,12 +4,12 @@
  *   .ldr_hook  @ 0xA0022E5C  `bl Section_Load` (stock F01C FE51) -> `bl ldr_stub`
  *   .ldr_stub  @ 0xA00AFCF0  132 B of unreferenced 0xFF (stub, 0xFF fill, status word)
  * Placed by ldr_stub.ld; scripts/build_cfw_frm.py assembles this file and builds
- * dist/rg2_v003_cfw.frm (RES carries A:/cfw/..., README.md §5).
+ * dist/rg2_v003_tty.frm (RES carries A:/cfw/..., README.md §5).
  *
  * The only difference to ldr_stub.S v2: stage 1 comes from A: (the RES partition, read
  * raw from NAND with no mount, cache or checksum, finding 29), so there is no
  * File_MountMedia and no ST_NOMOUNT, and a boot without a card or over USB loads the
- * CFW as well. Nothing here touches the card. The decision still waits for section 3
+ * TTY as well. Nothing here touches the card. The decision still waits for section 3
  * (finding 33 speed rule: nothing useful runs earlier; a USB-charge boot loads only
  * section 1 and never decides).
  *

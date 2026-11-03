@@ -1,8 +1,8 @@
 #ifndef INFO_H
 #define INFO_H
 #include <stdint.h>
-/* Read-only INFO tab and DEV (developer) tab of the CFW Menu (src/info.c,
- * finding 21). CFW task only. */
+/* Read-only INFO tab and DEV (developer) tab of the TTY Menu (src/info.c,
+ * finding 21). TTY task only. */
 enum { INFO_PAGE_INFO, INFO_PAGE_DEV, INFO_PAGE_COUNT };
 
 const char *info_page_name(int page);
@@ -14,7 +14,7 @@ int info_is_action(int page, int row);
  * action finishes later in info_poll). */
 #define INFO_CLOSE 1
 int info_action(int page, int row);
-void info_poll(void);                         /* CFW task, every 20 ms: pending actions */
+void info_poll(void);                         /* TTY task, every 20 ms: pending actions */
 void info_set_main_base(uint32_t base);       /* shown on the DEV tab */
 /* Wi-Fi state as the system controller sees it: system mode, UI mode, connect
  * mode, prop 0x1E8, WIFI_STATUS, Ctrl+0x214, +0x1B8, +0x1BC (also `wifi` in the

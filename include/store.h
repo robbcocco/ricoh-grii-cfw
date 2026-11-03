@@ -5,7 +5,7 @@
 /* Small records on the internal D: drive, two generations each (finding 34 §7):
  * every save rewrites only the older (or invalid) file, so a power loss during
  * a save can cost at most that save. File: {magic, generation, length, CRC-32
- * over generation, length and payload} + payload. CFW task, or the loader's
+ * over generation, length and payload} + payload. TTY task, or the loader's
  * first hook (load only). */
 typedef struct {
     const char *path[2];

@@ -1,10 +1,10 @@
-# gr2_cfw recipe: Mono Pushed Street look (Ricoh GR II, firmware 3.00)
-# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# GR II TTY recipe: Mono Pushed Street look (Ricoh GR II, firmware 3.00)
+# Keys: GR II TTY README, section Recipes. ASCII, CRLF.
 # Our version of the Hi-Contrast B&W preset at maximum contrast: pushed street black and white.
 # Source: own parametric target: steep mid-tones, crushed blacks, clipped highlights.
 #
-# Own design of the gr2_cfw project (no third-party data). This recipe file is licensed
-# CC BY 4.0, https://creativecommons.org/licenses/by/4.0/ (attribution: gr2_cfw project).
+# Own design of the GR II TTY project (no third-party data). This recipe file is licensed
+# CC BY 4.0, https://creativecommons.org/licenses/by/4.0/ (attribution: GR II TTY project).
 # Target: own parametric black and white. Yellow filter mix of linear R, G, B 0.3 / 0.64 / 0.06;
 # curve about mid grey (code 112), 76 codes/stop, black asymptote -26, white 332 (Standard: 0 / 255).
 # From mid grey: pure black below -2.1 EV, pure white above +2.2 EV.

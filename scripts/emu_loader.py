@@ -15,7 +15,7 @@
    outside the stack and ldr_state, an unbalanced register/stack state, or a card
    access before Section_Load(3) (lens start, finding 33) fails the run.
 
-Scenarios: CFW with loader ABI (model) / file absent / skip key held / no card /
+Scenarios: TTY with loader ABI (model) / file absent / skip key held / no card /
 stage 1 without loader ABI (pre-M10b) / playback boot order / stage 1 disarming the
 stub / USB-charge boot (section 1 only) / the current bin/release/gr2_cfw.bin (its
 +8 hook entry is called).

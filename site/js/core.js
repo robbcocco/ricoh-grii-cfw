@@ -1,4 +1,4 @@
-/* gr2_cfw LUT converter core: LUT parsing, colour maths, the GR II look model and the recipe fit.
+/* GR II TTY LUT converter core: LUT parsing, colour maths, the GR II look model and the recipe fit.
  * SPDX-License-Identifier: MIT
  *
  * One plain function so the same source runs in the page, in a Web Worker built from a Blob
@@ -784,9 +784,9 @@ function lut2grCore() {
   /* meta: { name, lutName, lutSize, input, output, ev, legalIn, legalOut, attribution, de, stockLabel } */
   function recipeText(look, useHue, meta) {
     const lines = [
-      `# gr2_cfw recipe: ${recipeName(meta.name)} (Ricoh GR II, firmware 3.00)`,
-      '# Keys: ricoh-grii-cfw README, section "Recipe file format". ASCII, CRLF.',
-      `# Converted from the LUT "${ascii(meta.lutName || 'unnamed').replace(/"/g, "'").slice(0, 80)}"${meta.lutSize ? ` (${meta.lutSize})` : ''} by the gr2_cfw LUT converter ${VERSION}.`,
+      `# GR II TTY recipe: ${recipeName(meta.name)} (Ricoh GR II, firmware 3.00)`,
+      '# Keys: GR II TTY README, section Recipes.',
+      `# Converted from the LUT "${ascii(meta.lutName || 'unnamed').replace(/"/g, "'").slice(0, 80)}"${meta.lutSize ? ` (${meta.lutSize})` : ''} by the GR II TTY LUT converter ${VERSION}.`,
       `# LUT input: ${INPUTS[meta.input].label}${meta.legalIn ? ', legal range' : ''}; exposure offset ${meta.ev >= 0 ? '+' : ''}${fmt(meta.ev || 0, 2)} EV.`,
       `# LUT output: ${OUTPUTS[meta.output].label}${meta.legalOut ? ', legal range' : ''}.`,
       `# GR II model: ${meta.stockLabel}. Fit CIEDE2000 mean/95th: Standard ${fmt(meta.de.standard.mean)}/${fmt(meta.de.standard.p95)}, this recipe ${fmt(meta.de.recipe.mean)}/${fmt(meta.de.recipe.p95)}.`,

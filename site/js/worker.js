@@ -1,4 +1,4 @@
-/* gr2_cfw LUT converter: fit worker. SPDX-License-Identifier: MIT
+/* GR II TTY LUT converter: fit worker. SPDX-License-Identifier: MIT
  * The page builds the worker from a Blob: lut2grCore's source plus this function, so it
  * also runs from file://. Messages:
  *   { type: 'fit', id, lut, opts }   -> 'progress'..., 'result' | 'error'

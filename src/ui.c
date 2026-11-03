@@ -1,6 +1,6 @@
-/* CFW overlay menus. Runs in the CFW task only.
+/* TTY overlay menus. Runs in the TTY task only.
  *
- * CFW Menu (fullscreen, tabbed): the tab bar is the top row. On the tab bar
+ * TTY Menu (fullscreen, tabbed): the tab bar is the top row. On the tab bar
  * Left/Right switch tabs and Down/OK enter the rows; on a row Up/Down move,
  * Left/Right change the value (applied at once), OK toggles two-value
  * settings, Up from the first row returns to the tab bar. The settings tabs
@@ -30,7 +30,7 @@
 #define KEY_OK      0x420Au
 #define KEY_EFFECT  0x421Cu
 
-/* CFW Menu layout (640x480) */
+/* TTY Menu layout (640x480) */
 #define HEADER_H   44
 #define ROWS_Y     60
 #define ROW_PITCH  38
@@ -55,7 +55,7 @@
 
 static int g_menu = -1;          /* open CFW_MENU_*, or -1 */
 
-/* CFW Menu state (kept between openings) */
+/* TTY Menu state (kept between openings) */
 static int g_tab;
 static int g_row = -1;           /* -1 = tab bar */
 static int g_first;              /* first row shown of an INFO/DEV page longer than MAX_ROWS (scrolls with g_row) */
@@ -77,7 +77,7 @@ static int text_right(int font, int right, int y, const char *s, uint8_t fg) {
     return x;
 }
 
-/* ---- CFW Menu --------------------------------------------------------------- */
+/* ---- TTY Menu --------------------------------------------------------------- */
 
 /* Tabs: settings tabs first, then INFO and DEV. */
 static int tab_count(void) { return settings_tab_count() + INFO_PAGE_COUNT; }
@@ -412,7 +412,7 @@ static void render_strip(int w, int y) {
 #if CFW_ROM
         const char *msg = "No recipes found";
 #else
-        const char *msg = "No recipes in H:/cfw/recipes";
+        const char *msg = "No recipes in H:/tty/recipes";
 #endif
         osd_text(FONT_ROW, (w - osd_text_width(FONT_ROW, msg)) >> 1,
                  text_mid(FONT_ROW, y, STRIP_H), msg, OSD_GREY, w);
@@ -511,7 +511,7 @@ int cfw_ui_is_open(void) {
     return g_menu >= 0;
 }
 
-/* Once a second from the CFW task: redraw the INFO/DEV values that changed,
+/* Once a second from the TTY task: redraw the INFO/DEV values that changed,
  * cell by cell (a full redraw would flicker: the overlay draws into the shown
  * buffer). */
 void cfw_ui_tick(void) {

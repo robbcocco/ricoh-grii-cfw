@@ -65,9 +65,9 @@ jobs:
       - name: Summary
         run: |
           {
-            echo "### gr2_cfw v$(tr -d '[:space:]' < VERSION)"
+            echo "### GR II TTY v$(tr -d '[:space:]' < VERSION)"
             echo '```'
-            arm-none-eabi-size bin/*/gr2_*.elf
+            arm-none-eabi-size bin/*/gr2_cfw.elf bin/*/tty_main*.elf
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -83,6 +83,7 @@ jobs:
         with:
           name: elf-renders
           path: |
-            bin/*/gr2_*.elf
-            bin/*/gr2_*.asm
+            bin/*/gr2_cfw.elf
+            bin/*/tty_main*.elf
+            bin/*/*.asm
             renders/*.png

@@ -19,11 +19,11 @@ int cfw_phase_late(void);              /* loader hooks over and JobSystem step 1
 
 /* Shell commands (src/shell.c) */
 int cfw_shell_register(void);          /* 0 on success */
-void cfw_status_log(void);             /* debug: session state into the log (`cfw status`, power-off) */
+void cfw_status_log(void);             /* debug: session state into the log (`tty status`, power-off) */
 
-/* Menu choices (src/menu.c). Each Effect choice opens one CFW menu:
+/* Menu choices (src/menu.c). Each Effect choice opens one TTY menu:
  * prop 0x1A6 value CFW_EFX_VALUE + menu, prop 0x1A7 value CFW_HOLD_VALUE + menu. */
-#define CFW_MENU_SETTINGS 0                /* "CFW Menu": tabbed settings */
+#define CFW_MENU_SETTINGS 0                /* "TTY Menu": tabbed settings */
 #define CFW_MENU_RECIPES  1                /* "Recipes": recipe carousel */
 #define CFW_MENU_COUNT    2
 #define CFW_EFX_VALUE  0x20                /* prop 0x1A6: first value past the 32 stock functions */
@@ -37,7 +37,7 @@ int cfw_hooks_install_iq(const struct cfw_boot *boot, void (*fn)(void));   /* lo
 void cfw_iq_ready_orig(void);          /* the stock call the IQ-ready hook replaced */
 uint32_t cfw_hook_requests(int menu);  /* requests for CFW_MENU_* seen so far */
 
-/* Overlay (src/ui.c), CFW task only */
+/* Overlay (src/ui.c), TTY task only */
 void cfw_ui_request(int menu);         /* open `menu`, or close if any menu is open */
 int cfw_ui_is_open(void);
 void cfw_ui_key(uint32_t id, uint32_t state);  /* id = 0x42NN key message, state 0 = release */

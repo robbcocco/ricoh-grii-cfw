@@ -1,4 +1,4 @@
-/* Linker script for gr2_cfw stage 1 (src/entry.S, src/boot.c, src/veneers.S;
+/* Linker script for GR II TTY stage 1 (src/entry.S, src/boot.c, src/veneers.S;
  * include/boot.h). Stage 2 is linked by gr2_main.ld and loaded into the heap.
  * Window 0xA0017000-0xA001EFFF (32 KiB) in the IPL copy's erased 0xFF tail,
  * confirmed unused for a full session on hardware (M0 probe).

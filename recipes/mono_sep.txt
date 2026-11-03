@@ -1,11 +1,11 @@
-# gr2_cfw recipe: Mono Soft Sepia look (Ricoh GR II, firmware 3.00)
-# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# GR II TTY recipe: Mono Soft Sepia look (Ricoh GR II, firmware 3.00)
+# Keys: GR II TTY README, section Recipes. ASCII, CRLF.
 # Our version of the sepia B&W (TE) preset (incandescent WB A-8 G-8 in daylight: a cool
 # white balance before the conversion acts like a light blue filter). Source: own parametric
 # target: soft, lifted blacks and muted whites, sepia-toned mid-tones and shadows.
 #
-# Own design of the gr2_cfw project (no third-party data). This recipe file is licensed
-# CC BY 4.0, https://creativecommons.org/licenses/by/4.0/ (attribution: gr2_cfw project).
+# Own design of the GR II TTY project (no third-party data). This recipe file is licensed
+# CC BY 4.0, https://creativecommons.org/licenses/by/4.0/ (attribution: GR II TTY project).
 # Target: own parametric black and white. Light blue filter mix of linear R, G, B 0.14 / 0.62 / 0.24;
 # curve about mid grey (code 120), 36 codes/stop, black asymptote 18, white 237 (Standard: 0 / 255).
 # Toning: CIELAB hue 68 deg, chroma up to 10 at L* 45, neutral at black and white.

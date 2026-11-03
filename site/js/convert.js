@@ -1,4 +1,4 @@
-/* gr2_cfw LUT converter: page logic. SPDX-License-Identifier: MIT */
+/* GR II TTY LUT converter: page logic. SPDX-License-Identifier: MIT */
 (function () {
   'use strict';
   const core = lut2grCore();

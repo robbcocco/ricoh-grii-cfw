@@ -1,13 +1,13 @@
-/* gr2_cfw site: latest release lookup. SPDX-License-Identifier: MIT
+/* GR II TTY site: latest release lookup. SPDX-License-Identifier: MIT
  * Asks the GitHub API for the latest release and points the download buttons at the release
- * zip (gr2_cfw-v<VERSION>.zip, not -debug). Without an answer (offline, rate limit) the buttons
+ * zip (gritty-v<VERSION>.zip, not -debug). Without an answer (offline, rate limit) the buttons
  * keep linking to the releases page. */
 (function () {
   'use strict';
-  const REPO = 'robbcocco/ricoh-grii-cfw';
+  const REPO = 'robbcocco/gritty';
   const API = `https://api.github.com/repos/${REPO}/releases/latest`;
   const PAGE = `https://github.com/${REPO}/releases/latest`;
-  const ZIP = /^gr2_cfw-v\d+(\.\d+)*\.zip$/;
+  const ZIP = /^gritty-v\d+\.\d+\.\d+\.zip$/;
   const $ = id => document.getElementById(id);
 
   const mb = n => `${(n / 1048576).toFixed(1)} MB`;
@@ -18,7 +18,7 @@
     s.replaceChildren(
       `Couldn't look up the latest release (${reason}). `,
       Object.assign(document.createElement('a'), { href: PAGE, textContent: 'Open the releases page' }),
-      ' and download gr2_cfw-v<VERSION>.zip.');
+      ' and download gritty-v<VERSION>.zip.');
   }
 
   /* The SHA-256 of the zip: the API's asset digest, else the release's SHA256SUMS.txt (only
@@ -56,7 +56,7 @@
     for (const p of document.querySelectorAll('[data-release-version]'))
       p.textContent = `${zip.name} · ${mb(zip.size)}${date ? ` · released ${date}` : ''}`;
     if (!$('release-facts')) return;
-    $('release-title').textContent = rel.name || `gr2_cfw ${rel.tag_name}`;
+    $('release-title').textContent = rel.name || `GR II TTY ${rel.tag_name}`;
     $('release-status').textContent = 'The latest release, straight from GitHub.';
     $('release-version').textContent = `${rel.tag_name}${date ? ` (${date})` : ''}`;
     $('release-file').textContent = zip.name;

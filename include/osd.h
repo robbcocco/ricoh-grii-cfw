@@ -23,7 +23,7 @@
 #define OSD_PAL_USER    224
 #define OSD_PAL_USER_N  28
 
-/* Fonts: .fnt files in H:/cfw/fonts (rom: A:/cfw/fonts), made by scripts/make_fonts.py. Without
+/* Fonts: .fnt files in H:/tty/fonts (rom: A:/cfw/fonts), made by scripts/make_fonts.py. Without
  * the files the ROM font (32x38) is used. Extra glyphs (string escapes): */
 #define GLYPH_LSAQUO "\x80"   /* single left angle quote */
 #define GLYPH_RSAQUO "\x81"   /* single right angle quote */
@@ -35,7 +35,7 @@
 
 enum { FONT_SMALL, FONT_TAB, FONT_ROW, FONT_ROW_BOLD, FONT_FILM, FONT_COUNT };
 
-void osd_fonts_load(void);            /* CFW task, once */
+void osd_fonts_load(void);            /* TTY task, once */
 
 /* Take over the OSD layer (draw lock + private buffer); 0 on success. */
 int osd_open(void);
