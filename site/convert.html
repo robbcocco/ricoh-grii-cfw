@@ -102,7 +102,7 @@
       <summary>What the converter can and cannot do</summary>
       <div>
         <ul>
-          <li>It fits a colour matrix, 12 hue-sector matrices, three tone curves and a post matrix, relative to the camera's Standard rendering, and writes them as the recipe's look keys with <code>base=setting2</code>. The camera's saturation, contrast and sharpness sliders still work on top.</li>
+          <li>It fits a colour matrix, 12 hue-sector matrices, three tone curves and a post matrix, relative to the camera's Standard rendering, then refines them all together on the colour difference over natural colours, skin tones and saturated colours while holding the grey scale (black and white point included) to the LUT, and writes them as the recipe's look keys with <code>base=setting2</code>. The camera's saturation, contrast and sharpness sliders still work on top.</li>
           <li>It models the Standard rendering with its own approximation, so the result is close but not exact; the colour difference (CIEDE2000) is measured on held-out colours. Below about 2 is close; above 5 the LUT does something the camera cannot follow.</li>
           <li>No grain, halation or blur, and no colour-dependent tone changes: those are not part of the camera's colour path.</li>
           <li>Log LUTs (V-Log, S-Log3, LogC3, F-Log, F-Log2) are fed scene light through the matching log curve and gamut and taken as Rec.709 out.</li>

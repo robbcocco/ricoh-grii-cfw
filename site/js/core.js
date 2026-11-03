@@ -8,7 +8,7 @@
 function lut2grCore() {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
   const MID_GREY = 0.184;            // scene-linear mid grey of the model (spektrafilm's)
   const LUT_MID = 0.098;             // GR II tone-LUT input of 18 % grey, fraction of 1023
   const EXPO = LUT_MID / MID_GREY;
@@ -17,6 +17,12 @@ function lut2grCore() {
   const HUE_SMOOTH = 3.0;            // weight of (H_k - H_k+1) in the hue fit
   const HUE_RIDGE = 0.3;             // weight of (H_k - I)
   const MAT_RIDGE = 0.3;             // weight of (A - I), (P - I)
+  const J_TONE_SMOOTH = 0.3;         // joint refinement: weight of the knots' second differences (codes)
+  const J_HUE_SMOOTH = 0.3;          // weight of (H_k - H_k+1), x100
+  const J_RIDGE = 0.02;              // weight of the matrices' change from the staged fit, x100
+  const J_NEUTRAL = 3.0;             // weight of the neutral ramp's display-code error (per code, channel)
+  const J_NEUTRAL_ENDS = 15.0;       // the same at the black and white ends
+  const J_ITER = 40;                 // Levenberg-Marquardt iterations
 
   /* Approximate model of the camera's Standard rendering: measured model parameters
    * (finding 20), not Ricoh's tables. Tone curve: code(x) = min(255, s*((1-w)*L(x)^g + w*x)),
@@ -25,6 +31,11 @@ function lut2grCore() {
   /* Hue-sector split inside each Cb/Cr quadrant (degrees from the quadrant start; the second
    * boundary is 90 - b). Measured model parameters, rounded (finding 20). */
   const SECTOR_SPLIT_DEG = [30, 30, 30, 35];
+  /* Standard hue stage: per hue sector 1..12 a luma-preserving Cb/Cr gain and rotation (degrees,
+   * +Cb towards +Cr) on linear RGB (BT.601 axes). Measured model parameters: least-squares fit to
+   * the stage's effect on natural colours (finding 20), not Ricoh's tables. */
+  const STD_HUE = [[1.043, 2.6], [0.966, 2.3], [0.899, 1.1], [0.975, 0.2], [1.053, -3.0], [1.049, -2.7],
+    [1.007, -1.2], [0.947, -1.4], [0.971, -4.4], [0.944, -4.2], [0.933, 0.2], [0.961, 3.8]];
   /* BT.601 RGB'->YCbCr x256 (rows Y, Cb, Cr): ITU-R BT.601 coefficients, rounded. */
   const BT601_256 = [77, 150, 29, -43, -85, 128, 128, -107, -21];
   const JFIF_INV = [1.0, 0.0, 1.402, 1.0, -0.344136, -0.714136, 1.0, 1.772, 0.0];
@@ -183,6 +194,14 @@ function lut2grCore() {
       out[3 * i] = 116 * fy - 16; out[3 * i + 1] = 500 * (fx - fy); out[3 * i + 2] = 200 * (fy - fz);
     }
     return out;
+  }
+
+  /* Inverse of toLab for one colour: CIELAB -> linear sRGB (may be out of gamut). */
+  const XYZ_MI = inv3(XYZ_M);
+  function labToLin(L, a, b) {
+    const fy = (L + 16) / 116, f = [fy + a / 500, fy, fy - b / 200];
+    const xyz = f.map((v, c) => (v > 6 / 29 ? v ** 3 : 3 * (6 / 29) ** 2 * (v - 4 / 29)) * XYZ_W[c]);
+    return [0, 1, 2].map(r => XYZ_MI[3 * r] * xyz[0] + XYZ_MI[3 * r + 1] * xyz[1] + XYZ_MI[3 * r + 2] * xyz[2]);
   }
 
   /* CIEDE2000 between two Lab arrays (N x 3). */
@@ -344,8 +363,8 @@ function lut2grCore() {
 
   // ---- the camera's Standard stage data ----------------------------------------------------
 
-  /* The approximate Standard model (no Ricoh data). Hue tables = identity, camera matrix
-   * unknown (the composite clamp of matrix x camera matrix is not modelled). */
+  /* The approximate Standard model (no Ricoh data). Hue tables from STD_HUE (Q10, rows sum to
+   * 1024); camera matrix unknown (the composite clamp of matrix x camera matrix is not modelled). */
   function approxStock() {
     const { a, g, w, s } = STD_CURVE, la = Math.log1p(a);
     const curve = new Int32Array(1024);
@@ -353,8 +372,16 @@ function lut2grCore() {
       const x = i / 1023, v = s * ((1 - w) * Math.pow(Math.log1p(a * x) / la, g) + w * x);
       curve[i] = Math.max(0, Math.min(255, Math.round(v)));
     }
+    const Y = [0.299, 0.587, 0.114, -0.168736, -0.331264, 0.5, 0.5, -0.418688, -0.081312], Yi = inv3(Y);
     const tstd = new Int32Array(108);
-    for (let k = 0; k < 12; k++) tstd[9 * k] = tstd[9 * k + 4] = tstd[9 * k + 8] = 1024;
+    STD_HUE.forEach(([gain, deg], k) => {
+      const c = gain * Math.cos(deg * Math.PI / 180), sn = gain * Math.sin(deg * Math.PI / 180);
+      const t = mul3(Yi, mul3(Float64Array.from([1, 0, 0, 0, c, -sn, 0, sn, c]), Y));
+      for (let r = 0; r < 3; r++) {
+        for (let j = 0; j < 3; j++) tstd[9 * k + 3 * r + j] = Math.round(1024 * t[3 * r + j]);
+        tstd[9 * k + 4 * r] += 1024 - (tstd[9 * k + 3 * r] + tstd[9 * k + 3 * r + 1] + tstd[9 * k + 3 * r + 2]);
+      }
+    });
     return {
       label: 'approximate Standard model (no Ricoh data)',
       set0: [curve, curve, curve], tstd, c4: Int32Array.from(BT601_256),
@@ -572,6 +599,40 @@ function lut2grCore() {
     return Float64Array.from(v);
   }
 
+  /* Samples and weights of the joint refinement (as the fitting tool): neutral ramp, ColorChecker 24
+   * at -2..+1.5 EV, natural-image-like colours (L* uniform, chroma half-normal, sigma 22), skin, a
+   * CIELAB hue ring, the sRGB grid of fitSamples and uniform sRGB colours. */
+  function trainSamples() {
+    const v = [], w = [], rnd = mulberry32(20261104);
+    const gauss = () => Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd());
+    const add = (c, wt) => { v.push(c[0], c[1], c[2]); w.push(wt); };
+    const inGamut = c => c.every(x => x >= 0 && x <= 1);
+    for (let i = 0; i < 48; i++) { const g = MID_GREY * 2 ** (-6 + 9.2 * i / 47); add([g, g, g], 8); }
+    for (let ev = -2; ev <= 1.5; ev += 0.5) for (const p of CC24) add(p.map(x => x * 2 ** ev), 2);
+    for (let n = 0; n < 1500;) {
+      const L = 10 + 85 * rnd(), C = Math.abs(22 * gauss()), h = 2 * Math.PI * rnd();
+      const c = labToLin(L, C * Math.cos(h), C * Math.sin(h));
+      if (!inGamut(c)) continue;
+      const e = 2 ** Math.max(-2.5, Math.min(2, gauss()));
+      add(c.map(x => x * e), 1); n++;
+    }
+    for (let i = 0; i < 200; i++) {
+      const L = 35 + 50 * rnd(), C = 12 + 26 * rnd(), h = (35 + 35 * rnd()) * Math.PI / 180, e = 2 ** (2 * rnd() - 1);
+      add(labToLin(L, C * Math.cos(h), C * Math.sin(h)).map(x => Math.max(0, x) * e), 2);
+    }
+    for (const L of [35, 55, 75]) for (const C of [15, 35, 55]) for (let d = 0; d < 360; d += 10) {
+      const c = labToLin(L, C * Math.cos(d * Math.PI / 180), C * Math.sin(d * Math.PI / 180));
+      if (inGamut(c)) add(c, 1);
+    }
+    const grid = fitSamples();
+    for (let i = 0; i < grid.length; i += 3) add([grid[i], grid[i + 1], grid[i + 2]], 1);
+    for (let i = 0; i < 600; i++) {
+      const c = [rnd(), rnd(), rnd()].map(srgbDecode), e = 2 ** (-2 + 2.8 * rnd());
+      add(c.map(x => x * e), 1);
+    }
+    return { scene: Float64Array.from(v), w: Float64Array.from(w) };
+  }
+
   // ---- fit ------------------------------------------------------------------------------------
 
   /* Neutral ramp: tone-LUT input 0..1023 in 4093 steps; target display codes. */
@@ -712,19 +773,145 @@ function lut2grCore() {
     return unpack(x, look, hue);
   }
 
+  /* Joint refinement (as the fitting tool): matrix, post matrix (if post), hue sectors and the 33 knots
+   * per curve minimise RMS CIEDE2000 over trainSamples (train.ref = target Lab), with the neutral ramp
+   * train.grey held to its target display codes train.greyCode (J_NEUTRAL; the black and white ends
+   * J_NEUTRAL_ENDS), smooth curves, hue tables tied to their neighbours and the matrices tied to the
+   * staged fit. Levenberg-Marquardt; the Jacobian uses grouped forward differences: a hue table acts
+   * only on its own sector's samples and a knot only on samples whose Standard code lies next to it,
+   * so 6 + 9 renders cover 72 + 99 parameters. */
+  function jointRefine(stock, train, look, post, onIter) {
+    const { w, ref, greyCode } = train, n = w.length, ng = train.grey.length / 3, N = n + 3 * ng;
+    const NM = 84, NP = NM + 3 * KNOTS;
+    const scene = Float64Array.from([...train.scene, ...train.grey]);
+    const sw = Float64Array.from(w, Math.sqrt);
+    const gw = Float64Array.from({ length: ng }, (_, g) => (g === 0 || g === ng - 1 ? J_NEUTRAL_ENDS : J_NEUTRAL));
+    const x0 = Float64Array.from([...pack(look, true), ...look.tone]);
+    const toLook = x => Object.assign(unpack(x, look, true), { tone: Float64Array.from(x.subarray(NM)) });
+    /* Residuals: n sample rows (sqrt(w) dE00), then 3 rows per grey (display-code error per channel). */
+    const data = x => {
+      const lin = render(stock, toLook(x), scene, false), d = new Float64Array(N);
+      d.set(deltaE00(toLab(lin.subarray(0, 3 * n)), ref));
+      for (let i = 0; i < n; i++) d[i] *= sw[i];
+      for (let k = 0; k < 3 * ng; k++) d[n + k] = gw[Math.floor(k / 3)] * (255 * srgbEncode(lin[3 * n + k]) - greyCode[k]);
+      return d;
+    };
+    const rowSample = row => (row < n ? row : n + Math.floor((row - n) / 3));
+    // linear regularisation rows: residual = sum(coef * x[col]) - c0
+    const reg = [];
+    for (let c = 0; c < 3; c++)
+      for (let q = 1; q < KNOTS - 1; q++) {
+        const o = NM + c * KNOTS + q;
+        reg.push({ cols: [o - 1, o, o + 1], coefs: [J_TONE_SMOOTH, -2 * J_TONE_SMOOTH, J_TONE_SMOOTH], c0: 0 });
+      }
+    for (let p = 0; p < NM; p++) reg.push({ cols: [p], coefs: [J_RIDGE * 100], c0: J_RIDGE * 100 * x0[p] });
+    for (let k = 0; k < 12; k++)
+      for (let j = 0; j < 6; j++)
+        reg.push({ cols: [12 + 6 * k + j, 12 + 6 * ((k + 1) % 12) + j], coefs: [J_HUE_SMOOTH * 100, -J_HUE_SMOOTH * 100], c0: 0 });
+    const regRes = x => reg.map(g => g.coefs.reduce((s, cf, i) => s + cf * x[g.cols[i]], 0) - g.c0);
+    const cost = (x, r) => r.reduce((s, v) => s + v * v, 0) + regRes(x).reduce((s, v) => s + v * v, 0);
+
+    const free = [];
+    for (let p = 0; p < NP; p++) if (post || p < 6 || p >= 12) free.push(p);
+    const pos = new Int32Array(NP).fill(-1);
+    free.forEach((p, a) => { pos[p] = a; });
+    const m = free.length, step = x => Float64Array.from(x, v => 1e-4 * Math.max(1, Math.abs(v)));
+
+    /* Per sample: hue sector of A x, and per channel c and residue r the knot (= r mod 3) its code uses. */
+    function trace(x) {
+      const { a, t } = stages(stock, toLook(x), false);
+      const sec = new Int32Array(n + ng), kn = new Int32Array(9 * (n + ng)).fill(-1);
+      for (let i = 0; i < n + ng; i++) {
+        const s0 = scene[3 * i] * EXPO, s1 = scene[3 * i + 1] * EXPO, s2 = scene[3 * i + 2] * EXPO;
+        const y0 = a[0] * s0 + a[1] * s1 + a[2] * s2, y1 = a[3] * s0 + a[4] * s1 + a[5] * s2, y2 = a[6] * s0 + a[7] * s1 + a[8] * s2;
+        const k = sector(stock, y0, y1, y2);
+        sec[i] = k;
+        for (let c = 0; c < 3; c++) {
+          const z = t[9 * k + 3 * c] * y0 + t[9 * k + 3 * c + 1] * y1 + t[9 * k + 3 * c + 2] * y2;
+          const j = Math.min(Math.floor(clamp01(z) * 1023), 1022);
+          const lo = Math.min(stock.set0[c][j] >> 3, KNOTS - 2), hi = Math.min(stock.set0[c][j + 1] >> 3, KNOTS - 2);
+          for (let q = lo; q <= hi + 1; q++) if (kn[9 * i + 3 * c + q % 3] < 0) kn[9 * i + 3 * c + q % 3] = q;
+        }
+      }
+      return { sec, kn };
+    }
+
+    let x = Float64Array.from(x0), r = data(x), c = cost(x, r), lambda = 1e-3;
+    for (let it = 0; it < J_ITER; it++) {
+      const h = step(x), { sec, kn } = trace(x);
+      const cols = [], vals = [];                     // sparse Jacobian rows
+      for (let i = 0; i < N; i++) { cols.push([]); vals.push([]); }
+      const perturb = (ps, attribute) => {
+        const xs = Float64Array.from(x);
+        for (const p of ps) xs[p] += h[p];
+        const rs = data(xs);
+        for (let i = 0; i < N; i++) {
+          const p = attribute(i);
+          if (p < 0 || pos[p] < 0) continue;
+          const d = (rs[i] - r[i]) / h[p];
+          if (d) { cols[i].push(pos[p]); vals[i].push(d); }
+        }
+      };
+      for (let p = 0; p < 12; p++) if (pos[p] >= 0) perturb([p], () => p);
+      // a hue table keeps greys grey (rows sum to 1): only sample rows
+      for (let j = 0; j < 6; j++) perturb(Array.from({ length: 12 }, (_, k) => 12 + 6 * k + j), i => (i < n ? 12 + 6 * sec[i] + j : -1));
+      for (let ch = 0; ch < 3; ch++)
+        for (let res = 0; res < 3; res++) {
+          const ps = [];
+          for (let q = res; q < KNOTS; q += 3) ps.push(NM + ch * KNOTS + q);
+          perturb(ps, i => {
+            const q = kn[9 * rowSample(i) + 3 * ch + res];
+            return q < 0 ? -1 : NM + ch * KNOTS + q;
+          });
+        }
+      const JtJ = new Float64Array(m * m), Jtr = new Float64Array(m);
+      const acc = (cs, vs, res) => {
+        for (let u = 0; u < cs.length; u++) {
+          Jtr[cs[u]] += vs[u] * res;
+          for (let v = 0; v < cs.length; v++) JtJ[cs[u] * m + cs[v]] += vs[u] * vs[v];
+        }
+      };
+      for (let i = 0; i < N; i++) acc(cols[i], vals[i], r[i]);
+      const rr = regRes(x);
+      reg.forEach((g, gi) => {
+        const cs = [], vs = [];
+        g.cols.forEach((p, u) => { if (pos[p] >= 0) { cs.push(pos[p]); vs.push(g.coefs[u]); } });
+        acc(cs, vs, rr[gi]);
+      });
+      let improved = false, rel = 1;
+      while (lambda < 1e12) {
+        const M = Float64Array.from(JtJ);
+        for (let a = 0; a < m; a++) M[a * m + a] += lambda * Math.max(JtJ[a * m + a], 1e-9);
+        const dx = solve(M, Jtr.map(v => -v), m), xn = Float64Array.from(x);
+        free.forEach((p, a) => { xn[p] += dx[a]; });
+        const rn = data(xn), cn = cost(xn, rn);
+        if (cn < c) {
+          rel = (c - cn) / c;
+          x = xn; r = rn; c = cn; lambda = Math.max(lambda / 3, 1e-9); improved = true;
+          break;
+        }
+        lambda *= 4;
+      }
+      if (onIter) onIter(it, c);
+      if (!improved || rel < 1e-6) break;
+    }
+    return toLook(x);
+  }
+
   function stats(stock, look, scene, refLab) {
     return summary(deltaE00(toLab(render(stock, look, scene, true)), refLab));
   }
 
   /* The whole fit (as the fitting tool): returns the integer recipe look and its errors.
-   * opts: { hue: bool, post: bool }; progress(stage, fraction). */
+   * Staged fit (tone curves, matrix, post matrix, hue sectors), then with hue sectors the joint
+   * CIEDE2000 refinement of all stages. opts: { hue: bool, post: bool }; progress(stage, fraction). */
   function fitLut(stock, target, opts, progress = () => {}) {
     const ramp = makeRamp(target);
     const fitScene = fitSamples(), fitLab = toLab(target(fitScene));
     const evScene = evalSamples(), evRef = toLab(target(evScene));
     const post = opts.post !== false;
     let look = identityLook();
-    const steps = 4 + (opts.hue ? 4 : 0);
+    const steps = 3 + (opts.hue ? 4 : 0);
     let done = 0;
     const tick = name => progress(name, ++done / steps);
     look.tone = fitTone(stock, ramp, look, false);
@@ -744,8 +931,17 @@ function lut2grCore() {
         look.tone = fitTone(stock, ramp, look, false);
         tick('hue sectors');
       }
+      const train = trainSamples();
+      train.ref = toLab(target(train.scene));
+      // neutral ramp, uniform in Standard code (like the knots), with the black (0) and white (1023) ends
+      const idx = new Set([0, 1023]), g1 = stock.set0[1];
+      for (let i = 0, code = 0; i < 1024; i++) while (code <= g1[i] && code < 256) { idx.add(i); code++; }
+      train.grey = Float64Array.from([...idx].sort((a, b) => a - b).flatMap(i => [i, i, i].map(v => v / 1023 / EXPO)));
+      train.greyCode = Float64Array.from(target(train.grey), v => 255 * srgbEncode(v));
+      look = jointRefine(stock, train, look, post, it => progress('all stages on \u0394E', (done + (it + 1) / J_ITER) / steps));
+      tick('all stages on \u0394E');
       full = quantise(look);
-      full.tone = fitTone(stock, ramp, full, true);
+      full.tone = fitTone(stock, ramp, full, true);  // neutral axis through the integer post matrix
       full = Object.assign(quantise(full), { warnings: full.warnings });
       tick('quantise');
     }

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- LUT converter 1.1.0: after the staged fit, all stages (matrix, post matrix, hue sectors and the 33 knots
+  per curve) are refined together on CIEDE2000 over natural-image-like colours, skin, a hue ring and
+  saturated colours, with the grey scale held to the LUT (black and white point included); the curves
+  are then refitted to the grey scale through the rounded post matrix. Its Standard model gains the
+  Standard hue stage as 12 measured gain/rotation pairs (finding 20). On three spektrafilm test LUTs,
+  scored with the camera's own tables: mean dE00 2.4–2.7 → 2.0–2.2 (95th percentile 4.8–5.5 → 4.3–4.7);
+  natural colours 2.1–2.2 → 1.3–1.4; grey scale unchanged (black and white within 1 code of the LUT).
+- The 11 spektrafilm recipes, Vivid Slide, Cinema Warm and Rangefinder are refitted with the same joint
+  refinement: natural colours mean dE00 1.7–2.3 → 0.9–1.5, grey scale and black/white points unchanged.
+  Monochrome recipes are unchanged.
+
 ## v1.1.0
 
 - Renamed: gr2_cfw is now GR II TTY ("Gritty", TTY for short). Repository
