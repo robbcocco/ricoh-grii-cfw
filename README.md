@@ -8,7 +8,7 @@ gr2_cfw adds the things the GR II never got: film recipes you can preview live a
 
 ## What you get
 - **Two new choices for the Effect button:** **CFW Menu** and **Recipes**, in every menu language.
-- **Recipes:** film looks (Portra, Gold, Ektar, Pro 400H, Superia, UltraMax, Vision3, Cinema Green, Cinema Yellow …) in a filmstrip. Live view shows the look while you browse; one press saves it into MY1, MY2 or MY3, and the camera shows that look whenever the slot is active, from the very first frame after power-on. The last entry, **Stock**, puts a slot back to the camera's own rendering.
+- **Recipes:** film looks (Portra, Gold, Ektar, Pro 400H, Superia, UltraMax, Vision3, Cinema Green, Cinema Yellow …) in a filmstrip. Live view shows the look while you browse; one press saves it into MY1, MY2 or MY3, and the camera shows that look whenever the slot is active, from the very first frame after power-on. The last entry, **Stock**, puts a slot back to the camera's own rendering. Your own presets (MY1–MY3, My Settings Box, Setting1/Setting2) export to recipe files with one press.
 - **CFW Menu:** Auto ISO slowest shutter, maximum ISO and *keep shutter*; Auto ISO in M; TAv fixes; Snap distances 0.7 m and 1.2 m; frame lines (XPan, 6×7, 4:5, 1:1, 16:9) and zebras; Clarity strength and custom high-ISO noise reduction; an INFO page with shutter count, battery, temperatures; developer tools.
 - **Fast:** the CFW lives inside the camera and starts with it; power-on is as quick as stock.
 - **Safe:** hold a key to start stock, automatic fallback to stock after failed starts, and a full uninstall with Ricoh's own file.
@@ -36,11 +36,29 @@ Press the Effect button you assigned to **Recipes**.
 - **Left/Right** browse the films. Live view shows each look at once (in the Standard, Vivid, Setting1 or Setting2 image settings).
 - **OK**, then **Left/Right** to choose **MY1 / MY2 / MY3**, then **OK** to save. **Up/Down** goes back.
 - Turn the mode dial to that MY slot: the camera now shoots with that look. The slot keeps its other settings (exposure, focus …) and takes the recipe's name, image settings and white balance.
-- **Stock**, always the last entry, undoes a recipe. Previewing it shows the camera's own rendering; saved into a slot, it puts everything a recipe can change back to the camera's factory values (image settings and their sliders, white balance and its compensation, exposure compensation, dynamic range compensation, noise reduction), clears the slot's name and removes the film look. The slot's other settings (exposure mode, focus …) stay.
+- **Stock**, always the last entry, undoes a recipe. Previewing it shows the camera's own rendering; saved into a slot, it puts everything a recipe can change back to the camera's factory values (image settings and their sliders, white balance and its compensation, exposure compensation, dynamic range compensation, noise reduction and its custom thresholds, ISO and the ISO AUTO-HI settings), clears the slot's name and removes the film look. The slot's other settings (exposure mode, focus …) stay.
 
 Each frame of the strip shows four colour patches (magenta, red, green, cyan-blue) through the film's look, exaggerated so you can tell films apart at a glance.
 
 **Your recipe files** live in `cfw/recipes/` on the card: one small text file per film. Delete the ones you don't want, add your own (format below), and choose DEV → *Reload recipes* or restart. The looks of the films saved in MY1–MY3 are also kept inside the camera, so they still work without the card.
+
+### Exporting your presets
+DEV → **Export settings to card** (or `export` in the developer console) writes the presets your camera holds as recipe files into `cfw/export/` on the card. The row then shows how many files it wrote, or why it could not ("no card").
+
+| File | Preset |
+|---|---|
+| `my1.txt` … `my3.txt` | My Settings MY1–MY3 as saved (a slot never saved is skipped) |
+| `box01.txt` … `box06.txt` | the My Settings Box entries that hold a setting |
+| `live.txt` | the settings in use right now |
+| `set1.txt`, `set2.txt` | the sliders of Image Settings Setting1 and Setting2 |
+| `fxNN.txt` | an effect whose sliders you changed (NN = its number, e.g. `fx09.txt` Positive Film) |
+
+- Nothing in the camera changes: the slot files are only read. Every export rewrites these files.
+- `cfw/export/` does not appear in Recipes. Move the files you like into `cfw/recipes/` (rename them as you like, 8.3 names), choose DEV → *Reload recipes*, and save them into a slot as usual: every value a file lists is set exactly as the preset had it.
+- `name=` is the preset's name in the camera, or MY1, Box 1, Live … when it has none (a name longer than 23 characters or with `#` is changed, a comment says so).
+- A MY slot that holds a CFW recipe also gets that recipe's look keys (`live.txt` those of the slot the dial is on), so the file carries the whole look.
+- What a recipe cannot hold is a `#` comment: shooting mode, focus, snap distance, metering, drive, aspect ratio, crop, image size and quality, ND filter, slow-shutter NR, a measured manual white balance, the Image Settings kept underneath an effect, and any stored value the camera menu does not offer.
+- While a CFW Menu setting holds a value (Clarity strength, High-ISO NR, Auto-Hi slowest shutter), the files carry the camera's own value, not the CFW's.
 
 ### CFW Menu
 Press the Effect button you assigned to **CFW Menu**.
@@ -68,6 +86,7 @@ Press the Effect button you assigned to **CFW Menu**.
 | DEV | Telnet console | **OFF** / ON | A developer console over the camera's Wi-Fi (below). **No password**: anyone on the camera's Wi-Fi gets a shell. Off at every start |
 | DEV | Screenshot to card | OK | Saves live view and the screen as `cfw/shotNNNN.bmp` |
 | DEV | Reload recipes, Save IQ RAM | OK | Re-read `cfw/recipes`; dump the image-processing tables to `cfw/iq_ram.bin` |
+| DEV | Export settings to card | OK | Your presets as recipe files in `cfw/export/` (see *Exporting your presets*) |
 | DEV | Overlay state to log, Overlay test pattern | OK | Diagnostics for the drawing layer |
 | DEV | Boot stock once | OK | The next power-on starts stock; the one after runs the CFW again |
 | DEV | Wi-Fi network / password, Free memory pool | read-only | While Wi-Fi is on: its name and password |
@@ -97,8 +116,8 @@ One ASCII text file per film in `cfw/recipes/`: an 8.3 file name (`myfilm.txt`),
 | Key | Values | Sets (in the MY slot) |
 |---|---|---|
 | `name` (required) | up to 23 characters | filmstrip frame and slot name |
-| `base` (required, before every key except `name`) | `standard`, `vivid`, `setting1`, `setting2` (Image Settings) or an effect: `bright`, `bw`, `bw_te`, `hicontrast_bw`, `cross_process`, `positive_film`, `bleach_bypass`, `retro`, `miniature`, `high_key`, `slight`, `clarity`, `brilliance`, `vibrant`, `hdr_tone`, `portrait` | Image Settings / Effect |
-| `saturation`, `contrast`, `sharpness` | −4 … +4 (where the stock menu offers it for that base) | that mode's slider |
+| `base` (required, before every key except `name`) | `standard`, `vivid`, `setting1`, `setting2` (Image Settings) or an effect: `bright`, `bw`, `bw_te`, `hicontrast_bw`, `cross_process`, `positive_film`, `bleach_bypass`, `retro`, `miniature`, `high_key`, `slight`, `shift_crop`, `clarity`, `brilliance`, `vibrant`, `hdr_tone`, `portrait` | Image Settings / Effect |
+| `saturation`, `contrast`, `sharpness` | −4 … +4 (where the stock menu offers it for that base); `hicontrast_bw` contrast: `max`, `-1`, `-2` | that mode's slider |
 | `vignetting` | `off`, `weak`, `medium`, `strong` | that mode's vignetting |
 | `hue` | Cross Process: `basic`, `magenta`, `yellow`; Bleach Bypass: `normal`, `warm`, `cool` | that mode's hue |
 | `toning` | B&W (TE): `sepia`, `red`, `green`, `blue`, `purple`; Miniature/Clarity/HDR Tone: `bw`, `sepia`, `color` | that mode's toning |
@@ -108,7 +127,11 @@ One ASCII text file per film in `cfw/recipes/`: an 8.3 file name (`myfilm.txt`),
 | `wb_ab`, `wb_gm` | −7 … +7 (amber +/blue −, green +/magenta −; needs `wb`) | WB compensation |
 | `exposure` | e.g. `+0.7`, `-1.0` (EV, rounded to 1/3) | Exposure compensation |
 | `dr` | `off`, `weak`, `medium`, `strong`, `auto` | Dynamic range compensation |
-| `nr` | `off`, `weak`, `medium`, `strong`, `auto` | High-ISO NR |
+| `nr` | `off`, `weak`, `medium`, `strong`, `auto`, `custom` | High-ISO NR |
+| `nr_weak`, `nr_medium`, `nr_strong` | ISO 100 … 25600 in 1/3 stops (`nr_medium`, `nr_strong` also `off`); all three with `nr=custom` only, weak ≤ medium ≤ strong | ISO where each custom NR level starts |
+| `iso` | `auto`, `auto_hi` or ISO 100 … 25600 in 1/3 stops (e.g. `400`, `1250`) | ISO |
+| `auto_hi_max`, `auto_hi_min` | ISO 200 … 25600 / ISO 100 … 12800 (min below max) | ISO AUTO-HI maximum / minimum |
+| `auto_hi_shutter` | `auto`, `1/2`, `1/2.5`, `1/3`, `1/4`, `1/5`, `1/6`, `1/8`, `1/10`, `1/13`, `1/15`, `1/20`, `1/25`, `1/30`, `1/40`, `1/50`, `1/60`, `1/80`, `1/100`, `1/125`, `1/160`, `1/200`, `1/250` | ISO AUTO-HI slowest shutter |
 
 **Look keys** (`standard`, `vivid`, `setting1`, `setting2` bases only) are applied by the CFW in the camera's image-processing tables, relative to the Standard rendering, so the contrast and saturation sliders still work on top:
 
@@ -135,6 +158,7 @@ DEV → *Telnet console* starts a telnet server on port 23. Turn Wi-Fi on in the
 | `heap` | GlobalHeap size/free/largest block, memory pools |
 | `mem <addr> [len]` | hex + ASCII dump (hex arguments, ≤ 0x400 bytes, DRAM only) |
 | `wifi` | Wi-Fi state as the system controller sees it |
+| `export` | DEV → *Export settings to card*, run by the CFW; prints its result |
 | `exit` | closes the session |
 | anything else | runs as a stock shell command (e.g. `ver`) |
 

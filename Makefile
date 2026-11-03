@@ -31,7 +31,7 @@ MAIN_HI := 0x10000000
 BOOT_SRCS := src/entry.S src/veneers.S src/boot.c src/log.c src/mem.c
 MAIN_SRCS := src/arm.S src/main.c src/log.c src/shell.c src/task.c src/menu.c src/hooks.c src/ui.c \
              src/osd.c src/input.c src/config.c src/settings.c src/recipes.c src/look.c src/info.c \
-             src/overlay.c src/console.c src/mem.c src/store.c
+             src/overlay.c src/console.c src/mem.c src/store.c src/export.c
 VARIANTS  := release debug rom
 ELFS      := $(foreach v,$(VARIANTS),bin/$(v)/gr2_cfw.elf bin/$(v)/gr2_main.elf)
 

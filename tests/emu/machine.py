@@ -31,6 +31,7 @@ RAM_BASE, RAM_SIZE = 0xA0000000, 0x01000000
 ALIAS_BASE = 0x20000000               # GR2_UNCACHED(a) = (a & 0x1FFFFFFF) | 0x20000000
 STACK_BASE, STACK_SIZE = 0xB0000000, 0x00100000
 STACK_TOP = STACK_BASE + STACK_SIZE - 0x100
+NESTED_STACK_TOP = STACK_TOP - 0x20000   # a second task's stack while the first is blocked (call_in_task)
 # Task stacks the CFW's code runs on (bytes). Calls default to the CFW task; boot paths name theirs.
 CFW_TASK_STACK = 0x3000               # src/task.c (also CFWcon)
 SCRIPT_TASK_STACK = 0x4000            # Startup.ttl's `ex` runs in the Script task (finding 26 §3)
@@ -244,6 +245,9 @@ class Machine:
         self.rtos_tasks = {}          # id -> {'stat', 'pri'} for ref_tsk
         self.sock_in, self.sock_out = [], bytearray()   # recv chunks queued for the console session; sent bytes
         self.closed_fds = []                            # sockets closed by the CFW
+        self.on_delay = None          # f(machine): runs other tasks while a call waits in Task_Delay
+        self._switch = False          # a Task_Delay stopped the run for on_delay
+        self.stack_margin = 1 << 30   # smallest (stack left - stock need) at a file-API call so far
         pal = list(inputs.palette)
         self.pal_stock = list(pal)
         self.pal_shadow = list(pal)   # what the palette getter returns
@@ -391,9 +395,13 @@ class Machine:
         for k in range(3):
             self.props.setdefault(0x1BA + k, self.obj_alloc(0x44))
         self.ui_state = self.obj_alloc(0x300)
-        self.my_paths = [self.obj_alloc(16) for _ in range(3)]
-        for k, p in enumerate(self.my_paths):
-            self.wr(p, f'B:/P_MY0{k}.bin'.encode() + b'\0')
+        # B: property files by GetPropDataFileName (type, idx), finding 19 section 1.1
+        self.prop_paths = {}
+        for kind, n, fmt in ((0, 1, 'B:/P_COMMON.bin'), (1, 3, 'B:/P_MY0{}.bin'), (2, 6, 'B:/P_BOX0{}.bin')):
+            for k in range(n):
+                p = self.obj_alloc(16)
+                self.wr(p, fmt.format(k).encode() + b'\0')
+                self.prop_paths[kind, k] = p
 
     # ---- calls -------------------------------------------------------------------------------
     def r(self, n):
@@ -408,26 +416,48 @@ class Machine:
         `stack` bytes (the stock file stubs check that their stack need fits)."""
         return self.run_range(addr, SENTINEL, *args, stack=stack, task=task)
 
-    def run_range(self, begin, until, *args, timeout_s=120, stack=CFW_TASK_STACK, task='CFW'):
+    def call_in_task(self, name, *args, stack=CFW_TASK_STACK, task='CFW'):
+        """Run another task's function from on_delay, i.e. while the current call is blocked in
+        Task_Delay: it gets its own stack area below the caller's (run_range saves and restores the
+        caller's registers around it, a task switch as the RTOS would do)."""
+        return self.run_range(self.syms[name] | 1, SENTINEL, *args, stack=stack, task=task, top=NESTED_STACK_TOP)
+
+    def run_range(self, begin, until, *args, timeout_s=120, stack=CFW_TASK_STACK, task='CFW', top=STACK_TOP):
         """Run from `begin` (Thumb: bit 0 set) until pc == `until`; returns r0.
-        LR is the sentinel, so a plain function call stops at its return."""
+        LR is the sentinel, so a plain function call stops at its return. A Task_Delay with on_delay
+        set stops the run, runs on_delay (other tasks) and resumes after the delay."""
         if len(args) > 4:
             raise EmuError('more than 4 arguments')
         for i, a in enumerate(args):
             self.uc.reg_write(UC_ARM_REG_R0 + i, a & MASK)
         cpsr = self.uc.reg_read(UC_ARM_REG_CPSR)
         self.uc.reg_write(UC_ARM_REG_CPSR, (cpsr & ~0x1F) | 0x10)   # tasks run in USR mode (as on hardware)
-        self.uc.reg_write(UC_ARM_REG_SP, STACK_TOP)
-        self.stack_limit, self.stack_task = STACK_TOP - stack, task
+        self.uc.reg_write(UC_ARM_REG_SP, top)
+        self.stack_limit, self.stack_task = top - stack, task
         self.uc.reg_write(UC_ARM_REG_LR, SENTINEL | 1)
         self._err = None
-        try:
-            self.uc.emu_start(begin, until, timeout=timeout_s * 1000000)
-        except UcError as ex:
-            pc = self.uc.reg_read(UC_ARM_REG_PC)
-            raise self._err or EmuError(f'{ex} at pc {pc:#x} ({self.where(pc)})') from None
-        if self._err:
-            raise self._err
+        while True:
+            try:
+                self.uc.emu_start(begin, until, timeout=timeout_s * 1000000)
+            except UcError as ex:
+                pc = self.uc.reg_read(UC_ARM_REG_PC)
+                raise self._err or EmuError(f'{ex} at pc {pc:#x} ({self.where(pc)})') from None
+            if self._err:
+                raise self._err
+            if not self._switch:
+                break
+            self._switch = False                    # stopped in Task_Delay: run the other tasks, then resume
+            thumb = self.uc.reg_read(UC_ARM_REG_CPSR) & 0x20
+            begin = self.uc.reg_read(UC_ARM_REG_PC) | (1 if thumb else 0)
+            ctx, saved, fn = self.uc.context_save(), (self.stack_limit, self.stack_task), self.on_delay
+            self.on_delay = None
+            try:
+                fn(self)
+            finally:
+                self.on_delay = fn
+                self.uc.context_restore(ctx)
+                self.stack_limit, self.stack_task = saved
+                self._err = None
         pc = self.uc.reg_read(UC_ARM_REG_PC)
         if pc != until & ~1:
             raise EmuError(f'run from {begin:#x} stopped at pc {pc:#x} ({self.where(pc)}), not {until:#x}; timeout?')
@@ -511,6 +541,7 @@ class Machine:
         # remaining stack is smaller overflows on hardware (F3, 2026-11-01: CFWldr had 0x1000).
         need = STOCK_FILE_STACK[api]
         left = self.uc.reg_read(UC_ARM_REG_SP) - self.stack_limit
+        self.stack_margin = min(self.stack_margin, left - need)
         if left < need:
             self._fail(f'{api} needs ~{need} B of stack, {left} B left in the {self.stack_task} task')
 
@@ -525,15 +556,22 @@ class Machine:
             if path not in self.a_files:
                 return self.ret(0)
             key = path
+        elif path.startswith('B:'):     # property files: only their existence (contents go through the PDB stubs)
+            if mode != 0:
+                raise EmuError(f'File_Open({path!r}, {mode:#x}): the CFW writes B: only through Property_Save')
+            if path not in self.slots:
+                return self.ret(0)
         elif key.startswith('D:/'):
             parent = key.rsplit('/', 1)[0]
             if mode != 0 and parent != 'D:' and parent not in self.dirs:
                 return self.ret(0)          # PrFILE2 does not create directories in File_Open
         elif not key.startswith('H:/'):
-            raise EmuError(f'File_Open({path!r}): only A:, H: and D: are modelled')
+            raise EmuError(f'File_Open({path!r}): only A:, B:, H: and D: are modelled')
         elif not self.card:
             return self.ret(0)
-        if mode == 0:
+        if path.startswith('B:'):
+            pass
+        elif mode == 0:
             if key not in self.files and key not in self.a_files:
                 return self.ret(0)
         elif mode == 1:
@@ -549,9 +587,20 @@ class Machine:
         self.ret(fd)
 
     def _file_mkdir(self):
+        """1 created, 0 exists, -1 error (finding 34). D:: the CFW's own folder; H:: the card, where a
+        parent must exist (H:/CFW exists as soon as any file is in it)."""
         self._stack_need('File_Mkdir')
         path = self.cstr(self.r(0)).upper().rstrip('/')
         self.io.append(('File_Mkdir', path, self.stack_task))
+        if path.startswith('H:/'):
+            parent = path.rsplit('/', 1)[0]
+            exists = lambda d: d in self.dirs or any(k.startswith(d + '/') for k in self.files)
+            if not self.card or (parent != 'H:' and not exists(parent)):
+                return self.ret(MASK)
+            if exists(path):
+                return self.ret(0)
+            self.dirs.add(path)
+            return self.ret(1)
         if path not in D_DIRS:
             raise EmuError(f'File_Mkdir({path!r}) not modelled')
         if path in self.dirs:
@@ -728,11 +777,12 @@ class Machine:
 
     def _prop_path(self):
         kind, k = self.r(0), self.r(1)
-        if kind != 1 or k > 2:
+        if (kind, k) not in self.prop_paths:
             raise EmuError(f'prop path ({kind}, {k}) not modelled')
-        self.ret(self.my_paths[k])
+        self.ret(self.prop_paths[kind, k])
 
-    # My Settings slot files: B:/P_MY0k.bin as 899 u32 values
+    # Property files (B:/P_COMMON.bin, P_MY0k.bin, P_BOX0b.bin) as 899 u32 values. Property_LoadFile and
+    # Property_Save open the file through the stock file API, so they need its stack [I: not measured].
     def prop_defaults(self):
         """The firmware's property setup table (A_PROP_SETUP, {default, msg} per ID): factory values."""
         return list(struct.unpack_from('>' + 'I4x' * 899, self.inputs.firmware, A_PROP_SETUP - FW_BASE))
@@ -744,13 +794,17 @@ class Machine:
         self.ret(db)
 
     def _pdb_load(self):
+        self._stack_need('File_Open')
         db, path = self.r(0), self.cstr(self.r(1))
+        self.io.append(('Property_LoadFile', path, self.stack_task))
         vals = self.slots.get(path) or self.prop_defaults()   # a missing slot file loads the defaults
         self.wr(self.u32(db + 0xC), struct.pack('>899I', *vals))
         self.ret(db)
 
     def _pdb_save(self):
+        self._stack_need('File_Open')
         db, path = self.r(0), self.cstr(self.r(1))
+        self.io.append(('Property_Save', path, self.stack_task))
         self.slots[path] = list(struct.unpack('>899I', self.rd(self.u32(db + 0xC), 899 * 4)))
         self.ret(0)
 
@@ -771,6 +825,9 @@ class Machine:
     def _delay(self):
         self.time_ms += self.r(0)
         self.ret(0)
+        if self.on_delay:             # the task blocks: run_range runs on_delay, then resumes here
+            self._switch = True
+            self.uc.emu_stop()
 
     def _get_time(self):
         self.ret(self.time_ms)

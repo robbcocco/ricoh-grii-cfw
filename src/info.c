@@ -5,7 +5,8 @@
  * firmware version, serial, uptime. DEV runs developer actions: the stock
  * telnet shell and the CFW developer console (no password, started on request,
  * never persisted; Wi-Fi itself is turned on in the camera menu), a screenshot of
- * live view + OSD to the card, a recipe rescan and an IQ RAM dump. */
+ * live view + OSD to the card, a recipe rescan, the preset export (src/export.c)
+ * and an IQ RAM dump. */
 #include <stdint.h>
 #include "info.h"
 #include "cfw.h"
@@ -14,6 +15,7 @@
 #include "gr2_hw.h"
 #include "osd.h"
 #include "console.h"
+#include "export.h"
 #include "overlay.h"
 #include "recipes.h"
 #include "safeboot.h"
@@ -29,7 +31,7 @@ static char g_text[96];
 static uint32_t g_main_base;
 static int g_pending;                   /* DEV row whose action runs after the menu closed */
 static uint32_t g_pending_at;           /* System_GetTime when to run it, 0 = none */
-static char g_dev_msg[6][24];           /* last result per action row (D_TELNET..D_LAST_ACTION) */
+static char g_dev_msg[8][24];           /* last result per action row (D_TELNET..D_LAST_ACTION) */
 
 /* ---- formatting --------------------------------------------------------------- */
 
@@ -137,11 +139,13 @@ static const char *info_text(int row) {
 
 /* ---- DEV ---------------------------------------------------------------------- */
 
-enum { D_TELNET, D_SHOT, D_RECIPES, D_IQDUMP, D_OVLSTATE, D_OVLTEST, D_STOCK, D_SSID, D_PASS, D_MEMORY, D_COUNT };
+/* The page shows at most 10 rows (src/ui.c MAX_ROWS). */
+enum { D_TELNET, D_SHOT, D_RECIPES, D_EXPORT, D_IQDUMP, D_OVLSTATE, D_OVLTEST, D_STOCK, D_WIFI, D_MEMORY, D_COUNT };
 #define D_LAST_ACTION D_STOCK
+_Static_assert(sizeof(g_dev_msg) / sizeof(g_dev_msg[0]) == D_LAST_ACTION + 1, "one message per action row");
 static const char *const DEV_LABEL[D_COUNT] = {
-    "Telnet console", "Screenshot to card", "Reload recipes", "Save IQ RAM",
-    "Overlay state to log", "Overlay test pattern", "Boot stock once", "Wi-Fi network", "Wi-Fi password",
+    "Telnet console", "Screenshot to card", "Reload recipes", "Export settings to card", "Save IQ RAM",
+    "Overlay state to log", "Overlay test pattern", "Boot stock once", "Wi-Fi network / password",
     "Free memory pool",
 };
 
@@ -183,14 +187,18 @@ static const char *dev_text(int row) {
         return g_dev_msg[row][0] ? g_dev_msg[row] : g_pattern_on ? "ON" : "OFF";
     case D_STOCK:                         /* safe boot (include/safeboot.h) */
         return sb_get() == SB_STOCK_ONCE ? "next power-on: stock" : "OK: next power-on stock";
-    case D_SSID:
-    case D_PASS: {
+    case D_EXPORT:
+        return export_result()[0] ? export_result() : "OK to run";
+    case D_WIFI: {                        /* "network  .  password" while Wi-Fi is on */
         if (st == 0) return "-";
         char buf[0x44];
-        uint32_t n = row == D_SSID ? 0x21 : 0x41;
-        GR2_FN_PROP_SA_READ(row == D_SSID ? GR2_PROPID_WIFI_SSID : GR2_PROPID_WIFI_PASS, n, buf);
-        buf[n] = 0;
-        for (uint32_t i = 0; buf[i] && i < 40; i++) *p++ = (buf[i] >= 0x20 && buf[i] < 0x7F) ? buf[i] : '?';
+        for (int k = 0; k < 2; k++) {
+            uint32_t n = k ? 0x41 : 0x21;
+            GR2_FN_PROP_SA_READ(k ? GR2_PROPID_WIFI_PASS : GR2_PROPID_WIFI_SSID, n, buf);
+            buf[n] = 0;
+            if (k) p = put_str(p, "  " GLYPH_DOT "  ");
+            for (uint32_t i = 0; buf[i] && i < 32; i++) *p++ = (buf[i] >= 0x20 && buf[i] < 0x7F) ? buf[i] : '?';
+        }
         break;
     }
     case D_MEMORY: {
@@ -367,6 +375,9 @@ int info_action(int page, int row) {
     }
     case D_IQDUMP:
         iq_dump();
+        return 0;
+    case D_EXPORT:
+        export_run();
         return 0;
     case D_STOCK:
         sb_set(SB_STOCK_ONCE);

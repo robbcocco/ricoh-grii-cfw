@@ -1,4 +1,4 @@
-/* Film recipes (findings 19, 20). CFW task only.
+/* Film recipes (findings 18, 19, 20). CFW task only.
  *
  * A recipe is an ASCII text file in H:/cfw/recipes with `key=value` lines
  * (# comments, CRLF). The rom build (release firmware) lists the recipes in
@@ -19,7 +19,10 @@
  * The three slot looks are also cached on D:/CFW (src/store.c, finding 34): the
  * loader's first hook reads them from NAND, so the look is ready before the
  * first frame without reading recipe files, and a slot keeps its look when its
- * recipe file is no longer on the card. */
+ * recipe file is no longer on the card.
+ *
+ * recipes_format is the parser's inverse (src/export.c writes the camera's presets
+ * as recipe files): every key it writes parses back to the property value it read. */
 #include <stddef.h>
 #include <stdint.h>
 #include "look.h"
@@ -27,6 +30,7 @@
 #include "cfw.h"
 #include "cfw_log.h"
 #include "config.h"
+#include "gr2_fmt.h"
 #include "gr2_hw.h"
 #include "store.h"
 
@@ -36,7 +40,7 @@ void *memcpy(void *dst, const void *src, size_t n);
 #define DIR_PATH  "H:/cfw/recipes"
 #define ROM_DIR   "A:/cfw/recipes/"      /* rom: FindFirst on A: matches a raw path prefix (finding 29 §3) */
 #define PATH_LEN  32                     /* A: full paths are at most 31 characters (finding 29 §2) */
-#define NAME_LEN  24
+#define NAME_LEN  RECIPE_NAME_LEN
 #define FILE_READ 0x00
 #define UNSET     (-128)
 #define N_SLOTS   3
@@ -52,12 +56,30 @@ void *memcpy(void *dst, const void *src, size_t n);
 #define P_TONE           0x0A6
 #define P_CLARITY        0x0BE   /* 1..9, mode 16 only */
 #define P_GLOSS          0x0D6   /* 1..9, mode 17 only */
-#define P_NR             0x0EF
+#define P_NR             0x0EF   /* 0 off, 1 weak, 2 medium, 3 strong, 4 auto, 5 custom (finding 18 §2.A) */
+#define P_NR_ISO         0x0F0   /* + 0..2: custom NR, Sv where weak / medium / strong start (0x2D0 = off) */
 #define P_EXPCOMP        0x0FD   /* 16 per 1/3 EV */
 #define P_WB             0x0FE
 #define P_WB_SHIFT       0x0FF   /* + WB mode: (GM << 16) | (AB & 0xFFFF) */
 #define P_KELVIN         0x10F
+#define P_SV             0x110   /* ISO: AUTO, AUTO-HI or Sv 0xF0 (100) .. 0x270 (25600), 16 per 1/3 stop */
+#define P_AH_MAX         0x111   /* ISO AUTO-HI maximum, Sv 0x120 .. 0x270 (finding 18 §2.B) */
+#define P_AH_MIN         0x112   /* ISO AUTO-HI minimum, Sv 0xF0 .. 0x240 */
+#define P_AH_TV          0x113   /* ISO AUTO-HI slowest shutter: Auto or Tv 0x30 (1/2) .. 0x180 (1/250) */
 #define P_DRC            0x130
+#define P_WB_RGAIN       0x2BB   /* manual WB gains (WB 11): measured by the camera, not a recipe value */
+#define P_WB_BGAIN       0x2BC
+
+#define HICON       7            /* Hi-Contrast B&W: contrast is a list, MAX / -1 / -2 (finding 19 §2.1.1) */
+#define HICON_MAX   127          /* contrast=max, stored 0x7FFFFFFF */
+#define NR_CUSTOM   5
+#define WB_MANUAL   11
+#define WB_KELVIN   13
+#define SV_AUTO     0x989811u
+#define SV_AUTO_HI  0x989813u
+#define SV_MAX      0x270u       /* ISO 25600 */
+#define N_ISO       25           /* ISO 100 .. 25600 in 1/3 stops */
+#define N_TV        22           /* 1/2 .. 1/250 in 1/3 stops */
 
 /* Keys a base mode exposes in the stock menus (finding 19 §2). */
 #define K_SAT   0x001
@@ -86,7 +108,7 @@ static const base_t BASES[] = {
     { "bright",        2,  1, K_SCHV },
     { "bw",            5,  1, K_CON | K_SHARP | K_VIG },
     { "bw_te",         6,  1, K_TONE | K_SCHV },
-    { "hicontrast_bw", 7,  1, K_SHARP | K_VIG },
+    { "hicontrast_bw", 7,  1, K_CON | K_SHARP | K_VIG },
     { "cross_process", 8,  1, K_HUE | K_SCHV },
     { "positive_film", 9,  1, K_SCHV },
     { "bleach_bypass", 10, 1, K_HUE | K_SCHV },
@@ -94,6 +116,7 @@ static const base_t BASES[] = {
     { "miniature",     12, 1, K_TONE | K_SAT | K_CON | K_SHARP },
     { "high_key",      13, 1, K_SAT },
     { "slight",        14, 1, K_SCHV },
+    { "shift_crop",    15, 1, 0 },
     { "clarity",       16, 1, K_TONE | K_CLAR | K_SAT | K_VIG },
     { "brilliance",    17, 1, K_GLOSS | K_SCHV },
     { "vibrant",       18, 1, K_SCHV },
@@ -114,7 +137,16 @@ static const named_t WB_MODES[]   = {
     {"incandescent1",5}, {"incandescent2",6}, {"fl_daylight",7}, {"fl_neutral",8},
     {"fl_cool",9}, {"fl_warm",10}, {"cte",12}, {"kelvin",13}, {0,0} };
 static const named_t DRC_MODES[]  = { {"off",0}, {"weak",3}, {"medium",4}, {"strong",5}, {"auto",6}, {0,0} };
-static const named_t NR_MODES[]   = { {"off",0}, {"weak",1}, {"medium",2}, {"strong",3}, {"auto",4}, {0,0} };
+static const named_t NR_MODES[]   = { {"off",0}, {"weak",1}, {"medium",2}, {"strong",3}, {"auto",4},
+                                      {"custom",NR_CUSTOM}, {0,0} };
+static const named_t CON_HICON[]  = { {"max",HICON_MAX}, {"-1",-1}, {"-2",-2}, {0,0} };
+/* Nominal ISO of Sv 0xF0 + 16 i (finding 18 §2.0); shutter Tv 0x30 + 16 i (src/settings.c TV_TXT). */
+static const uint16_t ISO_NOM[N_ISO] = {
+    100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000,
+    6400, 8000, 10000, 12800, 16000, 20000, 25600 };
+static const char *const TV_NAME[N_TV] = {
+    "1/2", "1/2.5", "1/3", "1/4", "1/5", "1/6", "1/8", "1/10", "1/13", "1/15", "1/20", "1/25", "1/30",
+    "1/40", "1/50", "1/60", "1/80", "1/100", "1/125", "1/160", "1/200", "1/250" };
 
 typedef struct {
     char name[NAME_LEN];
@@ -122,6 +154,8 @@ typedef struct {
     int8_t sat, con, sharp, vig, hue, tone, clarity, gloss;
     int8_t wb, ab, gm, ev_thirds, drc, nr;
     int16_t kelvin;
+    uint32_t nr_sv[3];     /* custom NR thresholds (Sv or GR2_SV_OFF), 0 = unset */
+    uint32_t sv, ah_max, ah_min, ah_tv;   /* ISO, AUTO-HI max / min / slowest shutter, 0 = unset */
     look_t look;
 } recipe_t;
 
@@ -130,7 +164,6 @@ typedef struct {
     char path[PATH_LEN];   /* where it is read from: H:/cfw/recipes/<sfn> or (rom) A:/cfw/recipes/<name>; "" Stock */
     char name[NAME_LEN];
     const base_t *base;
-    int8_t con;
     look_t look;
 } entry_t;
 
@@ -223,6 +256,18 @@ static int in_range(const char *v, int lo, int hi, int8_t *out) {
     return 0;
 }
 
+/* Nominal ISO -> Sv in lo..hi; "off" -> GR2_SV_OFF where off_ok. */
+static int parse_iso(const char *v, uint32_t lo, uint32_t hi, int off_ok, uint32_t *out) {
+    int x;
+    if (off_ok && str_eq(v, "off")) { *out = GR2_SV_OFF; return 0; }
+    if (parse_int(v, &x)) return -1;
+    for (int i = 0; i < N_ISO; i++) {
+        uint32_t sv = GR2_SV_ISO100 + 16u * (uint32_t)i;
+        if (ISO_NOM[i] == x && sv >= lo && sv <= hi) { *out = sv; return 0; }
+    }
+    return -1;
+}
+
 /* ---- parsing ----------------------------------------------------------------------- */
 
 /* H:/cfw/recipes/<sfn> */
@@ -276,7 +321,10 @@ static int set_key(recipe_t *r, const char *k, const char *v) {
     }
     if (!b) return -1;                                   /* every other key needs the base first */
     if (str_eq(k, "saturation")) return (b->keys & K_SAT) ? in_range(v, -4, 4, &r->sat) : -1;
-    if (str_eq(k, "contrast"))   return (b->keys & K_CON) ? in_range(v, -4, 4, &r->con) : -1;
+    if (str_eq(k, "contrast")) {
+        if (!(b->keys & K_CON)) return -1;
+        return b->mode == HICON ? lookup(CON_HICON, v, &r->con) : in_range(v, -4, 4, &r->con);
+    }
     if (str_eq(k, "sharpness"))  return (b->keys & K_SHARP) ? in_range(v, -4, 4, &r->sharp) : -1;
     if (str_eq(k, "vignetting")) return (b->keys & K_VIG) ? lookup(VIGNETTING, v, &r->vig) : -1;
     if (str_eq(k, "hue"))
@@ -297,6 +345,22 @@ static int set_key(recipe_t *r, const char *k, const char *v) {
     if (str_eq(k, "exposure"))   return parse_ev(v, &r->ev_thirds);
     if (str_eq(k, "dr"))         return lookup(DRC_MODES, v, &r->drc);
     if (str_eq(k, "nr"))         return lookup(NR_MODES, v, &r->nr);
+    if (str_eq(k, "nr_weak"))    return parse_iso(v, GR2_SV_ISO100, SV_MAX, 0, &r->nr_sv[0]);
+    if (str_eq(k, "nr_medium"))  return parse_iso(v, GR2_SV_ISO100, SV_MAX, 1, &r->nr_sv[1]);
+    if (str_eq(k, "nr_strong"))  return parse_iso(v, GR2_SV_ISO100, SV_MAX, 1, &r->nr_sv[2]);
+    if (str_eq(k, "iso")) {
+        if (str_eq(v, "auto")) { r->sv = SV_AUTO; return 0; }
+        if (str_eq(v, "auto_hi")) { r->sv = SV_AUTO_HI; return 0; }
+        return parse_iso(v, GR2_SV_ISO100, SV_MAX, 0, &r->sv);
+    }
+    if (str_eq(k, "auto_hi_max")) return parse_iso(v, 0x120, SV_MAX, 0, &r->ah_max);
+    if (str_eq(k, "auto_hi_min")) return parse_iso(v, GR2_SV_ISO100, 0x240, 0, &r->ah_min);
+    if (str_eq(k, "auto_hi_shutter")) {
+        if (str_eq(v, "auto")) { r->ah_tv = GR2_TV_AUTO; return 0; }
+        for (int i = 0; i < N_TV; i++)
+            if (str_eq(TV_NAME[i], v)) { r->ah_tv = 0x30u + 16u * (uint32_t)i; return 0; }
+        return -1;
+    }
     if (!(b->keys & K_LOOK)) return -1;                  /* look keys need a matrix-rendered mode */
     look_t *l = &r->look;
     int16_t t[LOOK_KNOTS];
@@ -370,7 +434,12 @@ static int parse(recipe_t *r) {
     }
     if (!r->name[0] || !r->base) return line + 1;
     if ((r->ab != UNSET || r->gm != UNSET) && r->wb == UNSET) return line + 1;   /* shift needs a WB mode */
-    if ((r->wb == 13) != (r->kelvin != 0)) return line + 1;                   /* kelvin <-> wb=kelvin */
+    if ((r->wb == WB_KELVIN) != (r->kelvin != 0)) return line + 1;            /* kelvin <-> wb=kelvin */
+    if (r->nr == NR_CUSTOM || r->nr_sv[0] || r->nr_sv[1] || r->nr_sv[2]) {     /* custom NR: all three, ordered */
+        if (r->nr != NR_CUSTOM || !r->nr_sv[0] || !r->nr_sv[1] || !r->nr_sv[2]) return line + 1;
+        if (r->nr_sv[0] > r->nr_sv[1] || r->nr_sv[1] > r->nr_sv[2]) return line + 1;
+    }
+    if (r->ah_min && r->ah_max && r->ah_min >= r->ah_max) return line + 1;
     return 0;
 }
 
@@ -609,6 +678,13 @@ int recipes_early_look(void) {
 /* ---- apply to a My Settings slot ------------------------------------------------------ */
 
 typedef struct { uint16_t id; uint32_t value; } pv_t;
+#define PV_MAX 32
+
+/* Stored contrast: -4..+4 as 1..9; Hi-Contrast B&W's list MAX / -1 / -2 as stored (finding 19 §2.1.1). */
+static uint32_t con_raw(int mode, int con) {
+    if (mode != HICON) return (uint32_t)(con + 5);
+    return con == HICON_MAX ? 0x7FFFFFFFu : (uint32_t)(int32_t)con;
+}
 
 static int recipe_props(const recipe_t *r, pv_t *pv) {
     int n = 0, m = r->base->mode;
@@ -619,7 +695,7 @@ static int recipe_props(const recipe_t *r, pv_t *pv) {
         pv[n++] = (pv_t){ P_IMAGE_SETTINGS, (uint32_t)m };
     }
     if (r->sat != UNSET)     pv[n++] = (pv_t){ P_SAT + m, (uint32_t)(r->sat + 5) };
-    if (r->con != UNSET)     pv[n++] = (pv_t){ P_CON + m, (uint32_t)(r->con + 5) };
+    if (r->con != UNSET)     pv[n++] = (pv_t){ P_CON + m, con_raw(m, r->con) };
     if (r->sharp != UNSET)   pv[n++] = (pv_t){ P_SHARP + m, (uint32_t)(r->sharp + 5) };
     if (r->vig != UNSET)     pv[n++] = (pv_t){ P_VIG + m, (uint32_t)r->vig };
     if (r->hue != UNSET)     pv[n++] = (pv_t){ P_HUE + m, (uint32_t)r->hue };
@@ -628,7 +704,7 @@ static int recipe_props(const recipe_t *r, pv_t *pv) {
     if (r->gloss != UNSET)   pv[n++] = (pv_t){ P_GLOSS + m, (uint32_t)r->gloss };
     if (r->wb != UNSET) {
         pv[n++] = (pv_t){ P_WB, (uint32_t)r->wb };
-        if (r->wb == 13) pv[n++] = (pv_t){ P_KELVIN, (uint32_t)r->kelvin };
+        if (r->wb == WB_KELVIN) pv[n++] = (pv_t){ P_KELVIN, (uint32_t)r->kelvin };
         if (r->ab != UNSET || r->gm != UNSET) {
             int ab = r->ab == UNSET ? 0 : r->ab, gm = r->gm == UNSET ? 0 : r->gm;
             pv[n++] = (pv_t){ (uint16_t)(P_WB_SHIFT + r->wb), ((uint32_t)gm << 16) | ((uint32_t)ab & 0xFFFF) };
@@ -636,15 +712,24 @@ static int recipe_props(const recipe_t *r, pv_t *pv) {
     }
     if (r->ev_thirds != UNSET) pv[n++] = (pv_t){ P_EXPCOMP, (uint32_t)(int32_t)(r->ev_thirds * 16) };
     if (r->drc != UNSET)     pv[n++] = (pv_t){ P_DRC, (uint32_t)r->drc };
-    if (r->nr != UNSET)      pv[n++] = (pv_t){ P_NR, (uint32_t)r->nr };
+    if (r->nr != UNSET) {              /* custom thresholds first, then the mode (as src/settings.c) */
+        if (r->nr == NR_CUSTOM)
+            for (int i = 0; i < 3; i++) pv[n++] = (pv_t){ (uint16_t)(P_NR_ISO + i), r->nr_sv[i] };
+        pv[n++] = (pv_t){ P_NR, (uint32_t)r->nr };
+    }
+    if (r->sv)     pv[n++] = (pv_t){ P_SV, r->sv };
+    if (r->ah_max) pv[n++] = (pv_t){ P_AH_MAX, r->ah_max };
+    if (r->ah_min) pv[n++] = (pv_t){ P_AH_MIN, r->ah_min };
+    if (r->ah_tv)  pv[n++] = (pv_t){ P_AH_TV, r->ah_tv };
     return n;
 }
 
 /* Stock: every property recipe_props can write, all per slot (finding 19 §1.4), as inclusive ID
- * ranges: EFFECT and IMAGE_SETTINGS; saturation .. glossiness of every colour mode; NR; exposure
- * compensation, WB mode, WB compensation of every WB mode and Kelvin; DR compensation. */
+ * ranges: EFFECT and IMAGE_SETTINGS; saturation .. glossiness of every colour mode; NR and its
+ * custom thresholds; exposure compensation, WB mode, WB compensation of every WB mode and Kelvin;
+ * ISO and the ISO AUTO-HI maximum / minimum / slowest shutter; DR compensation. */
 static const uint16_t STOCK_IDS[][2] = {
-    { P_EFFECT, P_IMAGE_SETTINGS }, { P_SAT, P_GLOSS + 23 }, { P_NR, P_NR }, { P_EXPCOMP, P_KELVIN },
+    { P_EFFECT, P_IMAGE_SETTINGS }, { P_SAT, P_GLOSS + 23 }, { P_NR, P_NR_ISO + 2 }, { P_EXPCOMP, P_AH_TV },
     { P_DRC, P_DRC },
 };
 
@@ -665,7 +750,7 @@ static void put_values(uint32_t *v, const pv_t *pv, int n) {
 }
 
 int recipes_apply(int i, int k) {
-    pv_t pv[24];
+    pv_t pv[PV_MAX];
     uint16_t name16[GR2_MY_NAME_BYTES / 2];
     if (i < 0 || i >= g_n || k < 0 || k >= N_SLOTS) return RECIPE_E_SLOT;
     if (*(volatile uint32_t *)(GR2_FN_UI_STATE() + 0x274)) return RECIPE_E_BUSY;
@@ -769,7 +854,6 @@ static int scan(const char *dir, int rom) {
         copy_str(e->path, path, PATH_LEN);
         copy_str(e->name, g_r.name, NAME_LEN);
         e->base = g_r.base;
-        e->con = g_r.con;
         e->look = g_r.look;
     } while (GR2_FN_FIND_NEXT(h, &g_find) == 1);
     GR2_FN_FIND_CLOSE(h);
@@ -806,4 +890,247 @@ void recipes_init(void) {
 
 int recipes_count(void) {
     return g_n > 0 ? g_n - 1 : 0;      /* recipe files; Stock is not one */
+}
+
+/* ---- export: property values -> recipe keys (src/export.c) ------------------------------------
+ * Every key is written only with a value the parser accepts and that recipe_props turns back into
+ * exactly the value read; anything else becomes a `#` comment. */
+
+static const char *named(const named_t *t, uint32_t raw) {
+    for (; t->key; t++) if ((uint32_t)(int32_t)t->value == raw) return t->key;
+    return 0;
+}
+
+static void put_kv(text_t *t, const char *k, const char *v) {
+    t_s(t, k);
+    t_c(t, '=');
+    t_s(t, v);
+    t_nl(t);
+}
+
+static void put_kd(text_t *t, const char *k, int32_t v) {
+    t_s(t, k);
+    t_c(t, '=');
+    t_d(t, v);
+    t_nl(t);
+}
+
+static void put_skip(text_t *t, const char *what, uint32_t raw) {
+    t_s(t, "# ");
+    t_s(t, what);
+    t_s(t, ": stored ");
+    t_hex(t, raw);
+    t_s(t, ", not a recipe value (left out)");
+    t_nl(t);
+}
+
+static void put_named(text_t *t, const char *k, const named_t *tb, uint32_t raw) {
+    const char *n = named(tb, raw);
+    if (n) put_kv(t, k, n);
+    else put_skip(t, k, raw);
+}
+
+/* A 1..9 slider: written as raw - offset (recipe_props adds it back). */
+static void put_slider(text_t *t, const char *k, uint32_t raw, int offset) {
+    if (raw >= 1 && raw <= 9) put_kd(t, k, (int32_t)raw - offset);
+    else put_skip(t, k, raw);
+}
+
+/* ISO index of Sv in lo..hi, -1 if it is no 1/3-stop list value there. */
+static int iso_index(uint32_t sv, uint32_t lo, uint32_t hi) {
+    if (sv < lo || sv > hi || ((sv - GR2_SV_ISO100) & 15)) return -1;
+    return (int)((sv - GR2_SV_ISO100) >> 4);
+}
+
+static void put_iso(text_t *t, const char *k, uint32_t sv) {   /* sv: a list value or GR2_SV_OFF */
+    if (sv == GR2_SV_OFF) put_kv(t, k, "off");
+    else put_kd(t, k, ISO_NOM[iso_index(sv, GR2_SV_ISO100, SV_MAX)]);
+}
+
+static void put_list(text_t *t, const char *k, const int16_t *v, int n) {
+    t_s(t, k);
+    t_c(t, '=');
+    for (int i = 0; i < n; i++) {
+        if (i) t_c(t, ',');
+        t_d(t, v[i]);
+    }
+    t_nl(t);
+}
+
+/* EV compensation, 16 per 1/3 EV: "+0.3", "-1.7", "0.0" (parse_ev rounds these back to the thirds). */
+static void put_ev(text_t *t, uint32_t raw) {
+    int32_t ev = (int32_t)raw;
+    if ((ev & 15) || ev < -192 || ev > 192) { put_skip(t, "exposure", raw); return; }
+    int th = ev >> 4, a = th < 0 ? -th : th, whole = 0;
+    while (a >= 3) { a -= 3; whole++; }
+    t_s(t, "exposure=");
+    if (th) t_c(t, th < 0 ? '-' : '+');
+    t_d(t, whole);
+    t_c(t, '.');
+    t_c(t, a == 0 ? '0' : a == 1 ? '3' : '7');
+    t_nl(t);
+}
+
+static void put_wb(text_t *t, recipe_get_t get, const void *src) {
+    uint32_t wb = get(src, P_WB), kel = get(src, P_KELVIN);
+    const char *n = named(WB_MODES, wb);
+    if (wb == WB_MANUAL) {
+        t_s(t, "# wb: manual (measured gains R ");
+        t_hex(t, get(src, P_WB_RGAIN));
+        t_s(t, ", B ");
+        t_hex(t, get(src, P_WB_BGAIN));
+        t_s(t, "), not a recipe value: measure it in the slot (left out)");
+        t_nl(t);
+        return;
+    }
+    if (!n) { put_skip(t, "wb", wb); return; }
+    if (wb == WB_KELVIN && (kel < 2500 || kel > 10000)) { put_skip(t, "wb_kelvin (and wb)", kel); return; }
+    put_kv(t, "wb", n);
+    if (wb == WB_KELVIN) put_kd(t, "wb_kelvin", (int32_t)kel);
+    uint32_t c = get(src, P_WB_SHIFT + wb);
+    int ab = (int16_t)(c & 0xFFFF), gm = (int16_t)(c >> 16);
+    if (ab < -7 || ab > 7 || gm < -7 || gm > 7) { put_skip(t, "wb_ab / wb_gm", c); return; }
+    put_kd(t, "wb_ab", ab);
+    put_kd(t, "wb_gm", gm);
+}
+
+static void put_nr(text_t *t, recipe_get_t get, const void *src) {
+    uint32_t nr = get(src, P_NR);
+    if (nr != NR_CUSTOM) { put_named(t, "nr", NR_MODES, nr); return; }
+    uint32_t s[3];
+    int ok = 1;
+    for (int i = 0; i < 3; i++) {
+        s[i] = get(src, P_NR_ISO + i);
+        if (iso_index(s[i], GR2_SV_ISO100, SV_MAX) < 0 && !(i && s[i] == GR2_SV_OFF)) ok = 0;
+    }
+    if (!ok || s[0] > s[1] || s[1] > s[2]) {
+        t_s(t, "# nr: custom thresholds stored ");
+        for (int i = 0; i < 3; i++) { t_hex(t, s[i]); t_c(t, ' '); }
+        t_s(t, "are not recipe values (left out)");
+        t_nl(t);
+        return;
+    }
+    put_kv(t, "nr", "custom");
+    put_iso(t, "nr_weak", s[0]);
+    put_iso(t, "nr_medium", s[1]);
+    put_iso(t, "nr_strong", s[2]);
+}
+
+static void put_iso_keys(text_t *t, recipe_get_t get, const void *src) {
+    uint32_t sv = get(src, P_SV), mx = get(src, P_AH_MAX), mn = get(src, P_AH_MIN), tv = get(src, P_AH_TV);
+    if (sv == SV_AUTO) put_kv(t, "iso", "auto");
+    else if (sv == SV_AUTO_HI) put_kv(t, "iso", "auto_hi");
+    else if (iso_index(sv, GR2_SV_ISO100, SV_MAX) >= 0) put_iso(t, "iso", sv);
+    else put_skip(t, "iso", sv);
+    if (iso_index(mx, 0x120, SV_MAX) >= 0 && iso_index(mn, GR2_SV_ISO100, 0x240) >= 0 && mn < mx) {
+        put_iso(t, "auto_hi_max", mx);
+        put_iso(t, "auto_hi_min", mn);
+    } else {
+        put_skip(t, "auto_hi_max", mx);
+        put_skip(t, "auto_hi_min", mn);
+    }
+    if (tv == GR2_TV_AUTO) put_kv(t, "auto_hi_shutter", "auto");
+    else if (tv >= 0x30 && tv <= 0x180 && !(tv & 15)) put_kv(t, "auto_hi_shutter", TV_NAME[(tv - 0x30) >> 4]);
+    else put_skip(t, "auto_hi_shutter", tv);
+}
+
+static void put_look(text_t *t, int k, const base_t *b) {
+    int lm;
+    char sfn[13];
+    const look_t *l = slot_look(k, &lm);
+    if (!l || !l->flags) return;
+    if (!slot_sfn(k, sfn)) sfn[0] = 0;
+    t_s(t, "# MY");
+    t_c(t, (char)('1' + k));
+    t_s(t, " holds the look of recipe ");
+    t_s(t, sfn);
+    if (!(b->keys & K_LOOK) || lm != b->mode) {
+        t_s(t, " for another base: look keys left out");
+        t_nl(t);
+        return;
+    }
+    t_s(t, ": written out below, so this file carries the whole look");
+    t_nl(t);
+    if (l->flags & LOOK_MATRIX) put_list(t, "matrix", l->matrix, 9);
+    if (l->flags & LOOK_TONE)
+        for (int c = 0; c < 3; c++) {
+            t_s(t, c == 0 ? "tone_r=" : c == 1 ? "tone_g=" : "tone_b=");
+            for (int i = 0; i < LOOK_KNOTS; i++) {
+                if (i) t_c(t, ',');
+                t_d(t, l->tone[c][i]);
+            }
+            t_nl(t);
+        }
+    if (l->flags & LOOK_POST) put_list(t, "post_matrix", l->post, 9);
+    if (l->flags & LOOK_HUE)
+        for (int q = 0; q < LOOK_SECTORS; q++) {
+            char key[6] = { 'h', 'u', 'e', 0, 0, 0 };
+            if (q >= 9) { key[3] = '1'; key[4] = (char)('0' + q - 9); }
+            else key[3] = (char)('1' + q);
+            put_list(t, key, l->hue[q], 9);
+        }
+}
+
+static const base_t *base_of(uint32_t mode, int effect) {
+    for (int i = 0; i < N_BASES; i++)
+        if ((uint32_t)BASES[i].mode == mode && (effect < 0 || BASES[i].effect == effect)) return &BASES[i];
+    return 0;
+}
+
+int recipes_format(text_t *t, recipe_get_t get, const void *src, const char *name, int slot, int mode) {
+    uint32_t eff = get(src, P_EFFECT), ims = get(src, P_IMAGE_SETTINGS);
+    const base_t *b = mode >= 0 ? base_of((uint32_t)mode, -1) : eff ? base_of(eff, 1) : base_of(ims, 0);
+    if (!b) return -1;
+    int m = b->mode;
+    put_kv(t, "name", name);
+    put_kv(t, "base", b->key);
+    if (mode < 0 && b->effect) {
+        const base_t *u = base_of(ims, 0);
+        t_s(t, "# Image Settings under the effect: ");
+        t_s(t, u ? u->key : "?");
+        t_s(t, " (not a key: the slot you apply this to keeps its own)");
+        t_nl(t);
+    }
+    if (b->keys & K_SAT) put_slider(t, "saturation", get(src, P_SAT + m), 5);
+    if (b->keys & K_CON) {
+        uint32_t c = get(src, P_CON + m);
+        if (m != HICON) {
+            put_slider(t, "contrast", c, 5);
+        } else {
+            const named_t *n = CON_HICON;
+            while (n->key && con_raw(HICON, n->value) != c) n++;
+            if (n->key) put_kv(t, "contrast", n->key);
+            else put_skip(t, "contrast", c);
+        }
+    }
+    if (b->keys & K_SHARP) put_slider(t, "sharpness", get(src, P_SHARP + m), 5);
+    if (b->keys & K_VIG) put_named(t, "vignetting", VIGNETTING, get(src, P_VIG + m));
+    if (b->keys & K_HUE) put_named(t, "hue", m == 8 ? HUE_CROSS : HUE_BLEACH, get(src, P_HUE + m));
+    if (b->keys & K_TONE) put_named(t, "toning", m == 6 ? TONE_BWTE : TONE_OTHER, get(src, P_TONE + m));
+    if (b->keys & K_CLAR) put_slider(t, "clarity", get(src, P_CLARITY + m), 0);
+    if (b->keys & K_GLOSS) put_slider(t, "glossiness", get(src, P_GLOSS + m), 0);
+    if (mode >= 0) return 0;
+    put_wb(t, get, src);
+    put_ev(t, get(src, P_EXPCOMP));
+    put_named(t, "dr", DRC_MODES, get(src, P_DRC));
+    put_nr(t, get, src);
+    put_iso_keys(t, get, src);
+    if (slot >= 0 && slot < N_SLOTS) put_look(t, slot, b);
+    return 0;
+}
+
+int recipes_preset(int i, recipe_get_t get, const void *src, const char **key, int *changed) {
+    static const uint16_t SLIDER[8] = { P_SAT, P_CON, P_SHARP, P_VIG, P_HUE, P_TONE, P_CLARITY, P_GLOSS };  /* K_* bits */
+    for (int j = 0; j < N_BASES; j++) {
+        const base_t *b = &BASES[j];
+        if (!(b->keys & 0xFF) || i--) continue;
+        *changed = 0;
+        for (int q = 0; q < 8; q++) {
+            uint32_t id = SLIDER[q] + (uint32_t)b->mode;
+            if ((b->keys & (1u << q)) && get(src, id) != GR2_PROP_DEFAULT(id)) *changed = 1;
+        }
+        *key = b->key;
+        return b->mode;
+    }
+    return -1;
 }

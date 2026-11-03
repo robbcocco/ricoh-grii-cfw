@@ -405,6 +405,38 @@ Send me: what you saw in 1–5, and `cfw_log.txt` if it exists.
 **Pass:** 1–2 as described. **Fail:** as P1.
 Send me: what you saw.
 """),
+    ("X1-settings-export", "X1 · Export the camera's presets as recipes (no flash)", {"card": ["debug"]}, """\
+**Writes flash:** no. Runs on the debug loader (F2/F5). If the camera runs the release firmware (P1), flash the debug
+loader back first with the F5 card (`F5-loader-v2/card-L/`, menu update as in F5), then come back here.
+
+What is new (all on the card): DEV → "Export settings to card" (and `export` in the developer console) writes the
+presets saved in the camera as recipe files into `cfw/export/`: MY1–MY3, the My Settings Box entries, the live
+settings, Setting1/Setting2 and effects whose sliders were changed. The slot files are only read.
+
+Card root = `card/` (debug `cfw/`, no `Startup.ttl`). Card R stays out.
+
+1. Stock menus, dial on P: set something distinctive (Image Settings Setting2 with Saturation +2, Contrast -2,
+   Sharpness +1, Vignetting Weak; White Balance Color Temperature 6500 K with compensation A2 / G-3 (or the closest
+   the grid offers); EV +0.7; Dynamic Range Weak; High-ISO NR Custom; ISO 400; ISO AUTO-HI max 6400 / min 200).
+   Save it: MENU → Save My Settings → **MY1**, name `EXPORT1`.
+2. Set an effect (Cross Process, Hue Magenta, Saturation -2), WB Daylight with a compensation, EV -1.0; save to
+   **MY2**, name `EXPORT2`. If you use My Settings Box, save the same into a Box entry.
+3. Recipes → Portra 400 → OK → **MY3** → OK.
+4. CFW Menu → DEV → "Export settings to card" → OK. The row shows `N files in cfw/export`.
+5. Power off. Copy `cfw/export/` and `cfw/cfw_log.txt` to the Mac.
+6. Move `cfw/export/my1.txt` into `cfw/recipes/` (the rest stays on the Mac). Power on, DEV → Reload recipes.
+7. Recipes → `EXPORT1` → OK → **MY3** → OK. Dial on MY3: compare it with MY1 in the stock menus, page by page
+   (Image Settings and sliders, WB and its compensation, EV, DR, High-ISO NR and its Custom thresholds, ISO, ISO
+   AUTO-HI). Live view on MY3 shows stock Setting2 colours again (MY1 held no recipe look).
+8. DEV → "Export settings to card" again; copy `cfw/export/my3.txt` and `cfw/cfw_log.txt` to the Mac.
+
+**Pass:** 4 shows the file count; the files are my1, my2, my3 (with Portra's look keys and a comment naming
+PORTRA.TXT), live, set1, set2 (+ box0N, fxNN where used); every value of step 1 appears in my1.txt; in 7 every
+compared page of MY3 equals MY1 (shooting mode, focus etc. stay MY3's); my3.txt from step 8 has the same keys as
+my1.txt apart from the comments; no `ERROR` in the log.
+**Fail:** the row shows an error, a value differs, or a file is missing: keep the card as it is.
+Send me: `cfw/export/` from 5 and 8, `cfw_log.txt`, and what differed in 7 (a photo of the page).
+"""),
     ("U-uninstall", "U · Uninstall (back to stock 3.00)", {"card": ["stock"]}, f"""\
 **Writes flash:** yes, the stock firmware (any time after F2).
 

@@ -22,15 +22,19 @@ with stock values, IQ.bin at a pool address with absolute section pointers (`*0x
 640x480 grey-ramp live-view frame, stock OSD double buffer (front: top and bottom bars using every palette
 index), palette with two
 hardware banks. Firmware entry points the CFW calls are Python stubs (`FN`): properties, H: and D: files
-(D: subdirectories via `File_Mkdir`) and directory listing, My Settings slot files (a missing one loads the
-firmware's property defaults, setup table `0xA0122A7C`), Memory_Alloc (bump), tasks, time, mutexes,
-palette/layer, Msg_Post, ADC, temperatures. A: is the RES drive of the release firmware with the files of
+(D: subdirectories via `File_Mkdir`; on H: a parent must exist and no card fails) and directory listing, the B:
+property files `P_COMMON.bin`, `P_MY0k.bin`, `P_BOX0b.bin` (`File_Open` read-only tells whether one exists; a missing
+one loads the firmware's property defaults, setup table `0xA0122A7C`; load and save need the file API's stack),
+Memory_Alloc (bump), tasks, time, mutexes, palette/layer, Msg_Post, ADC, temperatures. A: is the RES drive of the
+release firmware with the files of
 `scripts/rom_files.py` (rom variant; no recipes) plus a scenario's `a_extra` files: read-only, case-sensitive
 full paths; `File_Open` mode 0 and `File_Read`, `LoadFile` (min(size, max) bytes or -1), `FindFirst`/`FindNext`
 as a raw prefix match returning full paths (sfn = the first 12 bytes, attr 0x01, no `.`/`..`; no match: no
 handle), as the stock code does in emulation (finding 29 §3). Every
 file-system call is logged as (API, path, task) in `Machine.io`; `card=False` models a camera without a card (every
-H: open and listing fails). Firmware code in `REAL_CODE` runs for real (the
+H: open and listing fails). With `on_delay` set, a `Task_Delay` stops the call, runs other tasks' code
+(`call_in_task`: its own stack area, the caller's registers restored) and resumes it. Firmware code in `REAL_CODE`
+runs for real (the
 string resolver, the patched Effect, IQ-ready and power-off BL sites); executing anything else outside the CFW
 raises with the address.
 
@@ -48,17 +52,17 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   (slot file, name cache, config `rc2.*`), dial shows the slot look, reboot with that config restores it, also
   from the look cache without the file. Stock on MY2 with the dial on it and every recipe property of the slot
   file off its factory value: previewing Stock shows no look although MY2 has one; applying it puts every
-  property a recipe can set (EFFECT, IMAGE_SETTINGS, the image-setting arrays of all colour modes, NR, EV comp,
-  WB mode, WB comp, Kelvin, DR) and the name back to the firmware defaults in the file and live, changes no other
-  slot property, clears the name cache, box link and `rc2.*`, shows no look, and none after a reboot. The
-  defaults table is spot-checked against finding 19 §1.3.
+  property a recipe can set (EFFECT, IMAGE_SETTINGS, the image-setting arrays of all colour modes, NR and its
+  thresholds, EV comp, WB mode, WB comp, Kelvin, ISO, ISO AUTO-HI max/min/shutter, DR) and the name back to the
+  firmware defaults in the file and live, changes no other slot property, clears the name cache, box link and
+  `rc2.*`, shows no look, and none after a reboot. The defaults table is spot-checked against finding 19 §1.3.
 - `palette`: entries 224-251 only, both banks equal while open, stock after close, no shown overlay pixel
   switching between a stock and an overlay colour at a bank flip (the green flash, on opening and closing), a
   scroll reprograms at most 12 entries; ISP mutex balanced.
 - `dev`: console OFF → ON with Wi-Fi off → ON reachable (listening socket, Wi-Fi on) → OFF (socket closed, printf hook
   removed) → on again, never touching Wi-Fi (no `Msg_Post`, prop `0x1E8` unchanged), no stock telnetd, one
-  `CFWcon` task; IQ dump (0x2FAA0 bytes), recipe reload, screenshot BMP (921654 bytes, pixel-exact against
-  LV + OSD).
+  `CFWcon` task; Wi-Fi name and password in one row; IQ dump (0x2FAA0 bytes), recipe reload, screenshot BMP (921654
+  bytes, pixel-exact against LV + OSD).
 - `pattern`: DEV test pattern row OFF → RUNNING (menu closed, 1.5 s pending) → ON → OFF.
 - `recipe-files`: every file in `recipes/` and the look-stage test recipes built in `run.py` (matrix, `tone`,
   `tone_r`, hue sectors, post matrix) parse; list sorted by name, then Stock, also after card recipes named
@@ -76,6 +80,19 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   from the TSK table; `heap` walk bounded; `mem` bytes and DRAM bounds; `status`; truncation; one telnet
   session through `session()` with scripted `recv` (option bytes skipped, DEL, empty lines, `exit`).
   Socket setup/accept are not modelled.
+- `export`: MY1 (Setting2, Kelvin WB with compensation, +0.7 EV, custom NR, ISO, AUTO-HI; linked to Portra by the
+  config), MY2 (Cross Process, a name with `#`), Box 1 (Hi-Contrast B&W contrast −2, manual WB, a 1/2-step EV) and
+  Box 3 (Shift Crop, no name) as slot files, MY3 and the other boxes never saved, live Setting1 with changed
+  sliders, a changed Positive Film and the CFW Clarity strength 9 in force. DEV "Export settings to card" writes
+  exactly my1/my2/box01/box03/live/set1/set2/fx09 with the expected keys (manual WB and the EV as comments, the `#`
+  replaced, no `fx16` because the camera's Clarity is the factory one), ASCII CRLF ≤ 4094 bytes, nothing at boot,
+  no slot file or property changed, every file call in the CFW task within its stack; my1.txt carries Portra's look
+  keys (same look as portra.txt), no other file any. No card: "no card", nothing written. `export_run` on an 8 KB
+  stack trips the stack check. Round trip: every file from `cfw/recipes` applied to MY3 sets each property its keys
+  name to the source value, its name, and nothing else; the CFW parses my1.txt to Portra's look and MY3 then holds
+  `MY1.TXT`. Console `export` with the dial on MY1 (CFWcon waits in `Task_Delay`, the CFW task runs it): 7 files,
+  written by the CFW task, live.txt with Portra's look, set1.txt from `B:/P_COMMON.bin`; without the CFW task the
+  console gives up after its wait.
 - `loader`: stage-1 loader ABI v1 header (`b`, "GRL1", hook entry); a full boot through `cfw_ldr_hook(n,
   &ldr_state)` over the shooting section order with Portra remembered for MY2, Clarity 9 configured and the dial
   on MY2 (slot Clarity 5): AE_F is zero until CapInit(5); the IQ-ready BL is patched at hook(5) and the patched

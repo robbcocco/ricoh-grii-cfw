@@ -43,4 +43,33 @@ static inline char *put_sdec(char *p, int32_t v) {
     return put_udec(p, (uint32_t)v);
 }
 
+/* Bounded text (exported files): appends while room is left, `cut` records that something did not fit. */
+typedef struct { char *p, *end; int cut; } text_t;
+
+static inline void t_c(text_t *t, char c) {
+    if (t->p < t->end) *t->p++ = c;
+    else t->cut = 1;
+}
+
+static inline void t_s(text_t *t, const char *s) {
+    while (*s) t_c(t, *s++);
+}
+
+static inline void t_d(text_t *t, int32_t v) {
+    char b[12], *e = put_sdec(b, v);
+    for (char *q = b; q < e; q++) t_c(t, *q);
+}
+
+static inline void t_hex(text_t *t, uint32_t v) {
+    char b[8];
+    put_hex32(b, v);
+    t_s(t, "0x");
+    for (int i = 0; i < 8; i++) t_c(t, b[i]);
+}
+
+static inline void t_nl(text_t *t) {   /* CRLF */
+    t_c(t, '\r');
+    t_c(t, '\n');
+}
+
 #endif /* GR2_FMT_H */

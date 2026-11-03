@@ -9,11 +9,13 @@
  *     menu also for the recipe scan;
  *   - "late" (loader hooks over, step 13 done): settings_init (the settings
  *     were applied at boot already: it records labels and saves the config),
- *     the recipe scan and the 200 ms settings / recipe-look polls;
+ *     the recipe scan, the 200 ms settings / recipe-look polls and exports
+ *     the developer console asked for (src/export.c);
  *   - 20 s after the task started: the safe-boot healthy mark (include/safeboot.h).
  * On the Startup.ttl path all phases are open at once (cfw_main starts it). */
 #include "cfw.h"
 #include "cfw_log.h"
+#include "export.h"
 #include "gr2_hw.h"
 #include "info.h"
 #include "osd.h"
@@ -66,6 +68,7 @@ void cfw_task_poll(void) {
     uint32_t id, state;
     while (cfw_input_pop(&id, &state)) cfw_ui_key(id, state);
     info_poll();
+    if (g_task_late) export_poll();     /* the developer console's `export` (src/export.c) */
     overlay_poll();
     if (g_task_late && ++g_setting_polls >= POLLS_PER_SETTING) {
         g_setting_polls = 0;

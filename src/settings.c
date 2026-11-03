@@ -662,6 +662,16 @@ void settings_save(void) {
     cfg_save();
 }
 
+int settings_camera_value(uint32_t prop, uint32_t *value) {
+    for (int i = 0; i < N_OVRS; i++) {
+        const ovr_t *o = OVRS[i];
+        if (o->prop != prop || !o->active || !o->has_stock || GR2_FN_PROP_GET_RAW(prop) != o->written) continue;
+        *value = o->stock;
+        return 1;
+    }
+    return 0;
+}
+
 #if CFW_DEBUG
 void settings_log_status(void) {
     for (int i = 0; i < S_COUNT; i++) {

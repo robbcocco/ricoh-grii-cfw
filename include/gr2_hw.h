@@ -69,7 +69,7 @@ _Static_assert(sizeof(gr2_find_t) == 0x230, "gr2_find_t layout");
  * Edit a slot without touching the live settings: clone the live DB object,
  * load the slot file into the clone, change values, save, free. */
 #define GR2_LIVE_PDB         (*(void *volatile *)0xA0121C5Cu)
-#define GR2_FN_PROP_PATH     ((const char *(*)(int, int))0xA00DDB69)          /* (1 = MY, k) -> "B:/P_MY0k.bin" */
+#define GR2_FN_PROP_PATH     ((const char *(*)(int, int))0xA00DDB69)          /* (0, 0) B:/P_COMMON.bin, (1, k) B:/P_MY0k.bin, (2, b) B:/P_BOX0b.bin */
 #define GR2_FN_PDB_CLONE     ((void *(*)(void *))0xA0037E15)                  /* heap copy of the DB object */
 #define GR2_FN_PDB_LOAD      ((void *(*)(void *, const char *, int))0xA0037A43) /* file -> values, else defaults */
 #define GR2_FN_PDB_SAVE      ((void (*)(void *, const char *))0xA0037AE7)     /* XOR + checksum, create/truncate */

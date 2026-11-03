@@ -36,8 +36,9 @@ LOOK_MATRIX, LOOK_TONE, LOOK_POST, LOOK_HUE = 1, 2, 4, 8
 LOOK_BASES = {'standard': 0, 'vivid': 1, 'setting1': 3, 'setting2': 4}   # colour mode (prop 0x2D)
 K5 = {0: 0, 1: 1, 3: 2, 4: 3}                  # colour mode -> IQ mode (look_mode)
 # Every slot property a recipe can set (src/recipes.c recipe_props, finding 19): EFFECT, IMAGE_SETTINGS, the
-# image-setting arrays of all colour modes, NR, EV comp, WB mode, WB comp per WB mode, Kelvin, DR comp.
-STOCK_PROPS = frozenset([0x2B, 0x2C, *range(0x2E, 0xEE), 0xEF, *range(0xFD, 0x110), 0x130])
+# image-setting arrays of all colour modes, NR and its custom thresholds, EV comp, WB mode, WB comp per WB mode,
+# Kelvin, ISO and the ISO AUTO-HI max / min / slowest shutter, DR comp.
+STOCK_PROPS = frozenset([0x2B, 0x2C, *range(0x2E, 0xEE), *range(0xEF, 0xF3), *range(0xFD, 0x114), 0x130])
 AE_OFF = [0xBE, 0xC4, 0xC2, 0x2C8, 0xCA, 0xCC]
 AE_STOCK = [0x55, 0x30, 0x30, 0x50, 0x00, 0xFFD0]
 SHOT_BYTES = 54 + 640 * 480 * 3
@@ -520,7 +521,7 @@ def sc_recipes(ctx):
           dflt[0x10F] == 5000 and dflt[0xEF] == 4 and dflt[0x2B] == dflt[0x2C] == 0,
           'firmware defaults table differs from finding 19 section 1.3')
     name_ids = range(0x1A9, 0x1BA)
-    marked = [v + 1 if i in STOCK_PROPS or i in name_ids or i in (0xEE, 0xF0) else v
+    marked = [v + 1 if i in STOCK_PROPS or i in name_ids or i in (0xEE, 0x147) else v
               for i, v in enumerate(m.slots['B:/P_MY01.bin'])]
     s4 = Session(ctx, files=d, slots={'B:/P_MY01.bin': marked}, props={0x2D: 4, 6: 2})
     m4 = s4.m
@@ -589,14 +590,15 @@ def sc_dev(ctx):
     m.props[0x260] = 0                                         # Wi-Fi off
     s.request(MENU_SETTINGS)
     s.keys(KEY_LEFT, KEY_DOWN)
-    check(s.info(1, 0) == 'OFF' and s.info(1, 7) == '-', f'before start: {s.info(1, 0)!r}')
+    check(s.info(1, 0) == 'OFF' and s.info(1, 8) == '-', f'before start: {s.info(1, 0)!r}')
     s.keys(KEY_OK)
     check(not m.msgs and m.props[0x1E8] == 0, f'Wi-Fi touched: msgs {m.msgs}')
     check([t['name'] for t in m.tasks] == ['CFW', 'CFWcon'], f'tasks: {[t["name"] for t in m.tasks]}')
     check(s.info(1, 0) == f'ON  {DOT}  Wi-Fi off (camera menu)', f'console row, Wi-Fi off: {s.info(1, 0)!r}')
     m.props[0x260] = 1                                         # turned on in the camera menu
     m.w32(m.syms['g_listen'], 3)                               # CFWcon has its listening socket
-    check(s.info(1, 0) == f'ON  {DOT}  telnet 192.168.0.1' and s.info(1, 7) == 'GR_A1B2C3', 'Wi-Fi rows')
+    check(s.info(1, 0) == f'ON  {DOT}  telnet 192.168.0.1' and s.info(1, 8) == f'GR_A1B2C3  {DOT}  secretpass12',
+          f'Wi-Fi row: {s.info(1, 8)!r}')
     m.call('cfw_ui_tick')
     s.render('menu_dev')
     s.keys(KEY_OK)                                             # OFF: socket closed, printf back on the UART
@@ -604,11 +606,11 @@ def sc_dev(ctx):
           f'console off: row {s.info(1, 0)!r}, closed {m.closed_fds}')
     s.keys(KEY_OK)
     check(len(m.tasks) == 2 and s.info(1, 0) != 'OFF', 'console on again: task started twice or still off')
-    s.keys(KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_OK)
+    s.keys(KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_OK)
     dump = m.file('H:/cfw/iq_ram.bin')
     check(dump is not None and len(dump) == 0x2FAA0, f'IQ dump size {len(dump or b"")}')
-    check(dump == m.rd(machine.IQ_BASE, 0x2FAA0) and s.info(1, 3) == 'iq_ram.bin saved', 'IQ dump content')
-    s.keys(KEY_UP, KEY_OK)
+    check(dump == m.rd(machine.IQ_BASE, 0x2FAA0) and s.info(1, 4) == 'iq_ram.bin saved', 'IQ dump content')
+    s.keys(KEY_UP, KEY_UP, KEY_OK)
     check(s.info(1, 2) == f'{len(ctx.recipes)} recipes', f'reload: {s.info(1, 2)!r}')
     s.keys(KEY_UP, KEY_OK)
     check(not s.is_open(), 'screenshot did not close the menu')
@@ -631,18 +633,18 @@ def sc_pattern(ctx):
     s = Session(ctx)
     m = s.m
     s.request(MENU_SETTINGS)
-    s.keys(KEY_LEFT, KEY_DOWN, *[KEY_DOWN] * 5)
-    check(s.info(1, 5) == 'OFF', f'pattern row: {s.info(1, 5)!r}')
+    s.keys(KEY_LEFT, KEY_DOWN, *[KEY_DOWN] * 6)
+    check(s.info(1, 6) == 'OFF', f'pattern row: {s.info(1, 6)!r}')
     s.keys(KEY_OK)
-    check(not s.is_open() and s.info(1, 5) == 'RUNNING', f'pattern pending: {s.info(1, 5)!r}')
+    check(not s.is_open() and s.info(1, 6) == 'RUNNING', f'pattern pending: {s.info(1, 6)!r}')
     m.time_ms += 1500
     m.call('info_poll')
-    check(s.info(1, 5) == 'ON', f'pattern drawn: {s.info(1, 5)!r}')
+    check(s.info(1, 6) == 'ON', f'pattern drawn: {s.info(1, 6)!r}')
     s.request(MENU_SETTINGS)
     s.keys(KEY_OK)
     m.time_ms += 1500
     m.call('info_poll')
-    check(s.info(1, 5) == 'OFF', f'pattern removed: {s.info(1, 5)!r}')
+    check(s.info(1, 6) == 'OFF', f'pattern removed: {s.info(1, 6)!r}')
     finish(ctx, s)
 
 
@@ -822,12 +824,12 @@ def sc_ae_hooks(ctx):
     finish(ctx, s2)
 
 
-def console_exec(m, line, size=8192):
+def console_exec(m, line, size=8192, task='CFW'):
     """Run one developer-console line in the CFW (console_exec); returns (rc, text)."""
     lp = m.obj_alloc(len(line) + 1)
     m.wr(lp, line.encode('latin-1') + b'\0')
     op = m.obj_alloc(size)
-    rc = m.call('console_exec', lp, op, size)
+    rc = m.call_addr(m.syms['console_exec'] | 1, lp, op, size, task=task)
     rc = rc - (1 << 32) if rc & 0x80000000 else rc
     return rc, m.cstr(op, size)
 
@@ -912,6 +914,233 @@ def sc_console(ctx):
           f'session tail: {out[-80:]!r}')
     check(m.sock_in == [b'status\r\n'], 'session read past exit')
     finish(ctx, s)
+
+
+# ---- export (src/export.c): recipe keys -> slot properties, worked out here independently of the CFW -------------
+
+EXPORT_BASES = {'standard': (0, 0), 'vivid': (1, 0), 'setting1': (3, 0), 'setting2': (4, 0), 'bright': (2, 1),
+                'bw': (5, 1), 'bw_te': (6, 1), 'hicontrast_bw': (7, 1), 'cross_process': (8, 1),
+                'positive_film': (9, 1), 'bleach_bypass': (10, 1), 'retro': (11, 1), 'miniature': (12, 1),
+                'high_key': (13, 1), 'slight': (14, 1), 'shift_crop': (15, 1), 'clarity': (16, 1),
+                'brilliance': (17, 1), 'vibrant': (18, 1), 'hdr_tone': (19, 1), 'portrait': (20, 1)}   # (mode, effect)
+SLIDERS = {'saturation': 0x2E, 'contrast': 0x46, 'sharpness': 0x5E, 'vignetting': 0x76, 'hue': 0x8E,
+           'toning': 0xA6, 'clarity': 0xBE, 'glossiness': 0xD6}
+WB_VALUE = {'auto': 0, 'multi_auto': 1, 'daylight': 2, 'shade': 3, 'cloudy': 4, 'incandescent1': 5,
+            'incandescent2': 6, 'fl_daylight': 7, 'fl_neutral': 8, 'fl_cool': 9, 'fl_warm': 10, 'cte': 12, 'kelvin': 13}
+PLAIN_KEYS = {'wb': 0xFE, 'wb_kelvin': 0x10F, 'exposure': 0xFD, 'dr': 0x130, 'nr': 0xEF, 'iso': 0x110,
+              'auto_hi_max': 0x111, 'auto_hi_min': 0x112, 'auto_hi_shutter': 0x113}
+LOOK_KEY = re.compile(r'matrix|post_matrix|tone(_[rgb])?|hue\d+')
+NAME_IDS = range(0x1A9, 0x1BA)
+
+
+def recipe_kv(data):
+    """(key, value) pairs of a recipe file; comments and blank lines dropped."""
+    out = []
+    for line in data.decode('ascii').split('\r\n'):
+        line = line.split('#', 1)[0].strip()
+        if line:
+            k, v = line.split('=', 1)
+            out.append((k.strip(), v.strip()))
+    return out
+
+
+def key_props(kv):
+    """Slot property IDs the keys of one recipe set (src/recipes.c recipe_props)."""
+    d = dict(kv)
+    mode, effect = EXPORT_BASES[d['base']]
+    ids = {0x2B} | (set() if effect else {0x2C})
+    ids |= {SLIDERS[k] + mode for k in d if k in SLIDERS} | {PLAIN_KEYS[k] for k in d if k in PLAIN_KEYS}
+    if d.get('nr') == 'custom':
+        ids |= {0xF0, 0xF1, 0xF2}
+    if 'wb_ab' in d or 'wb_gm' in d:
+        ids.add(0xFF + WB_VALUE[d['wb']])
+    return ids
+
+
+def look_of(kv):
+    """The look a recipe's keys give (src/recipes.c set_key: unset tone channels Standard, unset hue sectors unity)."""
+    look, tone, hue = {}, None, None
+    for k, v in kv:
+        if not LOOK_KEY.fullmatch(k):
+            continue
+        n = [int(x) for x in v.split(',')]
+        if k in ('matrix', 'post_matrix'):
+            look[k] = n
+        elif k.startswith('tone'):
+            tone = tone or [[min(255, 8 * i) for i in range(33)] for _ in range(3)]
+            for c in range(3):
+                if k in ('tone', 'tone_' + 'rgb'[c]):
+                    tone[c] = n
+        else:
+            hue = hue or [[128, 0, 0, 0, 128, 0, 0, 0, 128] for _ in range(12)]
+            hue[int(k[3:]) - 1] = n
+    if tone:
+        look['tone'] = tone
+    if hue:
+        look['hue'] = hue
+    return look
+
+
+def name_words(s):
+    return list(struct.unpack('>17I', s.encode('utf-16-be').ljust(0x44, b'\0')))
+
+
+def slot_name(v):
+    return b''.join(struct.pack('>I', v[i]) for i in NAME_IDS).decode('utf-16-be').split('\0')[0]
+
+
+def sc_export(ctx):
+    """DEV "Export settings to card" and the console's `export` (src/export.c): (a) MY slots, boxes, live settings,
+    Setting1/2 and changed effect sliders give the expected keys (Hi-Contrast B&W contrast, custom NR, ISO,
+    AUTO-HI, comments for manual WB and a 1/2-step EV; a name with '#' changed; the camera's Clarity value under a CFW
+    Clarity strength); nothing written at boot, no slot or property changed; (b) every file applied to MY3 sets each
+    property its keys name to the source value and nothing else; (c) the slot linked to Portra exports Portra's look
+    keys (also live with the dial on it), which parse to the same look; (d) no card: an error, nothing written;
+    (e) the export runs in the CFW task within its stack, also for the console (CFWcon waits in Task_Delay)."""
+    import machine
+    check = ctx.check
+    mask = 0xFFFFFFFF
+    dflt = list(struct.unpack_from('>' + 'I4x' * 899, ctx.inputs.firmware, machine.A_PROP_SETUP - machine.FW_BASE))
+
+    def preset(vals, name=''):
+        v = list(dflt)
+        for i, x in vals.items():
+            v[i] = x & mask
+        v[0x1A9:0x1BA] = name_words(name)
+        return v
+
+    my1 = preset({0x15: 3, 0x2C: 4, 0x2E + 4: 7, 0x46 + 4: 3, 0x5E + 4: 6, 0x76 + 4: 1, 0xFE: 13, 0x10F: 6500,
+                  0xFF + 13: (-3 << 16) | 2, 0xFD: 32, 0x130: 3, 0xEF: 5, 0xF0: 0x150, 0xF1: 0x1B0, 0xF2: 0x2D0,
+                  0x110: 0x150, 0x111: 0x210, 0x112: 0x120, 0x113: 0x60}, 'Portra Look')
+    my2 = preset({0x15: 2, 0x2B: 8, 0x2C: 3, 0x2E + 8: 3, 0x46 + 8: 6, 0x5E + 8: 5, 0x76 + 8: 2, 0x8E + 8: 2,
+                  0xFE: 2, 0xFF + 2: (1 << 16) | (-4 & 0xFFFF), 0xFD: -48, 0x130: 6, 0xEF: 1, 0x110: 0x989813},
+                 'XPRO #2')
+    box1 = preset({0x2B: 7, 0x46 + 7: -2, 0x5E + 7: 8, 0x76 + 7: 3, 0xFE: 11, 0x2BB: 0x1234, 0x2BC: 0x5678,
+                   0xFD: 0x18, 0xEF: 0, 0x110: 0x1B0}, 'HICON')
+    box3 = preset({0x2B: 15})
+    slots = {'B:/P_MY00.bin': my1, 'B:/P_MY01.bin': my2, 'B:/P_BOX00.bin': box1, 'B:/P_BOX02.bin': box3}
+    live = {i: dflt[i] for i in range(1, 899) if i not in machine.DEFAULT_PROPS and not 0x1BA <= i <= 0x1C2}
+    live.update({5: 2, 6: 0, 0x2B: 0, 0x2C: 3, 0x2D: 3, 0x2E + 3: 6, 0x46 + 3: 4, 0x76 + 3: 0, 0x2E + 9: 8, 0xFE: 4})
+    cfg = b'rc1.0=504F5254\r\nrc1.1=52412E54\r\nrc1.2=58540000\r\nclarity=00000009\r\n'   # MY1 = PORTRA.TXT
+    portra = recipe_kv((CFW / 'recipes' / 'portra.txt').read_bytes())
+
+    s = Session(ctx, files={'H:/cfw/config.txt': cfg}, props=dict(live), slots=slots)
+    m = s.m
+    check(m.props[0xCE] == 9, 'CFW Clarity strength 9 not in force')
+    check(not [e for e in m.io if 'EXPORT' in e[1].upper() or 'P_BOX' in e[1]], 'export files touched at boot')
+    live_src = [m.props.get(i, dflt[i]) for i in range(899)]
+    live_src[0xCE] = 7                                          # the camera's own Clarity value
+    before, sets, io0 = {k: list(v) for k, v in m.slots.items()}, len(m.prop_sets), len(m.io)
+    m.stack_margin = 1 << 30
+    s.request(MENU_SETTINGS)
+    s.keys(KEY_LEFT, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_DOWN, KEY_OK)   # DEV: Export settings to card
+    out = {m.names[k].rsplit('/', 1)[1]: m.file(k) for k in m.files if k.startswith('H:/CFW/EXPORT/')}
+    want = ['box01.txt', 'box03.txt', 'fx09.txt', 'live.txt', 'my1.txt', 'my2.txt', 'set1.txt', 'set2.txt']
+    check(sorted(out) == want, f'export files {sorted(out)}')
+    check(s.info(1, 3) == f'{len(want)} files in cfw/export', f'DEV row: {s.info(1, 3)!r}')
+    check(m.slots == before and len(m.prop_sets) == sets, 'the export changed a slot file or a property')
+    check(all(t == 'CFW' for _, _, t in m.io[io0:]) and m.stack_margin >= 0,
+          f'export outside the CFW task or over its stack (margin {m.stack_margin} B)')
+    for f, d in out.items():
+        check(d.isascii() and b'\n' not in d.replace(b'\r\n', b'') and len(d) <= 4094 and d.startswith(b'# '),
+              f'{f}: not an ASCII CRLF recipe of at most 4094 bytes')
+    keys = {f: {k: v for k, v in recipe_kv(d) if not LOOK_KEY.fullmatch(k)} for f, d in out.items()}
+    auto_hi = {'auto_hi_max': '3200', 'auto_hi_min': '100', 'auto_hi_shutter': 'auto'}   # factory values
+    expect = {
+        'my1.txt': {'name': 'Portra Look', 'base': 'setting2', 'saturation': '2', 'contrast': '-2', 'sharpness': '1',
+                    'vignetting': 'weak', 'wb': 'kelvin', 'wb_kelvin': '6500', 'wb_ab': '2', 'wb_gm': '-3',
+                    'exposure': '+0.7', 'dr': 'weak', 'nr': 'custom', 'nr_weak': '400', 'nr_medium': '1600',
+                    'nr_strong': 'off', 'iso': '400', 'auto_hi_max': '6400', 'auto_hi_min': '200',
+                    'auto_hi_shutter': '1/4'},
+        'my2.txt': {'name': 'XPRO _2', 'base': 'cross_process', 'saturation': '-2', 'contrast': '1', 'sharpness': '0',
+                    'vignetting': 'medium', 'hue': 'magenta', 'wb': 'daylight', 'wb_ab': '-4', 'wb_gm': '1',
+                    'exposure': '-1.0', 'dr': 'auto', 'nr': 'weak', 'iso': 'auto_hi', **auto_hi},
+        'box01.txt': {'name': 'HICON', 'base': 'hicontrast_bw', 'contrast': '-2', 'sharpness': '3',
+                      'vignetting': 'strong', 'dr': 'off', 'nr': 'off', 'iso': '1600', **auto_hi},   # no wb, no exposure
+        'set1.txt': {'name': 'Setting1', 'base': 'setting1', 'saturation': '1', 'contrast': '-1', 'sharpness': '0',
+                     'vignetting': 'off'},
+        'set2.txt': {'name': 'Setting2', 'base': 'setting2', 'saturation': '0', 'contrast': '0', 'sharpness': '0',
+                     'vignetting': 'off'},
+        'fx09.txt': {'name': 'Camera positive_film', 'base': 'positive_film', 'saturation': '3', 'contrast': '0',
+                     'sharpness': '0', 'vignetting': 'off'},
+    }
+    for f, kv in expect.items():
+        check(keys[f] == kv, f'{f}: keys {keys[f]}')
+    check(keys['box03.txt']['name'] == 'Box 3' and keys['box03.txt']['base'] == 'shift_crop', 'box03.txt')
+    check(keys['live.txt']['name'] == 'Live' and keys['live.txt']['base'] == 'setting1' and
+          keys['live.txt']['wb'] == 'cloudy', f'live.txt: {keys["live.txt"]}')
+    # (c) MY1 holds Portra: its look keys parse to Portra's look; MY2 and the rest have none.
+    check(look_of(portra) and look_of(recipe_kv(out['my1.txt'])) == look_of(portra), 'my1.txt: not Portra\'s look')
+    check(not any(look_of(recipe_kv(d)) for f, d in out.items() if f != 'my1.txt'), 'look keys in another file')
+    # (d) no card: an error on the row, nothing written anywhere.
+    files, io1 = {k: bytes(v) for k, v in m.files.items()}, len(m.io)
+    m.card = False
+    s.keys(KEY_OK)
+    check(s.info(1, 3) == 'no card', f'no card: {s.info(1, 3)!r}')
+    check({k: bytes(v) for k, v in m.files.items()} == files and m.slots == before and
+          all(e[0] in ('File_Mkdir', 'File_Open') and e[1].upper().startswith('H:/CFW') for e in m.io[io1:]),
+          f'no card: something written: {m.io[io1:]}')
+    m.card = True
+    s.keys(KEY_EFFECT)
+    # (e) the stub's stack check is live on this path: a 0x2000-byte task stack fails.
+    try:
+        m.call_addr(m.syms['export_run'] | 1, stack=0x2000)
+        check(False, 'export_run on an 8 KB stack passed the file-API stack check')
+    except machine.EmuError as ex:
+        check('stack' in str(ex), f'small stack: {ex}')
+    finish(ctx, s)
+
+    # (b) Round trip: every exported file, from cfw/recipes, applied to MY3 (never saved before).
+    src = {'my1.txt': my1, 'my2.txt': my2, 'box01.txt': box1, 'box03.txt': box3, 'live.txt': live_src,
+           'set1.txt': live_src, 'set2.txt': live_src, 'fx09.txt': live_src}
+    s2 = Session(ctx, files={'H:/cfw/recipes/' + f: d for f, d in out.items()}, props=dict(live))
+    m2 = s2.m
+    names = s2.recipe_names()
+    for f, d in sorted(out.items()):
+        kv = recipe_kv(d)
+        i = names.index(dict(kv)['name'])
+        old = list(m2.slots.get('B:/P_MY02.bin', dflt))
+        check(m2.call('recipes_apply', i, 2) == 0, f'{f}: not applied')
+        slot = m2.slots['B:/P_MY02.bin']
+        ids = key_props(kv)
+        want_v = {p: src[f][p] for p in ids}
+        if f[:2] in ('se', 'fx'):                               # image presets: the base is the preset's mode
+            mode, effect = EXPORT_BASES[dict(kv)['base']]
+            want_v.update({0x2B: mode if effect else 0, **({} if effect else {0x2C: mode})})
+        bad = [hex(p) for p, v in want_v.items() if slot[p] != v]
+        check(not bad, f'{f} applied to MY3: properties not the exported values: {bad}')
+        other = [hex(p) for p in range(899) if slot[p] != old[p] and p not in ids and p not in NAME_IDS]
+        check(not other, f'{f} applied to MY3 changed properties no key names: {other}')
+        check(slot_name(slot) == dict(kv)['name'], f'{f}: MY3 name {slot_name(slot)!r}')
+    # (c) the CFW parses my1.txt to Portra's look, and MY3 now holds it.
+    mono = m2.obj_alloc(4)
+    look = lambda n: m2.rd(m2.call('recipes_look', names.index(n), mono), 353)
+    check(look('Portra Look') == look('Portra 400'), 'my1.txt parsed to another look than portra.txt')
+    i = names.index('Portra Look')
+    check(m2.call('recipes_apply', i, 2) == 0 and 'rc3.0=4D59312E' in m2.cfg_text(), 'MY3 does not hold MY1.TXT')
+    finish(ctx, s2)
+
+    # Console `export` with the dial on MY1: the CFW task runs it while CFWcon waits; live carries MY1's look,
+    # Setting1 comes from B:/P_COMMON.bin.
+    live_b = {i: my1[i] for i in live}
+    live_b.update({5: 3, 6: 1, 0x2D: 4})
+    slots_b = {**slots, 'B:/P_COMMON.bin': preset({0x2C: 3, 0x2E + 3: 9})}
+    s3 = Session(ctx, files={'H:/cfw/config.txt': cfg}, props=live_b, slots=slots_b)
+    m3 = s3.m
+    m3.on_delay = lambda mm: mm.call_in_task('cfw_task_poll')
+    io0, m3.stack_margin = len(m3.io), 1 << 30
+    rc, text = console_exec(m3, 'export', task='CFWcon')
+    writes = [e for e in m3.io[io0:] if e[1].upper().startswith('H:/CFW/EXPORT/')]
+    check('7 files in cfw/export' in text and len(writes) == 7 and all(e[2] == 'CFW' for e in writes),
+          f'console export: {text!r}, writes {writes}')
+    check(m3.stack_margin >= 0, f'console export: over the CFW task stack (margin {m3.stack_margin} B)')
+    check(look_of(recipe_kv(m3.file('H:/cfw/export/live.txt'))) == look_of(portra), 'live.txt on MY1: no Portra look')
+    set1 = dict(recipe_kv(m3.file('H:/cfw/export/set1.txt')))
+    check(set1['saturation'] == '4', f'set1.txt not from P_COMMON: {set1}')
+    m3.on_delay = None                                          # the CFW task does not run: the console gives up
+    rc, text = console_exec(m3, 'export', task='CFWcon')
+    check(rc > 0 and 'files' not in text, f'console export without the CFW task: {text!r}')
+    finish(ctx, s3)
 
 
 def sc_loader(ctx):
@@ -1143,8 +1372,8 @@ def sc_safeboot(ctx):
     for _ in range(50):
         mm.call('cfw_task_poll')
     check(mm.safeboot_state() == ARMED, 'no healthy mark after 20 s')
-    mm.call('info_action', 1, 6)                               # DEV "Boot stock once"
-    check(mm.safeboot_state() == STOCK_ONCE and mm.cstr(mm.call('info_value', 1, 6)) == 'next power-on: stock',
+    mm.call('info_action', 1, 7)                               # DEV "Boot stock once"
+    check(mm.safeboot_state() == STOCK_ONCE and mm.cstr(mm.call('info_value', 1, 7)) == 'next power-on: stock',
           'Boot stock once not set')
 
 
@@ -1271,7 +1500,8 @@ def sc_rom(ctx):
 
 SCENARIOS = [('boot', sc_boot), ('menu', sc_menu), ('snap', sc_snap), ('recipes', sc_recipes),
              ('palette', sc_palette), ('dev', sc_dev), ('recipe-files', sc_recipe_files), ('view', sc_view),
-             ('ae-hooks', sc_ae_hooks), ('console', sc_console), ('loader', sc_loader), ('pattern', sc_pattern),
+             ('ae-hooks', sc_ae_hooks), ('console', sc_console), ('export', sc_export), ('loader', sc_loader),
+             ('pattern', sc_pattern),
              ('store', sc_store), ('safeboot', sc_safeboot)]
 ROM_SCENARIOS = [('rom', sc_rom)]          # the rom variant boots only through the release stub
 

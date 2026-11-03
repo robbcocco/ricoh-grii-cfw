@@ -8,8 +8,8 @@
  *
  * Server: one task ("CFWcon", like stock telnetd: socket/bind/listen/accept,
  * then a line loop) on port 23; the stock telnetd is not started. Commands:
- * help, status, log, tail, sh, tasks, heap, mem, wifi, exit; anything else runs
- * as a stock shell line (Shell_Execute in this task, as stock telnetd does).
+ * help, status, log, tail, sh, tasks, heap, mem, wifi, export, exit; anything else
+ * runs as a stock shell line (Shell_Execute in this task, as stock telnetd does).
  *
  * On/off: console_set(0) closes the listening and the session socket from the
  * CFW task (the blocked accept/recv in CFWcon then fails) and puts printf back
@@ -20,6 +20,7 @@
 #include "cfw_log.h"
 #include "gr2_fmt.h"
 #include "gr2_hw.h"
+#include "export.h"
 #include "info.h"
 #include "settings.h"
 
@@ -31,6 +32,7 @@
 #define TAIL_MAX_S    300
 #define MEM_MAX       0x400u
 #define POOL_WALK_MAX 128
+#define EXPORT_WAIT_S 30               /* the CFW task picks a request up within 20 ms, writing takes ~1 s */
 #define TSK_MAGIC     0x54534B20u      /* 'TSK ' */
 #define MPL_MAGIC     0x4D504C20u      /* 'MPL ' */
 #define POOL_BASE     0xA0900000u      /* free-memory pool start (FUN_a00542d0) */
@@ -161,6 +163,7 @@ static void cmd_help(out_t *o) {
              "heap              GlobalHeap free, memory pools, pool map\n"
              "mem <addr> [len]  hex dump (hex; len <= 0x400; DRAM only)\n"
              "wifi              Wi-Fi state as the system controller sees it\n"
+             "export            camera presets as recipe files in cfw/export\n"
              "exit              close the session\n"
              "anything else     runs as a stock shell command (like sh)\n");
 }
@@ -213,6 +216,19 @@ static void cmd_tail(out_t *o, const char *a) {
         from = out_ring(o, from);
         out_flush(o);
     }
+}
+
+/* The export runs in the CFW task (src/export.c): ask for it and wait for its result. */
+static void cmd_export(out_t *o) {
+    uint32_t ticket = export_request();
+    for (int t = 0; t < EXPORT_WAIT_S * 10 && !export_served(ticket); t++) GR2_FN_DELAY(100);
+    if (!export_served(ticket)) {
+        out_s(o, "export: requested, the CFW task has not run it yet (result on the DEV tab)\n");
+        return;
+    }
+    out_s(o, "export: ");
+    out_s(o, export_result());
+    out_s(o, "\n");
 }
 
 static void cmd_sh(out_t *o, const char *a) {
@@ -365,6 +381,7 @@ static int run(const char *line, out_t *o) {
     else if ((a = word(s, "heap"))) cmd_heap(o);
     else if ((a = word(s, "mem"))) cmd_mem(o, a);
     else if ((a = word(s, "wifi"))) cmd_wifi(o);
+    else if ((a = word(s, "export"))) cmd_export(o);
     else if ((a = word(s, "exit"))) return -1;
     else cmd_sh(o, s);                          /* like stock telnet on port 23 */
     return 0;
