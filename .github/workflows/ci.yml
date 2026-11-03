@@ -36,6 +36,10 @@ jobs:
       - name: Lint
         run: make lint
 
+      # Site LUT converter (site/js/core.js) and the recipe file rules, against recipes/*.txt
+      - name: Site converter checks
+        run: node tests/site/validate.mjs
+
       # Ricoh's stock firmware is downloaded (SHA-256 checked) for the emulator and the loader
       # check; it is cached, never committed and never uploaded.
       - name: Cache stock firmware

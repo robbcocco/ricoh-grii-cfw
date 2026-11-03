@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gr2_cfw: custom firmware for the Ricoh GR II</title>
+<meta name="description" content="gr2_cfw adds film recipes, smarter Auto ISO, closer Snap distances, frame lines and zebras to the Ricoh GR II (firmware 3.00). It installs like an official update and keeps a stock fallback.">
+<link rel="icon" href="img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/style.css">
+<script src="js/release.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="img/icon.svg" alt="" width="26" height="26"> gr2_cfw</a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#download">Download</a></li>
+        <li><a href="#faq">FAQ</a></li>
+        <li><a href="convert.html">LUT converter</a></li>
+        <li><a href="https://github.com/robbcocco/ricoh-grii-cfw">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap">
+    <div>
+      <h1 id="hero-title">Custom firmware for the Ricoh GR&nbsp;II</h1>
+      <p class="lead">gr2_cfw adds the things the GR&nbsp;II never got: film recipes you can preview live and save into the MY slots, smarter Auto ISO, closer Snap distances, frame lines and zebras, and a few tools for tinkerers.</p>
+      <p>It installs like an official Ricoh update, through the camera's own menu, and it is Ricoh's firmware 3.00 underneath: everything stock keeps working, power-on is as quick as stock, and a key held at power-on starts the camera stock.</p>
+      <ul class="facts" aria-label="At a glance">
+        <li>GR&nbsp;II, firmware 3.00</li>
+        <li>Film recipes</li>
+        <li>Stock fallback</li>
+        <li>MIT licence</li>
+      </ul>
+      <div class="actions">
+        <a class="btn" href="https://github.com/robbcocco/ricoh-grii-cfw/releases/latest" data-release-link>Download latest release</a>
+        <a class="btn secondary" href="convert.html">Convert a LUT</a>
+      </div>
+      <p class="small muted" data-release-version>Release zip from GitHub; see <a href="#install">Install</a> before you start.</p>
+    </div>
+    <img class="strip" src="img/filmstrip.svg" width="480" height="200" alt="Illustration: a filmstrip of four recipe frames, each showing four colour patches through a different film look.">
+  </div>
+</section>
+
+<section class="block" id="features" aria-labelledby="features-title">
+  <div class="wrap">
+    <h2 id="features-title">What you get</h2>
+    <p>Two new choices for the Effect button, <b>CFW Menu</b> and <b>Recipes</b>, in every menu language.</p>
+    <div class="features">
+      <article class="card">
+        <h3>Film recipes</h3>
+        <p>Film looks (Portra, Gold, Ektar, Pro 400H, Superia, UltraMax, Vision3, Cinema Green, Yellow and Warm, Vivid Slide …), a rangefinder colour look and three black-and-white looks in a filmstrip. Live view shows the look while you browse; one press saves it into MY1, MY2 or MY3. <b>Stock</b> puts a slot back.</p>
+        <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#recipes">More →</a>
+      </article>
+      <article class="card">
+        <h3>Recipe files you can write</h3>
+        <p>One small text file per film in <code>cfw/recipes/</code>: image settings, white balance, exposure, DR, NR and ISO keys, plus look keys (colour matrix, tone curves, hue sectors) on the Standard rendering. Recipe updates never need a reflash.</p>
+        <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#recipe-file-format">More →</a>
+      </article>
+      <article class="card">
+        <h3>Your presets as recipes</h3>
+        <p>DEV → <i>Export settings to card</i> writes MY1–MY3, the My Settings Box, Setting1/Setting2 and the live settings as recipe files into <code>cfw/export/</code>. Nothing in the camera changes.</p>
+        <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#exporting-your-presets">More →</a>
+      </article>
+      <article class="card">
+        <h3>Auto ISO and exposure</h3>
+        <p>Auto ISO maximum and slowest shutter (also “1/60 + crop”), <i>keep shutter</i> at the ISO limit, Auto ISO in M, ISO Auto-High slowest shutter, and TAv fixes for the Auto-High limits.</p>
+        <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#cfw-menu">More →</a>
+      </article>
+      <article class="card">
+        <h3>Focus, view and image</h3>
+        <p>Snap distances 0.7&nbsp;m and 1.2&nbsp;m; frame lines (XPan, 6×7, 4:5, 1:1, 16:9) and zebras that are never recorded; Clarity strength and custom high-ISO noise reduction.</p>
+        <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#cfw-menu">More →</a>
+      </article>
+      <article class="card">
+        <h3>INFO and tools for tinkerers</h3>
+        <p>An INFO page with shutter count, battery and temperatures; screenshots to the card; a developer console over the camera's Wi-Fi (off at every start).</p>
+        <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#developer-console">More →</a>
+      </article>
+      <article class="card">
+        <h3>Safe by design</h3>
+        <p>Hold the shutter half-pressed to start stock; after two failed starts in a row the camera starts stock by itself. Ricoh's own file uninstalls it, and the boot loader and rescue mode are never touched.</p>
+        <a class="more" href="https://github.com/robbcocco/ricoh-grii-cfw#recovery">More →</a>
+      </article>
+      <article class="card">
+        <h3>LUT converter</h3>
+        <p>Turn a <code>.cube</code>, <code>.3dl</code> or Hald CLUT into a recipe file, in your browser. The camera has no 3D-LUT stage, so the converter fits the stages it has and tells you how close it gets.</p>
+        <a class="more" href="convert.html">More →</a>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="download" aria-labelledby="download-title">
+  <div class="wrap">
+    <h2 id="download-title">Download</h2>
+    <div class="release" aria-live="polite">
+      <p id="release-status">The release zip <code>gr2_cfw-v&lt;VERSION&gt;.zip</code> is on GitHub.</p>
+      <dl id="release-facts" hidden>
+        <dt>Version</dt><dd id="release-version"></dd>
+        <dt>File</dt><dd id="release-file"></dd>
+        <dt>Size</dt><dd id="release-size"></dd>
+        <dt>SHA-256</dt><dd><code class="sha" id="release-sha"></code></dd>
+      </dl>
+      <div class="actions">
+        <a class="btn" href="https://github.com/robbcocco/ricoh-grii-cfw/releases/latest" data-release-link>Download latest release</a>
+        <a class="btn secondary" href="https://github.com/robbcocco/ricoh-grii-cfw/releases/latest">Release notes</a>
+      </div>
+      <p class="small muted">Take <code>gr2_cfw-v&lt;VERSION&gt;.zip</code>, not the <code>-debug</code> zip (that one is for development, see the FAQ).</p>
+    </div>
+
+    <div class="warning" role="note">
+      <p><strong>Use at your own risk.</strong> Installing custom firmware can, in the worst case, leave a camera that needs the <a href="https://github.com/robbcocco/ricoh-grii-cfw#recovery">rescue procedure</a>. Every step here was tested on a real GR&nbsp;II, but no warranty is given, and this project has nothing to do with Ricoh.</p>
+      <p>For the Ricoh <b>GR&nbsp;II only</b>, firmware <b>3.00</b>. Not for the GR, GR&nbsp;III or GR&nbsp;IIIx.</p>
+    </div>
+
+    <div class="two">
+      <div>
+        <h3 id="before">Before you start</h3>
+        <ul>
+          <li>A <b>full battery</b> (the camera refuses updates on a low battery), and ideally a second one.</li>
+          <li>An SD card of 32&nbsp;GB or less, <b>formatted in the camera</b> (MENU → Set-up → Format). Cards formatted on a computer may not be accepted.</li>
+          <li>Your camera on Ricoh's firmware <b>3.00</b> (MENU → Set-up → <i>Confirm Firmware Version</i>). If it shows an older version, install <a href="https://www.ricoh-imaging.co.jp/english/support/digital/firmware/rg2_v003.zip">Ricoh's 3.00 update</a> first, the same way as below.</li>
+          <li>Read <a href="#recovery">Recovery</a> once, so you know the key combinations before you need them.</li>
+        </ul>
+      </div>
+      <div>
+        <h3 id="install">Install</h3>
+        <ol class="steps">
+          <li>Download <code>gr2_cfw-v&lt;VERSION&gt;.zip</code> and unzip it.</li>
+          <li>Copy <b>only <code>rg2_v003.frm</code></b> to the root of the freshly formatted card. On a Mac, delete the hidden <code>._*</code> files afterwards (<code>find /Volumes/&lt;card&gt; -name '._*' -delete</code>). There must be no other <code>rg2_v*.frm</code> on the card.</li>
+          <li>Put the card in the camera, switch it on, and open MENU → Set-up → <b>Confirm Firmware Version</b>. After a few seconds it asks <b>Execute?</b> with <i>Current Version 3.00</i> and <i>New Version 3.00</i> (installing the same version number is normal).</li>
+          <li>Choose <b>Yes</b>. The camera checks the file and rewrites the program; don't touch it until <b>Firmware update complete.</b> appears. Press <b>OK</b>; the camera switches off.</li>
+          <li>Switch on. Then copy the zip's <code>cfw/</code> folder (your recipes) to the card root; you can delete <code>rg2_v003.frm</code> from the card now.</li>
+          <li>Assign the menus: MENU → <i>Key Custom Options</i> → <b>Effect Button Setting</b> and/or <b>Effect Button Hold Setting</b> → <b>CFW Menu</b> or <b>Recipes</b>. (With the mode dial on MY1–MY3 that assignment belongs to the slot: save it with the stock <i>Save My Settings</i>.)</li>
+        </ol>
+        <p>That's it. Press the Effect button and the CFW Menu or the Recipes filmstrip opens.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="recovery" aria-labelledby="recovery-title">
+  <div class="wrap">
+    <h2 id="recovery-title">Recovery and uninstall</h2>
+    <p>The CFW never changes the parts of the camera that do the recovery (its boot loader and Ricoh's rescue mode), so these always work:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Situation</th><th scope="col">What to do</th></tr></thead>
+        <tbody>
+          <tr><td>Start the camera <b>without the CFW</b>, once</td><td>Hold the <b>shutter half-pressed</b> while you switch on, until the screen comes on. Or choose DEV → <i>Boot stock once</i> beforehand.</td></tr>
+          <tr><td>The camera <b>hangs</b></td><td>Take the battery out, put it back, and start with the shutter half-pressed.</td></tr>
+          <tr><td>The CFW <b>crashes or hangs at start</b></td><td>Nothing to do: after <b>two failed starts in a row</b> the camera starts stock by itself and stays stock.</td></tr>
+          <tr><td>The CFW <b>stays off</b> after that</td><td>Switch on <b>with the PLAY button</b> once (the camera starts in playback, stock). The next normal start runs the CFW again.</td></tr>
+          <tr id="uninstall"><td><b>Uninstall</b></td><td>Put Ricoh's official <a href="https://www.ricoh-imaging.co.jp/english/support/digital/firmware/rg2_v003.zip"><code>rg2_v003.frm</code></a> alone on a camera-formatted card and run <i>Confirm Firmware Version</i> → <b>Yes</b>, exactly as in <a href="#install">Install</a>. The camera is then 100% stock; your photos and camera settings stay.</td></tr>
+          <tr><td>The camera <b>no longer starts at all</b></td><td>Use the rescue card (Ricoh's <code>rg2_v003.frm</code> plus the zip's <code>rescue/backup.ttl</code>): follow the steps in the <a href="https://github.com/robbcocco/ricoh-grii-cfw#recovery">README, Recovery</a>. Never leave a card with <code>backup.ttl</code> in the camera.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="small muted">Updating: install a newer <code>rg2_v003.frm</code> the same way; your settings stay. <a href="https://github.com/robbcocco/ricoh-grii-cfw#updating">More →</a></p>
+  </div>
+</section>
+
+<section class="block" id="faq" aria-labelledby="faq-title">
+  <div class="wrap">
+    <h2 id="faq-title">FAQ</h2>
+    <details class="faq">
+      <summary>Which cameras and firmware does it support?</summary>
+      <div><p>The Ricoh GR&nbsp;II on firmware 3.00 only. Not the GR, GR&nbsp;III or GR&nbsp;IIIx. On an older GR&nbsp;II firmware, install Ricoh's 3.00 update first, the same way.</p></div>
+    </details>
+    <details class="faq">
+      <summary>Can it brick my camera?</summary>
+      <div><p>The CFW never changes the boot loader or Ricoh's rescue mode, and every step was tested on a real GR&nbsp;II. In the worst case the camera needs the rescue card from <a href="#recovery">Recovery</a>, which reinstalls the stock firmware. It is still custom firmware: use it at your own risk.</p></div>
+    </details>
+    <details class="faq">
+      <summary>How do I start the camera stock, just once?</summary>
+      <div><p>Hold the shutter half-pressed while you switch on, until the screen comes on, or choose DEV → <i>Boot stock once</i>. After two failed starts in a row the camera starts stock by itself; a power-on with the PLAY button brings the CFW back.</p></div>
+    </details>
+    <details class="faq">
+      <summary>Where do the recipes live, and how do I add my own?</summary>
+      <div><p>In <code>cfw/recipes/</code> on the card: one ASCII text file per film, 8.3 file name, Windows line endings, at most 4&nbsp;KB, up to 48 files. Add or delete files, then choose DEV → <i>Reload recipes</i> or restart. The looks saved in MY1–MY3 are kept inside the camera, so they work without the card. The <a href="https://github.com/robbcocco/ricoh-grii-cfw#recipe-file-format">recipe file format</a> lists every key.</p></div>
+    </details>
+    <details class="faq">
+      <summary>Do recipes change my RAW files?</summary>
+      <div><p>A recipe sets the camera's image settings, white balance and its image-processing tables, which is how the camera renders live view and JPEGs. A RAW (DNG) file keeps the sensor data, so your raw converter decides how it looks.</p></div>
+    </details>
+    <details class="faq">
+      <summary>How do I update to a new version?</summary>
+      <div><p>Install the newer <code>rg2_v003.frm</code> the same way as the first time; your settings stay. New recipe files only need copying into <code>cfw/recipes/</code>: recipe updates never need a reflash.</p></div>
+    </details>
+    <details class="faq">
+      <summary>What is the <code>-debug</code> zip?</summary>
+      <div><p>It is for development: its loader firmware starts the CFW from the card's <code>cfw/</code> folder instead, with full logging, so new builds need no reflash, only a new <code>cfw/</code> folder. For using the camera, take the release zip.</p></div>
+    </details>
+    <details class="faq">
+      <summary>What happens to my CFW settings on a stock camera?</summary>
+      <div><p>Saved CFW choices are harmless on a stock camera: the Effect button choices simply act as “Off” (press) and “Wi-Fi” (hold). CFW Menu settings are saved inside the camera and, as a backup, in <code>cfw/config.txt</code> on the card.</p></div>
+    </details>
+    <details class="faq">
+      <summary>Can I use any LUT with the converter?</summary>
+      <div><p>The GR&nbsp;II has no 3D-LUT stage. The <a href="convert.html">converter</a> fits the stages the camera has (colour matrix, 12 hue sectors, tone curves, a post matrix) and shows how close it gets. Global colour and tone looks fit well; grain, halation, blur and strong colour-dependent tone changes cannot be reproduced. A converted recipe keeps the licence of its LUT.</p></div>
+    </details>
+    <details class="faq">
+      <summary>Is this made by Ricoh?</summary>
+      <div><p>No. This project is not affiliated with Ricoh. The firmware file in the zip contains Ricoh's firmware 3.00, which is Ricoh's property.</p></div>
+    </details>
+  </div>
+</section>
+
+<section class="block" id="credits" aria-labelledby="credits-title">
+  <div class="wrap">
+    <h2 id="credits-title">Credits and licences</h2>
+    <ul>
+      <li>The CFW code, this site and the LUT converter: <a href="https://github.com/robbcocco/ricoh-grii-cfw/blob/main/LICENSE">MIT licence</a>.</li>
+      <li><code>rg2_v003.frm</code> in the release zip contains Ricoh's firmware 3.00, which is Ricoh's property and not covered by the MIT licence. Not affiliated with Ricoh, Kodak or Fujifilm; film names are used descriptively.</li>
+      <li>The film recipes are fitted to <a href="https://github.com/andreavolpato/spektrafilm">spektrafilm</a> film simulations by Andrea Volpato: <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.</li>
+      <li>Rangefinder and the Mono recipes are the project's own designs: <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.</li>
+      <li>The overlay fonts in the firmware are rendered from Inter and Barlow Condensed, <a href="https://openfontlicense.org/">SIL Open Font License 1.1</a>.</li>
+      <li>A recipe converted from a LUT is derived from that LUT and keeps the LUT's licence.</li>
+    </ul>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>gr2_cfw · <a href="https://github.com/robbcocco/ricoh-grii-cfw">Source on GitHub</a> · <a href="https://github.com/robbcocco/ricoh-grii-cfw#readme">README (full manual)</a> · <a href="convert.html">LUT converter</a></p>
+    <p>No cookies, no trackers, no external requests except the GitHub release lookup.</p>
+  </div>
+</footer>
+</body>
+</html>

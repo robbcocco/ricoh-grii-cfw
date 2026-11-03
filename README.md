@@ -1,5 +1,7 @@
 # gr2_cfw — custom firmware for the Ricoh GR II
 
+**Website:** [robbcocco.github.io/ricoh-grii-cfw](https://robbcocco.github.io/ricoh-grii-cfw/): download, install guide, FAQ and a LUT-to-recipe converter.
+
 gr2_cfw adds the things the GR II never got: film recipes you can preview live and save into the MY slots, smarter Auto ISO, closer Snap distances, frame lines and zebras, and a few tools for tinkerers. It installs like an official Ricoh update, through the camera's own menu, and it is Ricoh's firmware 3.00 underneath: everything stock keeps working, and nothing it saves can confuse a stock camera.
 
 **For:** Ricoh GR II only, firmware **3.00**. Not for the GR, GR III or GR IIIx.
@@ -184,6 +186,8 @@ make help       # every target
 | `recipes/`, `fonts/` | shipped recipes and overlay fonts, with their licences |
 | `scripts/` | packaging, firmware builders and their independent checks, font builder |
 | `tests/emu/` | emulator tests |
+| `tests/site/` | checks of the site's LUT converter and the recipe file rules (`node tests/site/validate.mjs`) |
+| `site/` | the website (GitHub Pages, static): home page and LUT-to-recipe converter |
 | `tools/gr2frm.py` | `.frm` container tool |
 
 ## Licence

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LUT to recipe converter · gr2_cfw</title>
+<meta name="description" content="Convert a 3D LUT (.cube, .3dl or Hald CLUT .png) into a gr2_cfw film recipe for the Ricoh GR II. Runs entirely in your browser.">
+<link rel="icon" href="img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="img/icon.svg" alt="" width="26" height="26"> gr2_cfw</a>
+    <nav aria-label="Main">
+      <ul>
+        <li><a href="./#features">Features</a></li>
+        <li><a href="./#download">Download</a></li>
+        <li><a href="./#faq">FAQ</a></li>
+        <li><a href="convert.html" aria-current="page">LUT converter</a></li>
+        <li><a href="https://github.com/robbcocco/ricoh-grii-cfw">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+  <h1>LUT to recipe</h1>
+  <p class="lead">Turn a colour LUT into a recipe file for the GR&nbsp;II. The camera has no 3D-LUT stage, so the converter fits the stages it has (colour matrix, hue sectors, tone curves) to your LUT and tells you how close it gets. Everything runs in this page; your file never leaves your computer.</p>
+
+  <div class="converter">
+    <label class="drop" id="drop">
+      <input type="file" id="lut-file" accept=".cube,.3dl,.png" aria-describedby="drop-hint">
+      <span class="big">Drop a LUT here or choose a file</span>
+      <span class="muted" id="drop-hint"><code>.cube</code>, <code>.3dl</code> or Hald CLUT <code>.png</code></span>
+    </label>
+
+    <div class="settings">
+      <label class="field">
+        <span>Recipe name</span>
+        <input type="text" id="r-name" maxlength="23" placeholder="My Film" autocomplete="off" aria-describedby="r-file">
+        <small class="muted" id="r-file">Shown in the camera (up to 23 characters).</small>
+      </label>
+      <label class="field">
+        <span>The LUT is a</span>
+        <select id="enc-in" aria-describedby="enc-hint"></select>
+        <small class="muted" id="enc-hint">Most photo looks are sRGB in, sRGB out. Log LUTs are recognised from the file name.</small>
+      </label>
+    </div>
+
+    <p class="status muted" id="status" role="status" aria-live="polite">No LUT loaded.</p>
+    <progress id="progress" max="1" value="0" hidden></progress>
+
+    <section class="card" id="result" hidden aria-labelledby="result-title">
+      <h2 id="result-title" class="verdict"></h2>
+      <p id="result-detail"></p>
+      <div class="swatches" id="swatches" aria-hidden="true"></div>
+      <p class="small muted">ColorChecker colours: the LUT (top half of each patch) and the recipe on the GR&nbsp;II model (bottom half).</p>
+      <ul class="small warn-text" id="warnings"></ul>
+      <details>
+        <summary>Credit and licence of the LUT (optional)</summary>
+        <label class="field">
+          <span class="small muted">Written into the recipe as comments. A converted recipe keeps the LUT's licence: share it only where that licence allows.</span>
+          <textarea id="r-attr" rows="3" placeholder="e.g. LUT &quot;My Film&quot; by Jane Doe, https://example.com, CC BY 4.0"></textarea>
+        </label>
+      </details>
+      <div class="actions">
+        <button type="button" class="btn" id="download" disabled>Download recipe</button>
+      </div>
+      <p class="small" id="check"></p>
+      <p>Copy the file to <code>cfw/recipes/</code> on the card, choose DEV → <i>Reload recipes</i> (or restart), and pick it in <b>Recipes</b>.</p>
+    </section>
+
+    <details class="faq">
+      <summary>What the converter can and cannot do</summary>
+      <div>
+        <ul>
+          <li>It fits a colour matrix, 12 hue-sector matrices, three tone curves and a post matrix, relative to the camera's Standard rendering, and writes them as the recipe's look keys with <code>base=setting2</code>. The camera's saturation, contrast and sharpness sliders still work on top.</li>
+          <li>It models the Standard rendering with its own approximation, so the result is close but not exact; the colour difference (CIEDE2000) is measured on held-out colours. Below about 2 is close; above 5 the LUT does something the camera cannot follow.</li>
+          <li>No grain, halation or blur, and no colour-dependent tone changes: those are not part of the camera's colour path.</li>
+          <li>Log LUTs (V-Log, S-Log3, LogC3, F-Log, F-Log2) are fed scene light through the matching log curve and gamut and taken as Rec.709 out.</li>
+          <li>The recipe file follows the <a href="https://github.com/robbcocco/ricoh-grii-cfw#recipe-file-format">recipe file format</a>: ASCII, CRLF, 8.3 file name, under 4&nbsp;KB.</li>
+        </ul>
+      </div>
+    </details>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><a href="./">gr2_cfw</a> · LUT converter, MIT licence · <a href="https://github.com/robbcocco/ricoh-grii-cfw/tree/main/site">Source</a></p>
+  </div>
+</footer>
+
+<script src="js/core.js"></script>
+<script src="js/worker.js"></script>
+<script src="js/convert.js"></script>
+</body>
+</html>
