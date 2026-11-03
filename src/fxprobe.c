@@ -32,6 +32,9 @@
 #define SQUARE   512u                  /* side in pixels */
 #define CR_LIFT  64u                   /* added to Cr: red tint */
 #define DRAM(a)  (((a) >> 29) == 5u)   /* 0xA0000000-0xBFFFFFFF: cached DRAM with an uncached alias */
+/* Image buffer handles hold the uncached alias 0x2xxxxxxx of their DRAM block [H: H1 2026-11-03, buffer 0x22DC7380];
+ * the plane function returns addresses in the same alias. Everything here works on the cached address. */
+static uint32_t cached(uint32_t a) { return (a >> 29) == 1u ? (a & 0x1FFFFFFFu) | 0xA0000000u : a; }
 
 enum { FX_OK, FX_NO_BUFFER, FX_NO_TABLE, FX_NO_CHROMA, FX_BAD_SIZE, FX_OUTSIDE };
 
@@ -139,18 +142,19 @@ static int inside(uint32_t a, uint32_t pitch, uint32_t width, uint32_t rows, uin
 static uint32_t check(volatile fx_rec_t *r, uint32_t ctx) {
     uint32_t h = r->ycc;
     if (!h || (h & 3) || !DRAM(h) || *(const volatile uint32_t *)h != GR2_IMGBUF_MAGIC) return FX_NO_BUFFER;
-    uint32_t buf = *(const volatile uint32_t *)(h + 4);
+    uint32_t stored = *(const volatile uint32_t *)(h + 4);
+    uint32_t buf = cached(stored);
     const volatile uint8_t *type = (const volatile uint8_t *)(GR2_IMGBUF_TABLE + GR2_IMGBUF_YCC * GR2_IMGBUF_ENTRY);
     if (type[0] != GR2_IMGBUF_YCC) return FX_NO_TABLE;
     uint32_t size = *(const volatile uint32_t *)(type + 4);
     r->buf = buf;
     r->buf_size = size;
     if (!DRAM(buf) || !DRAM(buf + size - 1) || buf + size < buf) return FX_NO_BUFFER;
-    uint32_t y = buf, cb = 0, cr = 0;
+    uint32_t y = stored, cb = 0, cr = 0;
     GR2_FN_YCC_PLANES(&y, &cb, &cr, ctx, -1, 3);
-    r->y = y;
-    r->cb = cb;
-    r->cr = cr;
+    r->y = y = cached(y);
+    r->cb = cb = cb ? cached(cb) : 0;
+    r->cr = cr = cr ? cached(cr) : 0;
     if (!cb || !cr) return FX_NO_CHROMA;
     uint32_t w = r->wh & 0xFFFFu, hh = r->wh >> 16;
     if (!w || !hh || r->pitch_y > 0xFFFFu || r->pitch_c > 0xFFFFu || r->rows > 0xFFFFu || w > r->pitch_y ||

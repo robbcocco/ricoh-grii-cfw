@@ -702,10 +702,11 @@ def sc_halation_probe(ctx):
     y_plane = FX_BUF + YCC_TOP * YCC_PITCH_Y + YCC_LEFT
     cr_plane = FX_BUF + YCC_CR + YCC_TOP * YCC_PITCH_C + YCC_LEFT
 
-    def frame_ctx(w, h, magic=0x42554646, over=None):
+    def frame_ctx(w, h, magic=0x42554646, over=None, alias=True):
+        """alias: the handle holds the buffer's uncached alias 0x2xxxxxxx, as on the camera (H1 2026-11-03)."""
         handle = m.obj_alloc(8)
         m.w32(handle, magic)
-        m.w32(handle + 4, FX_BUF)
+        m.w32(handle + 4, (FX_BUF & 0x1FFFFFFF) | 0x20000000 if alias else FX_BUF)
         c = m.obj_alloc(0x600)
         f = {0x1E0: 0x1234, 0x1F0: handle, 0x218: 1, 0x21C: YCC_CB, 0x220: YCC_CR, 0x224: YCC_PITCH_Y,
              0x228: YCC_PITCH_C, 0x22C: YCC_ROWS, 0x230: YCC_TOP, 0x234: YCC_LEFT, 0x238: YCC_TOP, 0x23C: YCC_LEFT,
@@ -763,7 +764,7 @@ def sc_halation_probe(ctx):
     # One shot per frame size, alternating the two callers.
     for k, (name, (w, h)) in enumerate(FX_FRAMES.items()):
         site = list(FX_SITES)[k & 1]
-        c = frame_ctx(w, h)
+        c = frame_ctx(w, h, alias=k != 0)                      # first frame: a cached-address handle, then aliases
         yv = np.ascontiguousarray(view(mem, y_plane, YCC_PITCH_Y, w & ~3, h))
         ysum = int(yv.view('>u4').sum(dtype=np.uint64)) & 0xFFFFFFFF
         exp = shoot(site, c, w, h)
