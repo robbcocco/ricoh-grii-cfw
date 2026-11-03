@@ -183,6 +183,15 @@ def write_zip(path: Path, members: dict) -> None:
             z.writestr(info, data)
 
 
+def changes(version: str) -> list:
+    """The `## v<version>` section of CHANGELOG.md as release-note lines; every release needs one."""
+    text = (ROOT / "CHANGELOG.md").read_text()
+    m = re.search(rf"^## v{re.escape(version)}\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    if not m or not m.group(1).strip():
+        fail(f"CHANGELOG.md has no section '## v{version}'")
+    return ["## Changes", *m.group(1).strip().splitlines(), ""]
+
+
 def main() -> None:
     from flash_kit import LOADER_SHA            # the reviewed loader build
     version = (ROOT / "VERSION").read_text().strip().lstrip("v")
@@ -246,12 +255,16 @@ def main() -> None:
         "The CFW is MIT-licensed (`cfw/LICENSE.txt`). `rg2_v003.frm` contains Ricoh's firmware, which is Ricoh's "
         "property and not covered by that licence; this project is not affiliated with Ricoh. "
         "The film recipes in `cfw/recipes/` are fitted to [spektrafilm](https://github.com/andreavolpato/spektrafilm) "
-        "film simulations by Andrea Volpato (CC BY-SA 4.0). "
+        "film simulations by Andrea Volpato (CC BY-SA 4.0); Rangefinder and the Mono recipes are the project's own "
+        "designs (CC BY 4.0). "
         "Attribution is in each recipe file; licence texts in `cfw/recipes/licenses/`. Film names are used "
         "descriptively; not affiliated with Kodak or Fujifilm. "
         "The overlay fonts built into the firmware are rendered from Inter and Barlow Condensed (SIL Open Font "
         "License 1.1, `cfw/fonts/licenses/`).",
         "",
+    ]
+    lines += changes(version)
+    lines += [
         "## Downloads",
         "| File | Contents | SHA-256 |",
         "|---|---|---|",
