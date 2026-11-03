@@ -13,8 +13,7 @@ Source: spektrafilm 0.3.4 by Andrea Volpato, https://github.com/andreavolpato/sp
 kodak_ultramax_400, kodak_vision3_50d / kodak_portra_endura; fujifilm_pro_400h /
 fujifilm_crystal_archive_typeii; kodak_vision3_250d, kodak_vision3_500t / kodak_2383; Cinema Green:
 kodak_vision3_500t / kodak_2383; Cinema Yellow: kodak_vision3_250d / kodak_2393; Cinema Warm:
-kodak_vision3_250d / kodak_2383; Vivid Slide: fujifilm_velvia_100 (reversal film, scanned); 800T and
-800D (halation test recipes): kodak_vision3_500t / kodak_2383 and kodak_vision3_250d / kodak_2383.
+kodak_vision3_250d / kodak_2383; Vivid Slide: fujifilm_velvia_100 (reversal film, scanned).
 
 Method (gr2_cfw project, its spektrafilm fitting tool): spektrafilm's own runtime
 (init_params, digest_params, simulation pipeline in its deterministic LUT mode: no grain, halation,
@@ -33,13 +32,15 @@ exposure 1.04, print density-curve morph gamma 0.82 on all layers and 0.85 on th
 DIR interlayer inhibition 0.9.
 Vivid Slide renders the reversal film itself with spektrafilm's film scan (io.scan_film; no print
 stage, no scanner white/black correction in LUT mode), otherwise as above.
-800T and 800D carry the looks of the Vision3 500T and 250D recipes plus three halation keys:
+Removed 2026-11-04 with the firmware's halation: 800T and 800D (test recipes; entry kept below).
+800T and 800D carried the looks of the Vision3 500T and 250D recipes plus three halation keys
+(film / print kodak_vision3_500t / kodak_2383 and kodak_vision3_250d / kodak_2383):
 spektrafilm's back-reflection halation of the same film profile with its anti-halation class set to
 "no" (rem-jet removed), as spektrafilm's own parameter builder (digest_params) gives it: the strength
 per channel and the first-bounce size, with spektrafilm's user knobs set to halation_amount 1.0,
 halation_spatial_scale 2.0 and its highlight boost to boost_ev 4.5, boost_range 0.3, protect_ev 2.0
 (2 EV above mid grey instead of 4: a camera JPEG's white is ~3.35 EV above it; scale and boost_ev
 above spektrafilm's presets so the ring around a lamp shows in the 8-bit JPEG); the gr2_cfw firmware
-renders the halo with spektrafilm's halation model (three bounces, decay 0.5, renormalised) and boost
+rendered the halo with spektrafilm's halation model (three bounces, decay 0.5, renormalised) and boost
 on the developed photo.
 Modified by the gr2_cfw project; the spektrafilm-derived recipe files are licensed CC BY-SA 4.0.

@@ -56,7 +56,6 @@ LV_FRAME = 0xA0980000                 # shown live-view frame, planar YUV 4:2:2,
 POOL_BUMP_VALUE = 0xA0B00000          # DEV "Free memory pool" display only
 OSD_BITMAPS = (0x20EACC40, 0x20F01240)   # BITMAPS[0], [1] as the camera holds them (uncached)
 OSD_BUF_BYTES = 0x54600
-IMGBUF_SPRWORK, SPRWORK_SIZE = 0x20, 940032   # image buffer type table 0xA0112048 (finding 37 section 3.1)
 
 # ---- firmware addresses (include/gr2_hw.h, src/osd.c, src/menu.c) -----------------------------
 A_AEF = 0xA070FC48
@@ -105,8 +104,7 @@ FN = dict(
     pal_bank=0xA00F5F92, hdmi_pal_bank=0xA010982A, set_layer=0xA00D717E, msg_post=0xA00361E0,
     adc_read=0xA003A8DA, power_temp=0xA00CF606, uart_print=0xA0039CBC, layer_on=0xA00D7148,
     stock_press=0xA039607C, stock_hold=0xA0396EA0, stock_msg_handler=0xA039725E, stock_iq_ready=0xA01C2A80,
-    stock_run_ttl=0xA00EA1D4, opsr_getb=0xA003480C, opsr_setb=0xA0034530, stock_fx_step=0xA02AF6CE,
-    imgbuf_alloc=0xA029A94E, imgbuf_free=0xA029AA1A,
+    stock_run_ttl=0xA00EA1D4, opsr_getb=0xA003480C, opsr_setb=0xA0034530,
     shell_execute=0xA002A274, shell_result=0xA002A718, console_hook=0xA0039CB6,
     ref_tsk=0xA006A2A0, ref_mpl=0xA0067B00,                     # ARM-state kernel calls
     recv=0xA0022A36, send=0xA0022A5E, sock_close=0xA0022B90,
@@ -120,8 +118,6 @@ REAL_CODE = [
     (0xA03A5790, 0xA03A5794),         # Effect hold BL site (patched to the hold veneer)
     (0xA01B584A, 0xA01B584E),         # IQ-ready BL site in CapInit(5) (patched to the IQ veneer, loader only)
     (0xA00E994E, 0xA00E9954),         # power-off job: adr r0,"*:/Shutdown.ttl"; bl (debug: power-off veneer)
-    (0xA02AEDC0, 0xA02AEDC4),         # still effect step BL in FUN_a02AED1C (patched to the effect veneer: halation)
-    (0xA02AD260, 0xA02AD322),         # YCC plane addresses from the frame context (pure arithmetic, finding 37)
     (SENTINEL, SENTINEL + 2),
 ]
 
@@ -250,12 +246,6 @@ class Machine:
         self.sock_in, self.sock_out = [], bytearray()   # recv chunks queued for the console session; sent bytes
         self.closed_fds = []                            # sockets closed by the CFW
         self.on_delay = None          # f(machine): runs other tasks while a call waits in Task_Delay
-        self.on_fx_step = None        # f(machine, ctx): the stock still effect step's work (see _stock_fx_step)
-        self.sprwork = None           # (cached address, size) of the still path's scratch buffer, see map_sprwork
-        self.sprwork_busy = False     # another holder: the polled allocation fails
-        self.sprwork_handle = 0       # handle handed out and not yet released
-        self.imgbuf_calls = []        # ('alloc', type, timeout, task) / ('free', handle, task)
-        self._extra = []              # host buffers of map_dram regions
         self._switch = False          # a Task_Delay stopped the run for on_delay
         self.stack_margin = 1 << 30   # smallest (stack left - stock need) at a file-API call so far
         pal = list(inputs.palette)
@@ -999,58 +989,6 @@ class Machine:
         self.stock_calls.append(('run_ttl', self.cstr(self.r(0))))
         self.ret(-1)                    # no Shutdown.ttl on the card
 
-    def _stock_fx_step(self):
-        """Still effect step FUN_a02AF6CE(ctx) (finding 37): recorded; on_fx_step(machine, ctx) stands in for the
-        stock passes (tests paint the frame there, so a probe that ran first would be overwritten)."""
-        self.stock_calls.append(('fx_step', self.r(0)))
-        if self.on_fx_step:
-            self.on_fx_step(self, self.r(0))
-        self.ret(0)
-
-    def map_dram(self, base, size):
-        """Extra DRAM beyond the 16 MiB model (e.g. a 32.5 MB YCC frame buffer), mapped cached at `base` and at
-        its uncached alias like the main RAM; returns the host buffer (both views share it)."""
-        buf = ctypes.create_string_buffer(size)
-        self.uc.mem_map_ptr(base, size, UC_PROT_ALL, ctypes.addressof(buf))
-        self.uc.mem_map_ptr((base & 0x1FFFFFFF) | ALIAS_BASE, size, UC_PROT_ALL, ctypes.addressof(buf))
-        self._extra.append(buf)
-        return buf
-
-    def map_sprwork(self, base, size=SPRWORK_SIZE):
-        """The image buffer of type SPRWORK as the stock pool hands it out (one per memory map): mapped DRAM, the
-        handle holds its uncached alias (FUN_a00DF48C). Returns the host buffer."""
-        buf = self.map_dram(base, size)
-        self.sprwork = (base, size)
-        return buf
-
-    def _imgbuf_alloc(self):
-        """FUN_a029A94E(type, timeout, file, line): StillRecord's buffer allocation (finding 37 section 3.5). Only
-        SPRWORK is modelled; timeout 0 polls: 0 while another holder has it (sprwork_busy) or it is out already."""
-        btype, tmo = self.r(0), self.r(1)
-        self.imgbuf_calls.append(('alloc', btype, tmo, self.stack_task))
-        if btype != IMGBUF_SPRWORK or not self.sprwork:
-            raise EmuError(f'image buffer type {btype:#x} not modelled')
-        if tmo != 0:
-            raise EmuError(f'image buffer allocation with timeout {tmo:#x}: may block the still path')
-        if self.sprwork_busy or self.sprwork_handle:
-            return self.ret(0)
-        h = self.obj_alloc(0x18)
-        self.w32(h, 0x42554646)                               # "BUFF"
-        self.w32(h + 4, (self.sprwork[0] & 0x1FFFFFFF) | ALIAS_BASE)
-        self.sprwork_handle = h
-        self.ret(h)
-
-    def _imgbuf_free(self):
-        """FUN_a029AA1A(&handle, file, line): releases the buffer and clears the caller's handle word."""
-        p = self.r(0)
-        h = self.u32(p)
-        self.imgbuf_calls.append(('free', h, self.stack_task))
-        if not h or h != self.sprwork_handle:
-            raise EmuError(f'image buffer release of {h:#x} (held: {self.sprwork_handle:#x})')
-        self.w32(p, 0)
-        self.sprwork_handle = 0
-        self.ret(0)
-
     def _opsr_getb(self):
         bit = self.r(0)
         if bit > 3:
@@ -1150,10 +1088,6 @@ DEFAULT_PROPS = {
     0x021: 0,            # crop off
     0x02D: 0,            # colour mode Standard
     0x0CE: 7,            # Clarity strength
-    # saturation / contrast of Standard, Vivid, Bright, Setting1, Setting2 (property defaults, finding 25)
-    0x02E: 0, 0x02F: 7, 0x030: 5, 0x031: 5, 0x032: 5, 0x046: 0, 0x047: 7, 0x048: 6, 0x049: 5, 0x04A: 5,
-    0x208: 0,            # colour space sRGB
-    0x2BE: 0,            # shooting context normal
     0x0EF: 4, 0x0F0: 0xF0, 0x0F1: 0x1A0, 0x0F2: 0x200,   # NR Auto, thresholds
     0x111: 0x1E0,        # ISO Auto-High max (ISO 3200)
     0x113: 0x989681,     # Auto-High slowest shutter: Auto

@@ -32,7 +32,6 @@
 #include "config.h"
 #include "gr2_fmt.h"
 #include "gr2_hw.h"
-#include "halation.h"
 #include "store.h"
 
 void *memset(void *dst, int c, size_t n);              /* src/mem.c */
@@ -157,7 +156,6 @@ typedef struct {
     int16_t kelvin;
     uint32_t nr_sv[3];     /* custom NR thresholds (Sv or GR2_SV_OFF), 0 = unset */
     uint32_t sv, ah_max, ah_min, ah_tv;   /* ISO, AUTO-HI max / min / slowest shutter, 0 = unset */
-    int8_t halo_key, halo_size, halo_boost;   /* `halation` / `halation_size` / `halation_boost` given */
     look_t look;
 } recipe_t;
 
@@ -248,23 +246,6 @@ static int parse_ev(const char *s, int8_t *out) {
     int tenths = whole * 10 + tenth;
     int thirds = ((tenths * 3 + 5) * 205) >> 11;
     *out = (int8_t)(neg ? -thirds : thirds);
-    return 0;
-}
-
-/* "D[.F]" (no sign, at most `places` fraction digits) -> value x 10^places in 0..hi */
-static int parse_fixed(const char *s, int places, int hi, int *out) {
-    int v = 0, digits = 0;
-    while (*s >= '0' && *s <= '9' && v <= hi) { v = v * 10 + (*s++ - '0'); digits++; }
-    int f = 0;
-    if (*s == '.') {
-        s++;
-        while (*s >= '0' && *s <= '9' && f < places) { v = v * 10 + (*s++ - '0'); f++; }
-        if (!f) return -1;
-    }
-    if (!digits || *s) return -1;
-    for (; f < places; f++) v *= 10;
-    if (v > hi) return -1;
-    *out = v;
     return 0;
 }
 
@@ -417,41 +398,6 @@ static int set_key(recipe_t *r, const char *k, const char *v) {
         l->flags |= LOOK_HUE;
         return 0;
     }
-    if (str_eq(k, "halation")) {                         /* off, or strength x1000 R,G,B */
-        int16_t h[3] = { 0, 0, 0 };
-        if (!str_eq(v, "off") && parse_list(v, 3, 0, LOOK_HALO_MAX, h)) return -1;
-        for (int c = 0; c < 3; c++) l->halo[c] = (uint16_t)h[c];
-        r->halo_key = 1;
-        return 0;
-    }
-    if (str_eq(k, "halation_size")) {                    /* first-bounce sigma, um on 35 mm film */
-        int x;
-        if (parse_int(v, &x) || x < LOOK_HALO_UM_MIN || x > LOOK_HALO_UM_MAX) return -1;
-        l->halo_um = (uint8_t)x;
-        r->halo_size = 1;
-        return 0;
-    }
-    if (str_eq(k, "halation_boost")) {                   /* boost_ev[,boost_range[,protect_ev]] (spektrafilm) */
-        static const int8_t PLACES[3] = { 1, 2, 1 };
-        static const int16_t HI[3] = { LOOK_BOOST_EV_MAX, 100, LOOK_BOOST_PROTECT_MAX };
-        uint8_t b[3] = { 0, LOOK_BOOST_RANGE_DEF, LOOK_BOOST_PROTECT_DEF };
-        if (!*v) return -1;
-        for (int i = 0; i < 3 && *v; i++) {
-            char num[8];
-            int len = 0, x;
-            while (*v == ' ') v++;
-            while (*v && *v != ',' && len < 7) num[len++] = *v++;
-            num[len] = 0;
-            while (len && num[len - 1] == ' ') num[--len] = 0;
-            if (parse_fixed(num, PLACES[i], HI[i], &x)) return -1;
-            b[i] = (uint8_t)x;
-            if (*v && (*v++ != ',' || i == 2 || !*v)) return -1;
-        }
-        if (!b[0]) b[1] = b[2] = 0;                      /* 0 EV: no boost, as without the key */
-        for (int i = 0; i < 3; i++) l->boost[i] = b[i];
-        r->halo_boost = 1;
-        return 0;
-    }
     return -1;   /* unknown key */
 }
 
@@ -494,15 +440,6 @@ static int parse(recipe_t *r) {
         if (r->nr_sv[0] > r->nr_sv[1] || r->nr_sv[1] > r->nr_sv[2]) return line + 1;
     }
     if (r->ah_min && r->ah_max && r->ah_min >= r->ah_max) return line + 1;
-    if ((r->halo_size || r->halo_boost) && !r->halo_key) return line + 1;    /* size, boost need `halation` */
-    look_t *l = &r->look;
-    if (l->halo[0] | l->halo[1] | l->halo[2]) {
-        l->flags |= LOOK_HALO;
-        if (!l->halo_um) l->halo_um = LOOK_HALO_UM_DEF;
-    } else {
-        l->halo_um = 0;                                  /* off: no halation fields, like a recipe without the key */
-        l->boost[0] = l->boost[1] = l->boost[2] = 0;
-    }
     return 0;
 }
 
@@ -566,9 +503,6 @@ static void fill_early(early_t *e, const char *sfn, int mode, const look_t *l) {
     e->ok = l->flags != 0;
     e->mode = (int8_t)mode;
     e->look.flags = l->flags;
-    e->look.halo_um = l->halo_um;
-    memcpy(e->look.halo, l->halo, sizeof(l->halo));
-    memcpy(e->look.boost, l->boost, sizeof(l->boost));
     memcpy(e->look.matrix, l->matrix, sizeof(l->matrix));
     memcpy(e->look.post, l->post, sizeof(l->post));
     memcpy(e->look.hue, l->hue, sizeof(l->hue));
@@ -582,7 +516,6 @@ static int8_t g_slot_recipe[N_SLOTS] = { -1, -1, -1 };   /* g_list index per MY 
 static int g_preview = -1;             /* recipe previewed while the Recipes overlay is open */
 static int g_shown = -1;               /* -1 stock, 0..2 slot, PREVIEW + i; -2 = re-apply */
 static int g_shown_mode = -1;          /* IQ mode the look is shown in */
-static uint32_t g_look_gen;            /* looks applied: src/halation.c rebuilds its tables on a change */
 
 /* Slot k's look and base mode: from its recipe file, else from the cache (file not on the card). */
 static const look_t *slot_look(int k, int *mode) {
@@ -614,17 +547,13 @@ static int wanted(uint32_t cm, int *k5) {
 }
 
 void recipes_poll(void) {
-    uint32_t cm = GR2_FN_PROP_GET(GR2_PROPID_COLOR_MODE);
-    int k5, mode, want = wanted(cm, &k5);
+    int k5, mode, want = wanted(GR2_FN_PROP_GET(GR2_PROPID_COLOR_MODE), &k5);
+    if (want == g_shown && (want < 0 || k5 == g_shown_mode)) return;
     const look_t *l = want < 0 ? 0 : want >= PREVIEW ? &g_list[want - PREVIEW].look : slot_look(want, &mode);
-    if (want != g_shown || (want >= 0 && k5 != g_shown_mode)) {
-        if (look_apply(l, k5) != 0) return;   /* IQ data not ready yet: retry at the next poll */
-        g_shown = want;
-        g_shown_mode = k5;
-        g_look_gen++;
-        DBG_HEX2("recipes: look now for (-1 stock, 0-2 slot, 100+ preview; IQ mode)", (uint32_t)want, (uint32_t)k5);
-    }
-    halation_sync(l, want < 0 ? -1 : (int)cm, g_look_gen);   /* also follows contrast / saturation changes */
+    if (look_apply(l, k5) != 0) return;   /* IQ data not ready yet: retry at the next poll */
+    g_shown = want;
+    g_shown_mode = k5;
+    DBG_HEX2("recipes: look now for (-1 stock, 0-2 slot, 100+ preview; IQ mode)", (uint32_t)want, (uint32_t)k5);
 }
 
 void recipes_preview(int i) {
@@ -1140,33 +1069,6 @@ static void put_look(text_t *t, int k, const base_t *b) {
             else key[3] = (char)('1' + q);
             put_list(t, key, l->hue[q], 9);
         }
-    if (l->flags & LOOK_HALO) {
-        t_s(t, "halation=");
-        for (int c = 0; c < 3; c++) {
-            if (c) t_c(t, ',');
-            t_d(t, l->halo[c]);
-        }
-        t_nl(t);
-        put_kd(t, "halation_size", l->halo_um);
-        if (l->boost[0]) {                               /* boost_ev x10, boost_range x100, protect_ev x10 */
-            static const int16_t DIV[3] = { 10, 100, 10 };
-            t_s(t, "halation_boost=");
-            for (int i = 0; i < 3; i++) {
-                int v = l->boost[i], d = DIV[i], w = 0;
-                while (v >= d) { v -= d; w++; }
-                if (i) t_c(t, ',');
-                t_d(t, w);
-                t_c(t, '.');
-                if (d == 100) {                          /* v < 100: two digits */
-                    int tens = 0;
-                    while (v >= 10) { v -= 10; tens++; }
-                    t_c(t, (char)('0' + tens));
-                }
-                t_c(t, (char)('0' + v));
-            }
-            t_nl(t);
-        }
-    }
 }
 
 static const base_t *base_of(uint32_t mode, int effect) {

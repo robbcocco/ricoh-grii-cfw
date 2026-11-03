@@ -222,9 +222,9 @@ static const uint8_t *ramp(uint8_t bg, uint8_t fg) {
     int by = (b >> 16) & 0xFF, bu = (b >> 8) & 0xFF, bv = b & 0xFF;
     int fy = (f >> 16) & 0xFF, fu = (f >> 8) & 0xFF, fv = f & 0xFF;
     /* Transparent / shadow / overlay-owned (values change per frame, ramps are cached
-     * by index): threshold, a dark blend would halo. */
+     * by index): threshold, a dark blend would fringe. */
     if (!g_pal || (b >> 24) != 0x0F || (bg >= OSD_PAL_USER && bg < OSD_PAL_USER + OSD_PAL_USER_N)) {
-        for (int k = 1; k < 15; k++) r->ramp[k] = k >= 7 ? fg : bg;   /* a dark blend would halo */
+        for (int k = 1; k < 15; k++) r->ramp[k] = k >= 7 ? fg : bg;   /* a dark blend would fringe */
         return r->ramp;
     }
     for (int k = 1; k < 15; k++) {

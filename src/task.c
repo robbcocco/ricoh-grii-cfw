@@ -17,7 +17,6 @@
 #include "cfw_log.h"
 #include "export.h"
 #include "gr2_hw.h"
-#include "halation.h"
 #include "info.h"
 #include "osd.h"
 #include "overlay.h"
@@ -71,7 +70,6 @@ void cfw_task_poll(void) {
     info_poll();
     if (g_task_late) export_poll();     /* the developer console's `export` (src/export.c) */
     overlay_poll();
-    halation_poll();                    /* the last still the halation pass saw (debug log, ERROR lines) */
     if (g_task_late && ++g_setting_polls >= POLLS_PER_SETTING) {
         g_setting_polls = 0;
         settings_poll();

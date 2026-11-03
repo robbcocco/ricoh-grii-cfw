@@ -254,31 +254,3 @@ int look_apply(const look_t *l, int k5) {
     isp_unlock_refresh(m);
     return 0;
 }
-
-/* ---- still rendering model (src/halation.c) ------------------------------------------ */
-
-/* Contrast blend as FUN_a014E574 does it (finding 20 §B): class 0 the primary set only, class 1 (v 1..4) towards
- * the soft secondary, class 2 (v 6..9) towards the hard one, 64 per step; saturation class k3 and colour space
- * k10 select the YCbCr record (lookup pos = k3 + 9 k10 + 18 k5). */
-int look_still_model(int k5, uint32_t con, uint32_t sat, uint32_t adobe, uint8_t tone[3][1024], int16_t ycc[9]) {
-    if (g_state <= 0 || k5 < 0 || k5 >= N_MODES) return -1;
-    int cls = 0, wp = 256, ws = 0;
-    if (con >= 1 && con <= 4) { cls = 1; wp = (int)(con - 1) * 64; ws = (int)(5 - con) * 64; }
-    if (con >= 6 && con <= 9) { cls = 2; wp = (int)(9 - con) * 64; ws = (int)(con - 5) * 64; }
-    uint32_t sets = (uint32_t)STAGE[ST_TONE].n + (g_copy[ST_TONE] ? STAGE[ST_TONE].extra : 0);
-    uint32_t e = list(ST_TONE) + 4 * (uint32_t)(cls + 18 * k5 + 342 * IQ_TYPE_STILL);
-    uint32_t p = U16(e), s = U16(e + 2);
-    if (p >= sets) return -1;
-    if (s >= sets) { wp = 256; ws = 0; s = p; }     /* NONE: no secondary */
-    const volatile uint8_t *tp = (const volatile uint8_t *)(SECT(STAGE[ST_TONE].sect) + p * 0x1400);
-    const volatile uint8_t *ts = (const volatile uint8_t *)(SECT(STAGE[ST_TONE].sect) + s * 0x1400);
-    for (int c = 0; c < 3; c++)                      /* ch1..3 = R, G, B */
-        for (int i = 0; i < 0x400; i++)
-            tone[c][i] = (uint8_t)((wp * tp[(c + 1) * 0x400 + i] + ws * ts[(c + 1) * 0x400 + i] + 128) >> 8);
-    int k3 = ((sat >= 1 && sat <= 4) || (sat >= 6 && sat <= 9)) ? (int)sat - 1 : 4;
-    uint32_t r = U16(list(ST_YCC) + 2 * (uint32_t)(k3 + 9 * (adobe ? 1 : 0) + YCC_CLASSES * k5));
-    if (r >= (uint32_t)STAGE[ST_YCC].n + (g_copy[ST_YCC] ? STAGE[ST_YCC].extra : 0)) return -1;
-    const volatile int16_t *y = (const volatile int16_t *)(SECT(STAGE[ST_YCC].sect) + r * 0x14);
-    for (int i = 0; i < 9; i++) ycc[i] = y[i];
-    return 0;
-}

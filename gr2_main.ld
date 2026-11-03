@@ -23,7 +23,7 @@ SECTIONS
 
     .data : {
         *(.data*)
-        . = ALIGN(8);   /* .bss of the -O2 object (src/halation.c) is 8-byte aligned: it must follow the image */
+        . = ALIGN(4);
     }
     __image_end__ = .;
 

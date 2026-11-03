@@ -18,16 +18,12 @@
  * Debug builds also retarget the power-off job's call that runs H:/Shutdown.ttl
  * (finding 26 §4, JOBID_POWER_OFF 0xA00E98B8): the session state is logged
  * there, in the FRM task, before the stock call runs a Shutdown.ttl if one
- * exists. Nothing on the card is needed for it.
- *
- * The still effect-step veneer goes to src/halation.c, which patches its BL
- * only while the shown recipe look has halation. */
+ * exists. Nothing on the card is needed for it. */
 #include <stdint.h>
 #include "boot.h"
 #include "cfw.h"
 #include "cfw_log.h"
 #include "gr2_hw.h"
-#include "halation.h"
 
 uint32_t cfw_cpsr(void);           /* src/arm.S */
 
@@ -72,20 +68,12 @@ static int encode_bl(uint32_t site, uint32_t target, uint32_t *hi, uint32_t *lo)
     return 0;
 }
 
-/* The Thumb BL at `site` calls `target`: 1, else 0 (also when it cannot reach it). */
-int cfw_bl_calls(uint32_t site, uint32_t target) {
-    const volatile uint16_t *p = (const volatile uint16_t *)site;
-    uint32_t hi, lo;
-    return encode_bl(site, target, &hi, &lo) == 0 && p[0] == hi && p[1] == lo;
-}
-
-/* Verify-first retarget of the BL at `site` from `from` to `to` (same low 12 bits): one halfword store. */
-int cfw_bl_retarget(uint32_t site, uint32_t from, uint32_t to) {
+static int patch_site(uint32_t site, uint32_t orig, uint32_t veneer) {
     volatile uint16_t *p = (volatile uint16_t *)site;
     uint32_t ohi, olo, nhi, nlo;
-    if (encode_bl(site, from, &ohi, &olo) != 0 || encode_bl(site, to, &nhi, &nlo) != 0 ||
+    if (encode_bl(site, orig, &ohi, &olo) != 0 || encode_bl(site, veneer, &nhi, &nlo) != 0 ||
         nlo != olo) {
-        ERR_HEX2("hooks: veneer not reachable with one halfword (site, veneer)", site, to);
+        ERR_HEX2("hooks: veneer not reachable with one halfword (site, veneer)", site, veneer);
         return -1;
     }
     if (p[0] != ohi || p[1] != olo) {
@@ -110,13 +98,12 @@ int cfw_hooks_install(const cfw_boot_t *boot) {
     /* The veneers (stage 1) jump through these words: fill them before any BL points there. */
     *boot->press_target = (uint32_t)cfw_press_hook;
     *boot->hold_target = (uint32_t)cfw_hold_hook;
-    int rc = cfw_bl_retarget(SITE_PRESS, ORIG_PRESS, boot->veneer_press);
-    rc |= cfw_bl_retarget(SITE_HOLD, ORIG_HOLD, boot->veneer_hold);
+    int rc = patch_site(SITE_PRESS, ORIG_PRESS, boot->veneer_press);
+    rc |= patch_site(SITE_HOLD, ORIG_HOLD, boot->veneer_hold);
 #if CFW_DEBUG
     *boot->off_target = (uint32_t)cfw_off_hook;
-    (void)cfw_bl_retarget(SITE_OFF, ORIG_OFF, boot->veneer_off);   /* diagnostics only: never fails the install */
+    (void)patch_site(SITE_OFF, ORIG_OFF, boot->veneer_off);   /* diagnostics only: never fails the install */
 #endif
-    halation_init(boot);
     return rc;
 }
 
@@ -125,7 +112,7 @@ int cfw_hooks_install(const cfw_boot_t *boot) {
  * call cfw_iq_ready_orig() itself. */
 int cfw_hooks_install_iq(const cfw_boot_t *boot, void (*fn)(void)) {
     *boot->iq_target = (uint32_t)fn;
-    return cfw_bl_retarget(SITE_IQ, ORIG_IQ, boot->veneer_iq);
+    return patch_site(SITE_IQ, ORIG_IQ, boot->veneer_iq);
 }
 
 void cfw_iq_ready_orig(void) {

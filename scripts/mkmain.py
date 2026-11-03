@@ -66,7 +66,7 @@ def main() -> None:
         a, b = struct.unpack_from(">I", img0, off)[0], struct.unpack_from(">I", img1, off)[0]
         if a == b:
             continue
-        if (b - a) & 0xFFFFFFFF != delta or a > image_size + bss_size:   # one past the end: a loop bound
+        if (b - a) & 0xFFFFFFFF != delta or a >= image_size + bss_size:
             fail(f"word at 0x{off:X} differs by 0x{(b - a) & 0xFFFFFFFF:X} (value 0x{a:X}): "
                  "not a plain absolute address into the image")
         relocs.append(off)
