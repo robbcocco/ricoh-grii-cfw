@@ -27,7 +27,9 @@ Third-party content in this repository keeps its own licence:
   License 1.1 (fonts/licenses/).
 - recipes/*.txt film recipes: fitted to spektrafilm film simulations by
   Andrea Volpato (CC BY-SA 4.0); attribution in each file, licence texts in
-  recipes/licenses/.
+  recipes/licenses/. The project's own looks (rangefnd.txt, mono_*.txt) are
+  CC BY 4.0 (recipes/licenses/OWN_DESIGNS.txt); each file's header names its
+  source and licence.
 
 Ricoh firmware is not part of this repository. `make fw` downloads the
 official rg2_v003 update; the zips' rg2_v003.frm is that firmware with the

@@ -1,0 +1,42 @@
+# gr2_cfw recipe: Vivid Slide look (Ricoh GR II, firmware 3.00)
+# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# Our version of the colour positive preset (Positive Film, saturation +4): a slide film.
+# Source: spektrafilm's reversal profile fujifilm_velvia_100, scanned (io.scan_film; the print
+# profile is unused): a measured slide film (saturated, slide contrast, dense shadows)
+# rather than an invented one. Approximates Fujifilm Velvia 100 reversal film.
+# Not affiliated with Kodak or Fujifilm; film names are used descriptively.
+#
+# Film look derived from spektrafilm 0.3.4 (commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc)
+# by Andrea Volpato, https://github.com/andreavolpato/spektrafilm; profiles licensed CC BY-SA 4.0.
+# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the gr2_cfw project.
+# This recipe file is licensed CC BY-SA 4.0.
+# fit CIEDE2000 mean/95th % vs this target: Standard 5.8/12.0, this recipe 3.0/5.8.
+
+name=Vivid Slide
+base=setting2
+saturation=0
+contrast=0
+sharpness=0
+vignetting=off
+# look relative to Standard (README, section Recipes)
+# colour matrix, linear RGB, x128, rows R G B
+matrix=110,17,1,-1,139,-10,-10,-31,169
+# film tone curves: output code at Standard code 0, 8, 16, ..., 256
+tone_r=1,1,3,8,17,28,39,49,60,70,80,90,99,109,118,128,138,147,156,165,173,180,187,192,197,201,204,207,209,210,211,212,213
+tone_g=1,1,3,7,16,26,37,47,57,67,77,85,94,104,114,123,133,142,151,160,169,177,183,189,194,199,203,205,207,209,210,211,212
+tone_b=2,3,6,11,18,26,35,44,54,64,75,85,95,105,114,125,134,142,151,160,168,175,181,187,192,196,200,203,206,208,210,211,213
+# post matrix, display RGB, x128, rows R G B
+post_matrix=110,23,-5,8,119,1,6,19,103
+# hue sectors 1-12 (linear RGB, x128; from +Cb towards +Cr: magenta, red, green, blue quadrants)
+hue1=136,-4,-4,8,107,13,16,27,85
+hue2=139,-6,-5,7,109,12,15,22,91
+hue3=143,-8,-7,5,116,7,14,20,94
+hue4=146,-9,-9,7,119,2,11,19,98
+hue5=145,-8,-9,7,121,0,9,23,96
+hue6=140,-6,-6,7,121,0,11,27,90
+hue7=135,-4,-3,8,120,0,12,24,92
+hue8=129,0,-1,10,115,3,9,23,96
+hue9=126,2,0,11,110,7,8,26,94
+hue10=125,2,1,11,107,10,9,26,93
+hue11=128,1,-1,11,104,13,12,27,89
+hue12=133,-1,-4,10,102,16,15,28,85

@@ -1,0 +1,49 @@
+# gr2_cfw recipe: Cinema Warm look (Ricoh GR II, firmware 3.00)
+# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# Our version of the cinematic preset (Positive Film over Setting2, contrast -1, 4700 K A+2 G+2):
+# a soft, warm, slightly green print. Source: spektrafilm Vision3 250D on Vision 2383, print-timed
+# in spektrafilm like Cinema Green / Yellow (a real film/print chain, not an invented curve).
+# The preset's warm/green white balance is folded into the print timing: a fixed 4700 K is
+# neutral only under one light, the timed print keeps its warmth with auto WB, so no wb key.
+# Approximates Kodak Vision3 250D printed on Kodak Vision 2383.
+# Not affiliated with Kodak or Fujifilm; film names are used descriptively.
+#
+# Film look derived from spektrafilm 0.3.4 (commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc)
+# by Andrea Volpato, https://github.com/andreavolpato/spektrafilm; profiles licensed CC BY-SA 4.0.
+# Simulated with spektrafilm's runtime and fitted to Ricoh GR II settings by the gr2_cfw project.
+# This recipe file is licensed CC BY-SA 4.0.
+# Print timing: warm and a little green (Y -5, M +2 CC), soft print (gamma 0.82), lifted blacks, weak interlayer effects.
+# spektrafilm runtime parameters (all others at their defaults):
+#   enlarger: y_filter_shift=-5, m_filter_shift=2, print_exposure=1.04
+#   print_render.density_curves_morph: gamma_factor=0.82, gamma_factor_slow=0.85
+#   film_render.dir_couplers: inhibition_interlayer=0.9
+# fit CIEDE2000 mean/95th % vs this target: Standard 8.9/15.4, this recipe 2.1/3.8.
+
+name=Cinema Warm
+base=setting2
+saturation=0
+contrast=0
+sharpness=0
+vignetting=off
+# look relative to Standard (README, section Recipes)
+# colour matrix, linear RGB, x128, rows R G B
+matrix=112,19,-3,-9,132,5,-4,-12,144
+# film tone curves: output code at Standard code 0, 8, 16, ..., 256
+tone_r=3,7,15,22,31,40,48,57,66,74,82,89,96,105,113,119,125,132,138,144,150,155,161,166,171,176,182,187,192,197,201,206,213
+tone_g=4,14,26,35,44,52,61,69,76,84,91,98,104,111,117,123,129,135,140,145,150,155,161,166,171,175,181,186,191,196,201,207,213
+tone_b=2,8,17,25,34,42,50,58,66,73,80,86,92,98,104,110,115,120,125,130,134,139,143,148,153,157,161,166,170,174,179,185,192
+# post matrix, display RGB, x128, rows R G B
+post_matrix=113,13,2,12,101,15,7,9,112
+# hue sectors 1-12 (linear RGB, x128; from +Cb towards +Cr: magenta, red, green, blue quadrants)
+hue1=131,3,-6,7,116,5,3,4,121
+hue2=132,2,-6,8,116,4,4,3,121
+hue3=133,1,-6,8,119,1,4,2,122
+hue4=135,0,-7,11,118,-1,3,3,122
+hue5=134,0,-6,10,116,2,4,6,118
+hue6=134,0,-6,9,115,4,6,7,115
+hue7=133,0,-5,9,114,5,7,8,113
+hue8=133,0,-5,9,114,5,5,8,115
+hue9=131,1,-4,9,113,6,3,9,116
+hue10=130,2,-4,10,111,7,1,9,118
+hue11=128,3,-3,8,113,7,2,8,118
+hue12=130,3,-5,7,112,9,4,8,116

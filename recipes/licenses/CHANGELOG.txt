@@ -1,16 +1,19 @@
 Changes to the spektrafilm material (as asked by SPEKTRAFILM_LICENSE.txt and CC BY-SA 4.0)
 
 No LUT, profile, spectral data or rendered image from spektrafilm is included in this repository.
-Each recipe file encodes the look of one spektrafilm film/print simulation as Ricoh GR II camera
-settings relative to the camera's Standard rendering: a 3x3 colour matrix, three 33-knot tone
-curves, a 3x3 post matrix and twelve 3x3 hue-sector matrices.
+Each spektrafilm-derived recipe file encodes the look of one spektrafilm film/print simulation (or,
+for Vivid Slide, of a scanned reversal film) as Ricoh GR II camera settings relative to the camera's
+Standard rendering: a 3x3 colour matrix, three 33-knot tone curves, a 3x3 post matrix and twelve
+3x3 hue-sector matrices. The own designs (Rangefinder, Mono Hard, Mono Soft Sepia, Mono Pushed
+Street) use no spektrafilm material; see OWN_DESIGNS.txt.
 
 Source: spektrafilm 0.3.4 by Andrea Volpato, https://github.com/andreavolpato/spektrafilm, commit
 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc; film and print profiles CC BY-SA 4.0. Profiles used
 (film / print): kodak_portra_400, kodak_ektar_100, kodak_gold_200, fujifilm_xtra_400,
 kodak_ultramax_400, kodak_vision3_50d / kodak_portra_endura; fujifilm_pro_400h /
 fujifilm_crystal_archive_typeii; kodak_vision3_250d, kodak_vision3_500t / kodak_2383; Cinema Green:
-kodak_vision3_500t / kodak_2383; Cinema Yellow: kodak_vision3_250d / kodak_2393.
+kodak_vision3_500t / kodak_2383; Cinema Yellow: kodak_vision3_250d / kodak_2393; Cinema Warm:
+kodak_vision3_250d / kodak_2383; Vivid Slide: fujifilm_velvia_100 (reversal film, scanned).
 
 Method (gr2_cfw project, its spektrafilm fitting tool): spektrafilm's own runtime
 (init_params, digest_params, simulation pipeline in its deterministic LUT mode: no grain, halation,
@@ -19,10 +22,14 @@ at its nominal exposure: a dense neutral ramp, ColorChecker 24 patches and an sR
 exposures. A model of the GR II look stages (Standard colour matrix, hue sectors, tone curves,
 RGB->YCbCr) is fitted to those renders by least squares in CIELAB: the tone curves from the neutral
 ramp, then the matrices and hue sectors. The fitted values are rounded to the recipe integers.
-The two cinema looks are print-timed inside spektrafilm, with its own runtime parameters (all others
+The cinema looks are print-timed inside spektrafilm, with its own runtime parameters (all others
 at their defaults), listed in each recipe header. Cinema Green: enlarger magenta filter +10 CC and
 print exposure 1.1, print density-curve morph gamma 0.85 on the magenta layer and 0.75 on the slow
 (shoulder) sub-layers, DIR interlayer inhibition 0.6. Cinema Yellow: enlarger yellow filter -12 CC,
 print density-curve morph gamma 0.8 on the yellow layer and 0.7 on the slow sub-layers, DIR
-interlayer inhibition 0.65.
-Modified by the gr2_cfw project; the recipe files are licensed CC BY-SA 4.0.
+interlayer inhibition 0.65. Cinema Warm: enlarger yellow filter -5 CC, magenta filter +2 CC, print
+exposure 1.04, print density-curve morph gamma 0.82 on all layers and 0.85 on the slow sub-layers,
+DIR interlayer inhibition 0.9.
+Vivid Slide renders the reversal film itself with spektrafilm's film scan (io.scan_film; no print
+stage, no scanner white/black correction in LUT mode), otherwise as above.
+Modified by the gr2_cfw project; the spektrafilm-derived recipe files are licensed CC BY-SA 4.0.

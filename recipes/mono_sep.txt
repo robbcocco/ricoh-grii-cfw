@@ -1,0 +1,28 @@
+# gr2_cfw recipe: Mono Soft Sepia look (Ricoh GR II, firmware 3.00)
+# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# Our version of the sepia B&W (TE) preset (incandescent WB A-8 G-8 in daylight: a cool
+# white balance before the conversion acts like a light blue filter). Source: own parametric
+# target: soft, lifted blacks and muted whites, sepia-toned mid-tones and shadows.
+#
+# Own design of the gr2_cfw project (no third-party data). This recipe file is licensed
+# CC BY 4.0, https://creativecommons.org/licenses/by/4.0/ (attribution: gr2_cfw project).
+# Target: own parametric black and white. Light blue filter mix of linear R, G, B 0.14 / 0.62 / 0.24;
+# curve about mid grey (code 120), 36 codes/stop, black asymptote 18, white 237 (Standard: 0 / 255).
+# Toning: CIELAB hue 68 deg, chroma up to 10 at L* 45, neutral at black and white.
+# fit CIEDE2000 mean/95th % vs this target: Standard 25.1/37.7, this recipe 0.4/0.7.
+# No grain: a Setting2 look cannot add it; use the stock Hi-Contrast B&W effect or post-processing.
+
+name=Mono Soft Sepia
+base=setting2
+saturation=0
+contrast=0
+sharpness=0
+vignetting=off
+# look relative to Standard (README, section Recipes)
+# black and white: every matrix row is the same filter mix 18,79,31 of linear R, G, B (x128;
+# Standard luminance would be 27,92,9); no post matrix or hue sectors (Standard)
+matrix=18,79,31,18,79,31,18,79,31
+# toned characteristic curves: output code at Standard code 0, 8, 16, ..., 256
+tone_r=20,30,40,47,56,64,72,80,88,95,103,110,117,124,130,136,142,148,153,158,162,167,171,175,179,183,187,191,195,199,203,209,216
+tone_g=19,27,35,41,48,55,62,69,75,82,89,95,102,109,115,121,127,133,138,144,149,154,159,163,168,173,177,182,187,191,196,203,211
+tone_b=18,25,32,37,42,48,53,59,65,71,77,83,90,96,102,109,115,121,127,132,138,143,149,154,159,164,169,174,180,185,190,198,207

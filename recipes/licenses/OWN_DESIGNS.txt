@@ -1,0 +1,14 @@
+gr2_cfw own recipe designs
+
+rangefnd.txt (Rangefinder), mono_hc.txt (Mono Hard), mono_sep.txt (Mono Soft Sepia) and
+mono_psh.txt (Mono Pushed Street) are own designs of the gr2_cfw project. Each look is a parametric
+target written by the project (characteristic curve on log exposure, colour-filter mix for black
+and white, sepia toning, hue-dependent chroma and hue changes in OKLab; every parameter is listed in
+the file's header) and fitted to Ricoh GR II settings relative to the camera's Standard rendering
+through a model of its look stages. They contain no third-party data: no film profile, LUT, Ricoh
+table or other recipe.
+
+Licence: Creative Commons Attribution 4.0 International (CC BY 4.0),
+https://creativecommons.org/licenses/by/4.0/
+Attribution: "gr2_cfw project". You may share and adapt these files for any purpose, also
+commercially, as long as you give that credit, link the licence and say if you changed them.

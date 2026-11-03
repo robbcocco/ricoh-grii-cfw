@@ -1,0 +1,25 @@
+# gr2_cfw recipe: Mono Hard look (Ricoh GR II, firmware 3.00)
+# Keys: ricoh-grii-cfw README, section Recipes. ASCII, CRLF.
+# Our version of the Hi-Contrast B&W preset (contrast -2, 10000 K A+8: a warm white balance
+# before the B&W conversion acts like an orange filter). Source: own parametric target
+# (spektrafilm's profiles are colour films): hard, deep blacks, bright whites, darker skies.
+#
+# Own design of the gr2_cfw project (no third-party data). This recipe file is licensed
+# CC BY 4.0, https://creativecommons.org/licenses/by/4.0/ (attribution: gr2_cfw project).
+# Target: own parametric black and white. Orange filter mix of linear R, G, B 0.45 / 0.51 / 0.04;
+# curve about mid grey (code 115), 61 codes/stop, black asymptote 0, white 268 (Standard: 0 / 255).
+# fit CIEDE2000 mean/95th % vs this target: Standard 23.8/32.6, this recipe 0.2/0.6.
+# No grain: a Setting2 look cannot add it; use the stock Hi-Contrast B&W effect or post-processing.
+
+name=Mono Hard
+base=setting2
+saturation=0
+contrast=0
+sharpness=0
+vignetting=off
+# look relative to Standard (README, section Recipes)
+# black and white: every matrix row is the same filter mix 58,65,5 of linear R, G, B (x128;
+# Standard luminance would be 27,92,9); no post matrix or hue sectors (Standard)
+matrix=58,65,5,58,65,5,58,65,5
+# characteristic curve, the same for R, G, B: output code at Standard code 0, 8, 16, ..., 256
+tone=0,2,6,11,16,23,30,38,47,57,68,78,89,100,111,122,132,141,151,159,168,175,183,190,197,204,210,216,222,228,234,241,250
