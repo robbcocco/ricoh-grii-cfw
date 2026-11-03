@@ -648,6 +648,190 @@ def sc_pattern(ctx):
     finish(ctx, s)
 
 
+# Still effect step (finding 37): its two BLs (stock: F000 + these low halfwords) and the frame layout FUN_a02AE7EA
+# gives the YCC buffer (pitches, rows, top/left margins, Cb/Cr plane offsets); the buffer size is the stock type table's.
+FX_SITES = {0xA02AEDC0: 0xFC85, 0xA02AEF30: 0xFBCD}
+FX_STEP, FX_VENEER, FX_TARGET = 0xA02AF6CE, 0xA001E6CE, 0xA001E6D4
+YCC_SIZE, YCC_PITCH_Y, YCC_PITCH_C, YCC_ROWS = 0x01F0E020, 4960, 2496, 0xCC0
+YCC_CB, YCC_CR, YCC_TOP, YCC_LEFT = 0xF7A320, 0x1744140, 8, 0x40
+FX_MAP, FX_BUF = 0xA1F00000, 0xA2000000        # mapped DRAM: 1 MiB guard, the buffer, guard to the end
+FX_MAP_SIZE = 0x2200000
+# Frame sizes (ctx+0x258) the hook must place its square in: 3:2, 1:1, 16:9, a crop, and one smaller than the
+# square. Synthetic: the real sizes per aspect are what H1 logs.
+FX_FRAMES = {'3:2': (4928, 3264), '1:1': (3264, 3264), '16:9': (4928, 2768), 'crop': (3456, 2304), 'small': (300, 200)}
+FX_SQUARE, FX_LIFT = 512, 64
+
+
+def log_hex(m, label):
+    """The 0x values of the last log line starting with `label` (cfw_log_hex/hex2 format)."""
+    lines = [l for l in m.log_lines() if l.startswith(label)]
+    return [int(v, 16) for v in re.findall(r' 0x([0-9A-F]{8})(?= |$)', lines[-1])] if lines else None
+
+
+def sc_halation_probe(ctx):
+    """DEV "Halation probe" (debug only, src/fxprobe.c, finding 37 H1): the row scrolls into view; arming verifies both
+    stock BLs of the still effect step and retargets them to the effect veneer (one halfword each), disarming restores
+    them. Through the patched BL, against a synthetic YCC frame: the stock step runs first, the frame context is
+    logged by the CFW task (nothing written by the hook's task), the Y read covers the frame, and Cr + 64 lands in a
+    512x512 square (clipped in a small frame) at the frame centre of each aspect with every other byte unchanged;
+    a context whose planes leave the buffer or exceed their pitch/rows changes nothing. A foreign halfword at a call
+    site refuses arming without any write to either site. Release: no row, no veneer."""
+    import numpy as np
+    from numpy.lib.stride_tricks import as_strided
+    from unicorn import UC_HOOK_MEM_WRITE
+    check = ctx.check
+    s = Session(ctx)
+    m = s.m
+    stock = lambda: all(m.u16(a) == 0xF000 and m.u16(a + 2) == lo for a, lo in FX_SITES.items())
+    check(stock(), 'effect step BLs not stock after boot')
+    if ctx.variant != 'debug':
+        check(m.call('info_rows', 1) == 10 and 'fxprobe_hook' not in m.syms, 'probe in a non-debug build')
+        check(m.rd(FX_VENEER, 10) == bytes(10), 'effect veneer in a non-debug stage 1')
+        finish(ctx, s)
+        return
+    check(m.rd(FX_VENEER, 10) == bytes.fromhex('4b01471846c000000000'), f'effect veneer: {m.rd(FX_VENEER, 10).hex()}')
+    ROW = 10
+    check(m.call('info_rows', 1) == 11 and m.cstr(m.call('info_label', 1, ROW)) == 'Halation probe' and
+          s.info(1, ROW) == 'OFF', 'probe row missing')
+
+    # Disarmed: the stock BL calls the stock step only.
+    host = m.map_dram(FX_MAP, FX_MAP_SIZE)
+    mem = np.frombuffer(host, dtype=np.uint8, count=FX_MAP_SIZE)
+    mem[:] = (np.arange(FX_MAP_SIZE) % 251).astype(np.uint8)
+    view = lambda arr, a, pitch, w, h: as_strided(arr[a - FX_MAP:], shape=(h, w), strides=(pitch, 1))
+    y_plane = FX_BUF + YCC_TOP * YCC_PITCH_Y + YCC_LEFT
+    cr_plane = FX_BUF + YCC_CR + YCC_TOP * YCC_PITCH_C + YCC_LEFT
+
+    def frame_ctx(w, h, magic=0x42554646, over=None):
+        handle = m.obj_alloc(8)
+        m.w32(handle, magic)
+        m.w32(handle + 4, FX_BUF)
+        c = m.obj_alloc(0x600)
+        f = {0x1E0: 0x1234, 0x1F0: handle, 0x218: 1, 0x21C: YCC_CB, 0x220: YCC_CR, 0x224: YCC_PITCH_Y,
+             0x228: YCC_PITCH_C, 0x22C: YCC_ROWS, 0x230: YCC_TOP, 0x234: YCC_LEFT, 0x238: YCC_TOP, 0x23C: YCC_LEFT,
+             0x258: w | h << 16}
+        f.update(over or {})
+        for o, v in f.items():
+            m.w32(c + o, v)
+        m.wr(c + 0x408, b'\x04')                               # colour mode byte (Setting2)
+        return c
+
+    paint = {}                                                  # the stock step's stand-in: Cr frame := (x + y) & 255
+    pattern = lambda w, h: ((np.arange(h)[:, None] + np.arange(w // 2)[None, :]) & 0xFF).astype(np.uint8)
+    m.on_fx_step = lambda mm, c: paint and view(mem, cr_plane, YCC_PITCH_C, paint['w'] // 2, paint['h']).__setitem__(
+        slice(None), pattern(paint['w'], paint['h']))
+
+    def shoot(site, c, w=0, h=0, how=None):
+        """Run the still path's BL at `site` with ctx `c` in the still-processing task; returns (expected, changed)."""
+        paint.clear()
+        exp = mem.copy()
+        if w:
+            paint.update(w=w, h=h)
+            view(exp, cr_plane, YCC_PITCH_C, w // 2, h)[:] = pattern(w, h)
+        n_io, n_calls = len(m.io), len(m.stock_calls)
+        if how:
+            how(c)
+        else:
+            m.run_range(site | 1, site + 4, c, stack=0x1000, task='ProcessStill')
+        check(m.stock_calls[n_calls:] == [('fx_step', c)], f'stock step not called once: {m.stock_calls[n_calls:]}')
+        check(m.io[n_io:] == [], f'file I/O from the still-processing task: {m.io[n_io:]}')
+        return exp
+
+    def same(exp, what):
+        bad = np.flatnonzero(mem != exp)
+        if bad.size:
+            out = int(np.count_nonzero((bad < FX_BUF - FX_MAP) | (bad >= FX_BUF + YCC_SIZE - FX_MAP)))
+            check(False, f'{what}: {bad.size} bytes differ ({out} outside the YCC buffer), first at '
+                         f'{FX_MAP + int(bad[0]):#x}')
+
+    c0 = frame_ctx(4928, 3264)
+    exp = shoot(0xA02AEDC0, c0, 4928, 3264)
+    same(exp, 'disarmed shot')
+
+    # Arm from the DEV page: the probe row is past the 10 shown rows, so the page scrolls.
+    s.request(MENU_SETTINGS)
+    s.keys(KEY_LEFT, KEY_DOWN, *[KEY_DOWN] * 10)
+    check(m.u32(m.syms['g_first']) == 1 and m.u32(m.syms['g_row']) == 9, 'DEV page did not scroll to the probe row')
+    s.render('menu_dev_probe')
+    s.keys(KEY_OK)
+    check(s.info(1, ROW) == 'ARMED', f'probe row after OK: {s.info(1, ROW)!r}')
+    check(all(m.u16(a) == 0xF56F and m.u16(a + 2) == lo for a, lo in FX_SITES.items()),
+          f'BLs not retargeted: {[hex(m.u32(a)) for a in FX_SITES]}')
+    check(all(encode_bl(a, FX_VENEER) == (0xF56F, lo) for a, lo in FX_SITES.items()), 'veneer BL encoding')
+    check(m.u32(FX_TARGET) & 1 and (m.u32(FX_TARGET) | 1) == (m.syms['fxprobe_hook'] | 1), 'veneer target word')
+
+    # One shot per frame size, alternating the two callers.
+    for k, (name, (w, h)) in enumerate(FX_FRAMES.items()):
+        site = list(FX_SITES)[k & 1]
+        c = frame_ctx(w, h)
+        yv = np.ascontiguousarray(view(mem, y_plane, YCC_PITCH_Y, w & ~3, h))
+        ysum = int(yv.view('>u4').sum(dtype=np.uint64)) & 0xFFFFFFFF
+        exp = shoot(site, c, w, h)
+        sx, sy = min(FX_SQUARE, w & ~1), min(FX_SQUARE, h)
+        x0, y0 = ((w - sx) // 2) & ~1, (h - sy) // 2
+        check(abs(2 * x0 + sx - w) <= 2 and abs(2 * y0 + sy - h) <= 1 and x0 + sx <= w and y0 + sy <= h, 'centre')
+        sq = view(exp, cr_plane, YCC_PITCH_C, w // 2, h)[y0:y0 + sy, x0 // 2:(x0 + sx) // 2]
+        sq[:] = np.minimum(255, sq.astype(np.int32) + FX_LIFT).astype(np.uint8)
+        same(exp, f'{name} shot')
+        m.call('cfw_task_poll')
+        check(log_hex(m, 'fx: shot (n, caller)') == [k + 1, site + 5], f'{name}: shot line')
+        check(log_hex(m, 'fx: (Cr plane, status') == [cr_plane, 0], f'{name}: Cr plane / status')
+        check(log_hex(m, 'fx: planes (Y, Cb)') == [y_plane, FX_BUF + YCC_CB + YCC_TOP * YCC_PITCH_C + YCC_LEFT],
+              f'{name}: Y/Cb planes')
+        check(log_hex(m, 'fx: YCC buffer (address, size)') == [FX_BUF, YCC_SIZE], f'{name}: buffer')
+        check(log_hex(m, 'fx: square (x0 | y0 << 16, w | h << 16)') == [x0 | y0 << 16, sx | sy << 16],
+              f'{name}: square {log_hex(m, "fx: square (x0 | y0 << 16, w | h << 16)")}')
+        check(log_hex(m, 'fx: Y sums (cached, uncached)') == [ysum, ysum] and
+              log_hex(m, 'fx: Y read (bytes, ms cached | ms uncached << 16)')[0] == (w & ~3) * h,
+              f'{name}: Y read does not cover the frame')
+        check(log_hex(m, 'fx: (+0x22C rows, +0x258 w | h << 16)') == [YCC_ROWS, w | h << 16], f'{name}: geometry')
+    check(s.info(1, ROW) == f'ARMED  {DOT}  {len(FX_FRAMES)} shots', f'shots row: {s.info(1, ROW)!r}')
+
+    # Contexts the hook must not trust: nothing written, the stock step still called, the reason logged. The first
+    # puts the Cr plane so that the middle of the centred square would cross the buffer end into the mapped guard.
+    cr_cross = YCC_SIZE - (YCC_TOP + (3264 - FX_SQUARE) // 2 + FX_SQUARE // 2) * YCC_PITCH_C
+    bad = {'Cr plane past the buffer end': (frame_ctx(4928, 3264, over={0x220: cr_cross}), 5),
+           'frame wider than the Y pitch': (frame_ctx(5000, 3264), 4),
+           'more rows than the plane': (frame_ctx(4928, YCC_ROWS + 1), 4),
+           'huge pitch': (frame_ctx(4928, 3264, over={0x224: 0x10000}), 4),
+           'handle without the BUFF magic': (frame_ctx(4928, 3264, magic=0), 1),
+           'no chroma planes': (frame_ctx(4928, 3264, over={0x218: 0}), 3)}
+    for name, (c, status) in bad.items():
+        same(shoot(0xA02AEDC0, c), name)
+        m.call('cfw_task_poll')
+        check(log_hex(m, 'fx: (Cr plane, status')[1] == status, f'{name}: status {log_hex(m, "fx: (Cr plane, status")}')
+
+    # Disarm: both BLs stock again; a hook still reached (stale I-cache line) only passes through.
+    s.keys(KEY_OK)
+    check(s.info(1, ROW) == 'OFF' and stock(), f'disarm: {s.info(1, ROW)!r} {[hex(m.u32(a)) for a in FX_SITES]}')
+    same(shoot(0, c0, 4928, 3264, how=lambda c: m.call_addr(m.syms['fxprobe_hook'] | 1, c, stack=0x1000,
+                                                             task='ProcessStill')), 'disarmed hook')
+    s.keys(KEY_DOWN)
+    check(m.u32(m.syms['g_first']) == 0 and m.u32(m.syms['g_row']) == 0, 'DOWN past the last row does not wrap')
+    s.keys(*[KEY_DOWN] * 10, *[KEY_UP] * 10)
+    check(m.u32(m.syms['g_first']) == 0 and m.u32(m.syms['g_row']) == 0, 'UP does not scroll back')
+    finish(ctx, s)
+
+    # Verify first: a foreign halfword at one site refuses arming with no write to either site.
+    s2 = Session(ctx)
+    m2 = s2.m
+    m2.w16(0xA02AEF30, 0xF001)
+    writes = []
+    m2.uc.hook_add(UC_HOOK_MEM_WRITE, lambda uc, acc, a, size, val, _: writes.append((a, size, val)),
+                   begin=0xA02AEDC0, end=0xA02AEF33)
+    m2.call('info_action', 1, ROW)
+    check(s2.info(1, ROW) == 'OFF: call sites not stock' and not writes and m2.u32(FX_TARGET) == 0 and
+          m2.u16(0xA02AEDC0) == 0xF000 and m2.u16(0xA02AEF30) == 0xF001,
+          f'armed over a foreign site: row {s2.info(1, ROW)!r}, writes {[(hex(a), hex(v)) for a, _, v in writes]}')
+    errs = [l for l in m2.log_lines() if 'ERROR' in l]
+    check(len(errs) == 1 and 'fx: call sites not stock' in errs[0], f'refusal not logged: {errs}')
+    m2.files.pop('H:/CFW/CFW_LOG.TXT')                         # the expected ERROR line
+    m2.w16(0xA02AEF30, 0xF000)
+    m2.call('info_action', 1, ROW)
+    check(s2.info(1, ROW) == 'ARMED' and len(writes) == 2, f'arming after the fix: {s2.info(1, ROW)!r} {writes}')
+    finish(ctx, s2)
+
+
 def lv_gradient_visible(bmp, m):
     """Where the shown OSD is transparent the screenshot is the grey LV ramp: dark left, bright right."""
     import numpy as np
@@ -1501,7 +1685,7 @@ def sc_rom(ctx):
 SCENARIOS = [('boot', sc_boot), ('menu', sc_menu), ('snap', sc_snap), ('recipes', sc_recipes),
              ('palette', sc_palette), ('dev', sc_dev), ('recipe-files', sc_recipe_files), ('view', sc_view),
              ('ae-hooks', sc_ae_hooks), ('console', sc_console), ('export', sc_export), ('loader', sc_loader),
-             ('pattern', sc_pattern),
+             ('pattern', sc_pattern), ('halation-probe', sc_halation_probe),
              ('store', sc_store), ('safeboot', sc_safeboot)]
 ROM_SCENARIOS = [('rom', sc_rom)]          # the rom variant boots only through the release stub
 

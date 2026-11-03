@@ -437,6 +437,50 @@ my1.txt apart from the comments; no `ERROR` in the log.
 **Fail:** the row shows an error, a value differs, or a file is missing: keep the card as it is.
 Send me: `cfw/export/` from 5 and 8, `cfw_log.txt`, and what differed in 7 (a photo of the page).
 """),
+    ("H1-halation-probe", "H1 · Halation probe: shot-time baseline, effect-step hook, frame layout (no flash)",
+     {"card": ["debug"]}, """\
+**Writes flash:** no. Runs on the debug loader (F2/F5). If the camera runs the release firmware (P1), flash the debug
+loader back first with the F5 card (`F5-loader-v2/card-L/`, menu update as in F5), then come back here.
+
+What is new (all on the card, debug build only; finding 37): DEV → "Halation probe", the last DEV row (the page
+scrolls: DOWN past "Free memory pool"). ARMED sends the camera's still "effect step" (the stage after a photo is
+developed, before the review image and the JPEG) through the CFW: the stock step runs first, then the CFW logs the
+frame layout, times one read of the whole brightness (Y) plane, and tints a 512×512 square at the frame centre red
+(colour only, brightness unchanged). Every power-on starts with the probe OFF; nothing is saved.
+
+Card root = `card/` (debug `cfw/`, no `Startup.ttl`). Card R stays out. Same scene for every shot (tripod or a
+fixed rest, lit, with some detail), single-frame drive, review display on. If you can, film the camera's screen
+with a phone (60 fps or slow motion) so the times can be read from the video; else a stopwatch.
+
+**E0 · baseline, probe OFF (do this first).** For each of: Image Settings Standard; Effect Miniature; Effect Clarity
+with CFW Menu → IMAGE → Clarity strength 9; Effect Hi-Contrast B&W — JPEG L, 3:2, three shots each: the time from the
+shutter click to the review image, and to the green access lamp going out. Note the mean per mode.
+
+**H1 · probe ARMED.**
+1. CFW Menu → DEV → DOWN to "Halation probe" → OK: the row shows `ARMED`. Close the menu.
+2. Standard, 3:2, JPEG L: one shot. Look at the review image, then in playback (also zoomed in): is there a
+   red-tinted square, and is it centred? DEV row now: `ARMED · 1 shot`.
+3. One JPEG each in 1:1, 16:9, and 3:2 with crop 35 mm. Same questions.
+4. RAW+JPEG (DNG + JPEG L), 3:2: one shot. Then develop that DNG in the camera (playback, RAW development, save as
+   a new JPEG): square or not in the developed JPEG?
+5. Miniature and Hi-Contrast B&W: one shot each (square sharp or blurred / grainy? still red in B&W?).
+6. Standard: E0's timing again (three shots), probe armed.
+7. Continuous drive: one burst of 3 frames, JPEG.
+8. DEV → "Halation probe" → OK: `OFF`. One more shot: no square.
+9. Normal power-off. Copy `cfw/cfw_log.txt`, the JPEGs of 2–8, the DNG and its developed JPEG to the Mac.
+
+**Pass:** 1 and 8 as described; the JPEG and the review image of every shot in 2–7 show the square at the centre of
+its own frame, fully inside it; the log has one `fx: shot (n, caller)` block per shot in 2–7 with
+`fx: (Cr plane, status ...)` ending in `0x00000000`, a `fx: square` line and `fx: Y read` times; no `fx:` lines
+after 8; no `ERROR`. Report as findings (not pass/fail): where the square appears or not (JPEG, review, playback,
+DNG preview, RAW development), the times, whether `fx: Y sums` cached and uncached differ, and the burst.
+**Fail:** the square is off centre, cut, striped or in the wrong place in some aspect; garbage elsewhere in a
+photo; a hang or a crash during a shot. Keep the card as it is.
+**Hang or crash during a shot:** battery out, power on: the probe is OFF again (the change lives in RAM only).
+Disarm any time with the DEV row; a power cycle always restores the stock code. CFW misbehaving at start (it should
+not: nothing is saved): skip key, or two failed starts → stock until a PLAY power-on.
+Send me: `cfw_log.txt`, the photos (and the video), the E0 and step 6 times, and what you saw in 2–8.
+"""),
     ("U-uninstall", "U · Uninstall (back to stock 3.00)", {"card": ["stock"]}, f"""\
 **Writes flash:** yes, the stock firmware (any time after F2).
 

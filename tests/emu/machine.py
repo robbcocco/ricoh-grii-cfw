@@ -104,7 +104,7 @@ FN = dict(
     pal_bank=0xA00F5F92, hdmi_pal_bank=0xA010982A, set_layer=0xA00D717E, msg_post=0xA00361E0,
     adc_read=0xA003A8DA, power_temp=0xA00CF606, uart_print=0xA0039CBC, layer_on=0xA00D7148,
     stock_press=0xA039607C, stock_hold=0xA0396EA0, stock_msg_handler=0xA039725E, stock_iq_ready=0xA01C2A80,
-    stock_run_ttl=0xA00EA1D4, opsr_getb=0xA003480C, opsr_setb=0xA0034530,
+    stock_run_ttl=0xA00EA1D4, opsr_getb=0xA003480C, opsr_setb=0xA0034530, stock_fx_step=0xA02AF6CE,
     shell_execute=0xA002A274, shell_result=0xA002A718, console_hook=0xA0039CB6,
     ref_tsk=0xA006A2A0, ref_mpl=0xA0067B00,                     # ARM-state kernel calls
     recv=0xA0022A36, send=0xA0022A5E, sock_close=0xA0022B90,
@@ -118,6 +118,9 @@ REAL_CODE = [
     (0xA03A5790, 0xA03A5794),         # Effect hold BL site (patched to the hold veneer)
     (0xA01B584A, 0xA01B584E),         # IQ-ready BL site in CapInit(5) (patched to the IQ veneer, loader only)
     (0xA00E994E, 0xA00E9954),         # power-off job: adr r0,"*:/Shutdown.ttl"; bl (debug: power-off veneer)
+    (0xA02AEDC0, 0xA02AEDC4),         # still effect step BLs (debug H1 probe: patched to the effect veneer)
+    (0xA02AEF30, 0xA02AEF34),
+    (0xA02AD260, 0xA02AD322),         # YCC plane addresses from the frame context (pure arithmetic, finding 37)
     (SENTINEL, SENTINEL + 2),
 ]
 
@@ -246,6 +249,8 @@ class Machine:
         self.sock_in, self.sock_out = [], bytearray()   # recv chunks queued for the console session; sent bytes
         self.closed_fds = []                            # sockets closed by the CFW
         self.on_delay = None          # f(machine): runs other tasks while a call waits in Task_Delay
+        self.on_fx_step = None        # f(machine, ctx): the stock still effect step's work (see _stock_fx_step)
+        self._extra = []              # host buffers of map_dram regions
         self._switch = False          # a Task_Delay stopped the run for on_delay
         self.stack_margin = 1 << 30   # smallest (stack left - stock need) at a file-API call so far
         pal = list(inputs.palette)
@@ -988,6 +993,23 @@ class Machine:
     def _stock_run_ttl(self):
         self.stock_calls.append(('run_ttl', self.cstr(self.r(0))))
         self.ret(-1)                    # no Shutdown.ttl on the card
+
+    def _stock_fx_step(self):
+        """Still effect step FUN_a02AF6CE(ctx) (finding 37): recorded; on_fx_step(machine, ctx) stands in for the
+        stock passes (tests paint the frame there, so a probe that ran first would be overwritten)."""
+        self.stock_calls.append(('fx_step', self.r(0)))
+        if self.on_fx_step:
+            self.on_fx_step(self, self.r(0))
+        self.ret(0)
+
+    def map_dram(self, base, size):
+        """Extra DRAM beyond the 16 MiB model (e.g. a 32.5 MB YCC frame buffer), mapped cached at `base` and at
+        its uncached alias like the main RAM; returns the host buffer (both views share it)."""
+        buf = ctypes.create_string_buffer(size)
+        self.uc.mem_map_ptr(base, size, UC_PROT_ALL, ctypes.addressof(buf))
+        self.uc.mem_map_ptr((base & 0x1FFFFFFF) | ALIAS_BASE, size, UC_PROT_ALL, ctypes.addressof(buf))
+        self._extra.append(buf)
+        return buf
 
     def _opsr_getb(self):
         bit = self.r(0)

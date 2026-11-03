@@ -6,7 +6,7 @@
  * telnet shell and the CFW developer console (no password, started on request,
  * never persisted; Wi-Fi itself is turned on in the camera menu), a screenshot of
  * live view + OSD to the card, a recipe rescan, the preset export (src/export.c)
- * and an IQ RAM dump. */
+ * and an IQ RAM dump; debug builds also arm the H1 halation probe (src/fxprobe.c). */
 #include <stdint.h>
 #include "info.h"
 #include "cfw.h"
@@ -16,6 +16,7 @@
 #include "osd.h"
 #include "console.h"
 #include "export.h"
+#include "fxprobe.h"
 #include "overlay.h"
 #include "recipes.h"
 #include "safeboot.h"
@@ -139,14 +140,23 @@ static const char *info_text(int row) {
 
 /* ---- DEV ---------------------------------------------------------------------- */
 
-/* The page shows at most 10 rows (src/ui.c MAX_ROWS). */
+/* The page shows 10 rows at a time (src/ui.c MAX_ROWS); debug builds add a diagnostics row past them, reached by
+ * scrolling. */
+#if CFW_DEBUG
+enum { D_TELNET, D_SHOT, D_RECIPES, D_EXPORT, D_IQDUMP, D_OVLSTATE, D_OVLTEST, D_STOCK, D_WIFI, D_MEMORY, D_FXPROBE,
+       D_COUNT };
+#else
 enum { D_TELNET, D_SHOT, D_RECIPES, D_EXPORT, D_IQDUMP, D_OVLSTATE, D_OVLTEST, D_STOCK, D_WIFI, D_MEMORY, D_COUNT };
+#endif
 #define D_LAST_ACTION D_STOCK
 _Static_assert(sizeof(g_dev_msg) / sizeof(g_dev_msg[0]) == D_LAST_ACTION + 1, "one message per action row");
 static const char *const DEV_LABEL[D_COUNT] = {
     "Telnet console", "Screenshot to card", "Reload recipes", "Export settings to card", "Save IQ RAM",
     "Overlay state to log", "Overlay test pattern", "Boot stock once", "Wi-Fi network / password",
     "Free memory pool",
+#if CFW_DEBUG
+    "Halation probe",
+#endif
 };
 
 /* Wi-Fi state as the system controller sees it (finding 21 §3.1): SYSTEM_MODE,
@@ -171,6 +181,9 @@ void info_wifi_state(uint32_t v[INFO_WIFI_N]) {
  *    point never appeared on hardware (2026-11-01, finding 21).
  *  - test pattern: RUNNING between OK and the drawing after the menu closed. */
 static uint8_t g_pattern_on;
+#if CFW_DEBUG
+static uint8_t g_fx_refused;            /* the last arming was refused (call sites not stock) */
+#endif
 
 static const char *dev_text(int row) {
     char *p = g_text;
@@ -209,6 +222,17 @@ static const char *dev_text(int row) {
         p = put_hex32(p, g_main_base);
         break;
     }
+#if CFW_DEBUG
+    case D_FXPROBE: {                     /* H1 probe (src/fxprobe.c): OFF / ARMED, shots seen while armed */
+        if (!fxprobe_armed()) return g_fx_refused ? "OFF: call sites not stock" : "OFF";
+        uint32_t n = fxprobe_shots();
+        if (!n) return "ARMED";
+        p = put_str(p, "ARMED  " GLYPH_DOT "  ");
+        p = put_udec(p, n);
+        p = put_str(p, n == 1 ? " shot" : " shots");
+        break;
+    }
+#endif
     default:
         return g_dev_msg[row][0] ? g_dev_msg[row] : "OK to run";
     }
@@ -349,6 +373,9 @@ const char *info_value(int page, int row) {
 }
 
 int info_is_action(int page, int row) {
+#if CFW_DEBUG
+    if (page == INFO_PAGE_DEV && row == D_FXPROBE) return 1;
+#endif
     return page == INFO_PAGE_DEV && row <= D_LAST_ACTION;
 }
 
@@ -383,6 +410,11 @@ int info_action(int page, int row) {
         sb_set(SB_STOCK_ONCE);
         DBG("safeboot: next power-on stock");
         return 0;
+#if CFW_DEBUG
+    case D_FXPROBE:
+        g_fx_refused = fxprobe_set(!fxprobe_armed()) != 0 && !fxprobe_armed();
+        return 0;
+#endif
     default:
         return 0;
     }

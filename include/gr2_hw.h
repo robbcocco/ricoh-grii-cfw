@@ -223,4 +223,22 @@ typedef struct {
  * Effect hold 0xFE (0x1A7). String resolver: 1..0x34F -> language table
  * 0xA05909EC[Prop(0x1E4)] (English 0xA04F6D58), 0x70000..0x70067 -> RAM 0xA077EFFC. */
 
+/* ---- Still capture: effect step (finding 37 §3; StillRecord.c, APP section 8 0xA0296800..0xA03908BB) ----
+ * FUN_a02AF6CE(ctx) runs the stock effect passes on the developed YCbCr 4:2:2 frame (planar, in place) before
+ * the review image and the JPEG; void, both callers ignore r0. Called only while ctx+0x1F0 (YCC buffer handle)
+ * is non-zero, from FUN_a02AED1C and FUN_a02AEECC (the ProcessStill message loop). */
+#define GR2_FX_STEP          0xA02AF6CEu    /* stock target (Thumb, bit 0 clear) */
+#define GR2_FX_SITE_A        0xA02AEDC0u    /* bl GR2_FX_STEP in FUN_a02AED1C: F000 FC85 */
+#define GR2_FX_SITE_B        0xA02AEF30u    /* bl GR2_FX_STEP in FUN_a02AEECC: F000 FBCD */
+/* Plane addresses as the step computes them: Y = buffer address in, Y/Cb/Cr out (pass -1, 3 like stock:
+ * reads ctx only). Y = buf + (ctx+0x230 + ctx+0x240) * ctx+0x224 + ctx+0x234; Cb/Cr = buf + ctx+0x21C / +0x220
+ * + (ctx+0x238 + ctx+0x244) * ctx+0x228 + ctx+0x23C; Cb = Cr = 0 when ctx+0x218 == 0. */
+#define GR2_FN_YCC_PLANES    ((void (*)(uint32_t *, uint32_t *, uint32_t *, uint32_t, int32_t, uint32_t))0xA02AD261)
+/* Image buffer handle {u32 magic "BUFF", u32 address} (ImageBuffer_GetAddress 0xA00E0714 asserts on both). */
+#define GR2_IMGBUF_MAGIC     0x42554646u
+/* Image buffer type table, 0x2C B per type: +0 u8 type, +4 u32 size (type 0x17 "YCC": 0x01F0E020). */
+#define GR2_IMGBUF_TABLE     0xA0112048u
+#define GR2_IMGBUF_ENTRY     0x2Cu
+#define GR2_IMGBUF_YCC       0x17u
+
 #endif /* GR2_HW_H */

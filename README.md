@@ -90,6 +90,7 @@ Press the Effect button you assigned to **CFW Menu**.
 | DEV | Overlay state to log, Overlay test pattern | OK | Diagnostics for the drawing layer |
 | DEV | Boot stock once | OK | The next power-on starts stock; the one after runs the CFW again |
 | DEV | Wi-Fi network / password, Free memory pool | read-only | While Wi-Fi is on: its name and password |
+| DEV | Halation probe (**debug build only**, below the other rows) | **OFF** / ARMED | Developer diagnostics, not a feature: every photo then gets a red-tinted square in its centre, and the frame layout and timing are logged to `cfw/cfw_log.txt`. Off at every start |
 
 ## Recovery
 The CFW never changes the parts of the camera that do the recovery (its boot loader and Ricoh's rescue mode), so all of these always work:

@@ -58,6 +58,7 @@ static int g_menu = -1;          /* open CFW_MENU_*, or -1 */
 /* CFW Menu state (kept between openings) */
 static int g_tab;
 static int g_row = -1;           /* -1 = tab bar */
+static int g_first;              /* first row shown of an INFO/DEV page longer than MAX_ROWS (scrolls with g_row) */
 
 /* Recipes state */
 static const char *const *g_recipes;
@@ -89,7 +90,7 @@ static const char *tab_name(int tab) {
 static int tab_rows(int tab, int *rows) {
     int n = 0;
     if (info_page(tab) >= 0) {
-        for (; n < info_rows(info_page(tab)) && n < MAX_ROWS; n++) rows[n] = n;
+        for (; n < MAX_ROWS && g_first + n < info_rows(info_page(tab)); n++) rows[n] = g_first + n;
         return n;
     }
     for (int k = 0; k < settings_count() && n < MAX_ROWS; k++)
@@ -198,16 +199,23 @@ static void key_settings(uint32_t id) {
     int tabs = tab_count();
     if (g_row < 0) {
         switch (id) {
-        case KEY_LEFT:  g_tab = g_tab == 0 ? tabs - 1 : g_tab - 1; break;
-        case KEY_RIGHT: g_tab = g_tab == tabs - 1 ? 0 : g_tab + 1; break;
+        case KEY_LEFT:  g_tab = g_tab == 0 ? tabs - 1 : g_tab - 1; g_first = 0; break;
+        case KEY_RIGHT: g_tab = g_tab == tabs - 1 ? 0 : g_tab + 1; g_first = 0; break;
         case KEY_DOWN:
         case KEY_OK:    if (n > 0) g_row = 0; break;
         default: return;
         }
     } else {
         switch (id) {
-        case KEY_UP:    g_row--; break;                       /* row 0 -> tab bar */
-        case KEY_DOWN:  g_row = g_row == n - 1 ? 0 : g_row + 1; break;
+        case KEY_UP:                                          /* row 0 -> tab bar, unless scrolled down */
+            if (g_row == 0 && g_first > 0) g_first--;
+            else g_row--;
+            break;
+        case KEY_DOWN:                                        /* past the last row shown: scroll, else wrap */
+            if (g_row < n - 1) g_row++;
+            else if (info_page(g_tab) >= 0 && g_first + n < info_rows(info_page(g_tab))) g_first++;
+            else g_row = g_first = 0;
+            break;
         case KEY_LEFT:
             if (row_kind(g_tab, rows[g_row]) == 1) settings_step(rows[g_row], -1);
             break;

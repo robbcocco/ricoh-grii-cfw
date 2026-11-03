@@ -16,6 +16,7 @@
 #include "cfw.h"
 #include "cfw_log.h"
 #include "export.h"
+#include "fxprobe.h"
 #include "gr2_hw.h"
 #include "info.h"
 #include "osd.h"
@@ -70,6 +71,9 @@ void cfw_task_poll(void) {
     info_poll();
     if (g_task_late) export_poll();     /* the developer console's `export` (src/export.c) */
     overlay_poll();
+#if CFW_DEBUG
+    fxprobe_poll();                     /* H1 probe: the shot record the still-processing task left */
+#endif
     if (g_task_late && ++g_setting_polls >= POLLS_PER_SETTING) {
         g_setting_polls = 0;
         settings_poll();

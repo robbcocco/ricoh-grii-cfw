@@ -34,9 +34,11 @@ handle), as the stock code does in emulation (finding 29 §3). Every
 file-system call is logged as (API, path, task) in `Machine.io`; `card=False` models a camera without a card (every
 H: open and listing fails). With `on_delay` set, a `Task_Delay` stops the call, runs other tasks' code
 (`call_in_task`: its own stack area, the caller's registers restored) and resumes it. Firmware code in `REAL_CODE`
-runs for real (the
-string resolver, the patched Effect, IQ-ready and power-off BL sites); executing anything else outside the CFW
-raises with the address.
+runs for real (the string resolver, the patched Effect, IQ-ready, power-off and still effect-step BL sites, and the
+effect step's YCC plane-address arithmetic `0xA02AD260`); executing anything else outside the CFW raises with the
+address. `map_dram(base, size)` maps extra DRAM (cached and uncached alias, one host buffer) for frame buffers
+larger than the 16 MiB model; the stock still effect step `0xA02AF6CE` is a stub that records the call and runs
+`on_fx_step(machine, ctx)`.
 
 **Scenarios** (`run.py`), each on a fresh boot (`_start` from the window, stage 2 from `H:/cfw/gr2_main.bin`,
 then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fonts):
@@ -64,6 +66,20 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   `CFWcon` task; Wi-Fi name and password in one row; IQ dump (0x2FAA0 bytes), recipe reload, screenshot BMP (921654
   bytes, pixel-exact against LV + OSD).
 - `pattern`: DEV test pattern row OFF → RUNNING (menu closed, 1.5 s pending) → ON → OFF.
+- `halation-probe` (debug; release: no row, no effect veneer, BLs stock): DEV "Halation probe" is the 11th row, so
+  the page scrolls to it (DOWN past the last row wraps, UP scrolls back). OK arms: both still effect-step BLs
+  (`0xA02AEDC0`, `0xA02AEF30`, stock `F000 FC85`/`F000 FBCD`) become `F56F` + the same low halfword (veneer
+  `0xA001E6CE`, bytes checked; its target word = `fxprobe_hook`). Against a synthetic YCC frame in a 34 MB mapped
+  region (the stock buffer layout of `FUN_a02AE7EA`, 1 MiB guards, every byte patterned), each frame size of
+  3:2, 1:1, 16:9, a crop and one smaller than the square, run through the patched BL in a `ProcessStill` task
+  (both callers): the stock step is called once and paints the Cr frame first; afterwards exactly a 512x512 square
+  (clipped to 300x200 in the small frame) at the frame centre holds paint + 64 (saturating) and every other byte
+  of the region is unchanged (Y included); no file I/O in that task; the CFW task's log has the shot, caller,
+  geometry, buffer, plane addresses (= stock layout), square and a Y word sum equal to the frame's. Contexts with
+  the Cr plane across the buffer end, a frame wider than the Y pitch, more rows than the plane, a huge pitch, a
+  handle without "BUFF" or no chroma flag change nothing and log their status. OK disarms (BLs stock); the hook
+  reached anyway (stale I-cache) only calls the stock step. A foreign halfword at one site: arming refused
+  ("OFF: call sites not stock", one ERROR) with no write to either site (write hook); after the fix two writes.
 - `recipe-files`: every file in `recipes/` and the look-stage test recipes built in `run.py` (matrix, `tone`,
   `tone_r`, hue sectors, post matrix) parse; list sorted by name, then Stock, also after card recipes named
   "zzz" and "Stock" (and the `~Test` ones); each entry previews its look stages in Setting2, the last none.
@@ -128,5 +144,5 @@ then one `cfw_task_poll` with every boot phase open: settings, recipes, look, fo
   outside the lock, no `ERROR` in the debug log; release and rom write no `cfw_log.txt` at all (`rom` removes
   its one expected ERROR log after checking it).
 
-`--render DIR` writes `<variant>_<screen>.png` (menu tabs, recipes strip, apply prompt, screenshot, VIEW
-overlays) with the real palette and the full plane (layer 2) over a gradient backdrop.
+`--render DIR` writes `<variant>_<screen>.png` (menu tabs, the scrolled DEV page, recipes strip, apply prompt,
+screenshot, VIEW overlays) with the real palette and the full plane (layer 2) over a gradient backdrop.

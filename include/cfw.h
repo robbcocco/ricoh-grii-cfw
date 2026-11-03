@@ -36,6 +36,9 @@ int cfw_hooks_install(const struct cfw_boot *boot);  /* 0 on success */
 int cfw_hooks_install_iq(const struct cfw_boot *boot, void (*fn)(void));   /* loader, hook(5); 0 on success */
 void cfw_iq_ready_orig(void);          /* the stock call the IQ-ready hook replaced */
 uint32_t cfw_hook_requests(int menu);  /* requests for CFW_MENU_* seen so far */
+/* Thumb BL patching (verify first, one aligned halfword; veneers share the stock target's low 12 bits). */
+int cfw_bl_retarget(uint32_t site, uint32_t from, uint32_t to);  /* 0, or -1 (ERROR logged, nothing written) */
+int cfw_bl_calls(uint32_t site, uint32_t target);                 /* debug builds: 1 if the BL calls target */
 
 /* Overlay (src/ui.c), CFW task only */
 void cfw_ui_request(int menu);         /* open `menu`, or close if any menu is open */
